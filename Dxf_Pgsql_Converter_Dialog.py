@@ -23,22 +23,28 @@
 """
 
 import os
-
+import sys
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
+from qgis.PyQt.QtWidgets import QFileDialog
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
-    os.path.dirname(__file__), 'coco_dialog_base.ui'))
+    os.path.dirname(__file__), 'Dxf_Pgsql_Converter_Dialog_Base.ui'))
 
 
-class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
+class Dxf_Pgsql_Converter_Dialog(QtWidgets.QDialog, FORM_CLASS):
     def __init__(self, parent=None):
         """Constructor."""
-        super(ConverterDialog, self).__init__(parent)
-        # Set up the user interface from Designer through FORM_CLASS.
-        # After self.setupUi() you can access any designer object by doing
-        # self.<objectname>, and you can use autoconnect slots - see
-        # http://qt-project.org/doc/qt-4.8/designer-using-a-ui-file.html
-        # #widgets-and-dialogs-with-auto-connect
+        super(Dxf_Pgsql_Converter_Dialog, self).__init__(parent)
         self.setupUi(self)
+        self.pushButton.clicked.connect(self.select_dxf_button)
+    
+    def select_dxf_button(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.ReadOnly
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select DXF File", "", "DXF Files (*.dxf);;All Files (*)", options=options)
+        if file_name:
+            print(f"Selected file: {file_name}")
+            # You can now do something with the selected file
+

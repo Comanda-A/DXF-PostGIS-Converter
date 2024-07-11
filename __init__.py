@@ -32,5 +32,5 @@ def classFactory(iface):  # pylint: disable=invalid-name
     :type iface: QgsInterface
     """
     #
-    from .coco import Converter
-    return Converter(iface)
+    from .Dxf_Pgsql_Converter import Dxf_Pgsql_Converter
+    return Dxf_Pgsql_Converter(iface)

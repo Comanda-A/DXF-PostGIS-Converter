@@ -16,7 +16,7 @@ import unittest
 
 from qgis.PyQt.QtGui import QDialogButtonBox, QDialog
 
-from coco_dialog import ConverterDialog
+from Dxf_Pgsql_Converter_dialog import dxf2pgsqlDialog
 
 from utilities import get_qgis_app
 QGIS_APP = get_qgis_app()
@@ -27,7 +27,7 @@ class ConverterDialogTest(unittest.TestCase):
 
     def setUp(self):
         """Runs before each test."""
-        self.dialog = ConverterDialog(None)
+        self.dialog = dxf2pgsqlDialog(None)
 
     def tearDown(self):
         """Runs after each test."""

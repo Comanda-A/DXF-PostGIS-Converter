@@ -32,5 +32,8 @@ def classFactory(iface):  # pylint: disable=invalid-name
     :type iface: QgsInterface
     """
     #
+    from .install_packages import check_dependencies
+    check_dependencies.check(['ezdxf'])
+
     from .Dxf_Pgsql_Converter import Dxf_Pgsql_Converter
     return Dxf_Pgsql_Converter(iface)

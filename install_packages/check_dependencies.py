@@ -15,6 +15,7 @@ def check(required_packages):
                 if ezdxf.__version__ != '1.3.2':
                     missing_packages.append('ezdxf==1.3.2')
         except:
+            missing_packages.append('ezdxf==1.3.2')
             pass 
 
     if missing_packages:

@@ -26,7 +26,9 @@ import os
 import sys
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
-from qgis.PyQt.QtWidgets import QFileDialog
+from qgis.PyQt.QtWidgets import QFileDialog, QTreeWidgetItem
+from collections import defaultdict
+import ezdxf
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -45,6 +47,17 @@ class Dxf_Pgsql_Converter_Dialog(QtWidgets.QDialog, FORM_CLASS):
         options |= QFileDialog.ReadOnly
         file_name, _ = QFileDialog.getOpenFileName(self, "Select DXF File", "", "DXF Files (*.dxf);;All Files (*)", options=options)
         if file_name:
-            print(f"Selected file: {file_name}")
-            # You can now do something with the selected file
+            dxf = ezdxf.readfile(file_name)
+            layers = defaultdict(list)
+            if dxf:
+                for entity in dxf.modelspace():
+                    layer_name = entity.dxf.layer
+                    layers[layer_name].append(entity)
+            self.populate_tree_widget(list(layers.keys()))
+
+    def populate_tree_widget(self, layers):
+        self.treeWidget.clear()  # Clear the tree widget before populating it
+        for layer in layers:
+            item = QTreeWidgetItem([layer])
+            self.treeWidget.addTopLevelItem(item)
 

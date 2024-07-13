@@ -27,6 +27,7 @@ import sys
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QFileDialog, QTreeWidgetItem
+from qgis.PyQt.QtCore import Qt
 from qgis.core import QgsMessageLog, Qgis
 
 import ezdxf
@@ -42,6 +43,7 @@ class Dxf_Pgsql_Converter_Dialog(QtWidgets.QDialog, FORM_CLASS):
         super(Dxf_Pgsql_Converter_Dialog, self).__init__(parent)
         self.setupUi(self)
         self.pushButton.clicked.connect(self.select_dxf_button)
+        self.treeWidget.itemChanged.connect(self.handle_item_changed)
     
     def select_dxf_button(self):
         options = QFileDialog.Options()
@@ -61,15 +63,30 @@ class Dxf_Pgsql_Converter_Dialog(QtWidgets.QDialog, FORM_CLASS):
                     log_message("-"*40)
                 self.populate_tree_widget(group)
 
+    def handle_item_changed(self, item, column):
+        if item.checkState(column) == Qt.Checked or item.checkState(column) == Qt.Unchecked:
+            self.update_child_check_states(item, item.checkState(column))
+
+    def update_child_check_states(self, parent_item, check_state):
+        child_count = parent_item.childCount()
+        for i in range(child_count):
+            child_item = parent_item.child(i)
+            child_item.setCheckState(0, check_state)
+            # Рекурсивно обновляем состояние чекбоксов у дочерних элементов
+            self.update_child_check_states(child_item, check_state)
+    
     def populate_tree_widget(self, layers):
         self.treeWidget.clear()  # Clear the tree widget before populating it
         for layer, entities in layers.items():
-            layer_item = QTreeWidgetItem([layer])
+            layer_item = QTreeWidgetItem(['Слой: ' + layer])
+            layer_item.setCheckState(0, Qt.Unchecked)
             self.treeWidget.addTopLevelItem(layer_item)
             for entity in entities:
                 entity_description = f"Объект: {entity.dxftype()}"
                 entity_item = QTreeWidgetItem([entity_description])
+                entity_item.setCheckState(0, Qt.Unchecked)  # Add a checkbox to the entity item
                 layer_item.addChild(entity_item)
+                
                 # Add attributes of the entity as children of the entity_item
                 attributes = [
                     f"Color: {entity.dxf.color}",
@@ -80,34 +97,47 @@ class Dxf_Pgsql_Converter_Dialog(QtWidgets.QDialog, FORM_CLASS):
                     f"True Color: {entity.dxf.true_color}",
                     f"Transparency: {entity.dxf.transparency}"
                 ]
+                
+                # Define geometry properties for different entity types
                 geometry_properties = {
-                'LINE': ["start", "end"],
-                'POINT': ["location"],
-                'CIRCLE': ["center", "radius"],
-                'ARC': ["center", "radius", "start_angle", "end_angle"],
-                'ELLIPSE': ["center", "major_axis", "extrusion"],
-                'SPLINE': ["degree"],
-                'INSERT': ["name", "insert", "xscale", "yscale", "zscale", "rotation", "row_count", "row_spacing", "column_count", "column_spacing"],
-                '3DSOLID': ["history_handle"],
-                '3DFACE': ["vtx0", "vtx1", "vtx2", "vtx3", "invisible_edges"],
-                'LWPOLYLINE': ["elevation", "flags", "const_width", "count"],
-                'MULTILEADER': ["arrow_head_handle", "arrow_head_size", "block_color", "block_connection_type", "block_record_handle", "block_rotation", "block_scale_vector", "content_type", "dogleg_length", "has_dogleg", "has_landing", "has_text_frame", "is_annotative", "is_text_direction_negative", "leader_extend_to_text", "leader_line_color"],
-                'TEXT': ["text", "insert", "align_point", "height", "rotation", "oblique", "style", "width", "halign", "valign", "text_generation_flag"]
+                    'LINE': ["start", "end"],
+                    'POINT': ["location"],
+                    'CIRCLE': ["center", "radius"],
+                    'ARC': ["center", "radius", "start_angle", "end_angle"],
+                    'ELLIPSE': ["center", "major_axis", "extrusion"],
+                    'SPLINE': ["degree"],
+                    'INSERT': ["name", "insert", "xscale", "yscale", "zscale", "rotation", "row_count", "row_spacing", "column_count", "column_spacing"],
+                    '3DSOLID': ["history_handle"],
+                    '3DFACE': ["vtx0", "vtx1", "vtx2", "vtx3", "invisible_edges"],
+                    'LWPOLYLINE': ["elevation", "flags", "const_width", "count"],
+                    'MULTILEADER': ["arrow_head_handle", "arrow_head_size", "block_color", "block_connection_type", "block_record_handle", "block_rotation", "block_scale_vector", "content_type", "dogleg_length", "has_dogleg", "has_landing", "has_text_frame", "is_annotative", "is_text_direction_negative", "leader_extend_to_text", "leader_line_color"],
+                    'TEXT': ["text", "insert", "align_point", "height", "rotation", "oblique", "style", "width", "halign", "valign", "text_generation_flag"]
                 }
 
+                # Collect geometry properties for the current entity
                 geometry = []
                 entity_type = entity.dxftype()
                 if entity_type in geometry_properties:
                     geometry = [f"{prop.capitalize()}: {getattr(entity.dxf, prop)}" for prop in geometry_properties[entity_type]]
+                
+                # Create and add attribute and geometry headers
                 attr_header = QTreeWidgetItem(['Атрибуты'])
+                attr_header.setCheckState(0, Qt.Unchecked)  # Add a checkbox to the attribute header
                 entity_item.addChild(attr_header)
                 geometry_header = QTreeWidgetItem(['Геометрия'])
+                geometry_header.setCheckState(0, Qt.Unchecked)  # Add a checkbox to the geometry header
                 entity_item.addChild(geometry_header)
+                
+                # Add attribute items under the attribute header
                 for attr in attributes:
                     attr_item = QTreeWidgetItem([attr])
+                    attr_item.setCheckState(0, Qt.Unchecked)  # Add a checkbox to each attribute item
                     attr_header.addChild(attr_item)
+                
+                # Add geometry items under the geometry header
                 for g in geometry:
                     g_item = QTreeWidgetItem([g])
+                    g_item.setCheckState(0, Qt.Unchecked)  # Add a checkbox to each geometry item
                     geometry_header.addChild(g_item)
 
 def log_message(message, tag='QGIS'):

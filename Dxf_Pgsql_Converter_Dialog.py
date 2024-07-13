@@ -20,7 +20,7 @@
  *   (at your option) any later version.                                   *
  *                                                                         *
  ***************************************************************************/
-"""
+ """
 
 import os
 import sys
@@ -29,8 +29,10 @@ from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QFileDialog, QTreeWidgetItem
 from qgis.PyQt.QtCore import Qt
 from qgis.core import QgsMessageLog, Qgis
+from .db_manager import DBManager
 
 import ezdxf
+
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -44,12 +46,14 @@ class Dxf_Pgsql_Converter_Dialog(QtWidgets.QDialog, FORM_CLASS):
         self.setupUi(self)
         self.pushButton.clicked.connect(self.select_dxf_button)
         self.treeWidget.itemChanged.connect(self.handle_item_changed)
+        self.connectButton.clicked.connect(self.connect_to_db)
     
     def select_dxf_button(self):
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
         file_name, _ = QFileDialog.getOpenFileName(self, "Select DXF File", "", "DXF Files (*.dxf);;All Files (*)", options=options)
         if file_name:
+            self.label.setText(os.path.basename(file_name))
             dxf = ezdxf.readfile(file_name)
             if dxf:
                 msp = dxf.modelspace()
@@ -140,7 +144,19 @@ class Dxf_Pgsql_Converter_Dialog(QtWidgets.QDialog, FORM_CLASS):
                     g_item.setCheckState(0, Qt.Unchecked)  # Add a checkbox to each geometry item
                     geometry_header.addChild(g_item)
 
+    def connect_to_db(self):
+        host = self.hostLineEdit.text()
+        port = self.portLineEdit.text()
+        database = self.databaseLineEdit.text()
+        user = self.userLineEdit.text()
+        password = self.passwordLineEdit.text()
+
+        self.db_manager = DBManager(host, port, database, user, password)
+        if self.db_manager.connect():
+            self.statusLabel.setText("Connected to database")
+        else:
+            self.statusLabel.setText("Failed to connect to database")
+
 def log_message(message, tag='QGIS'):
     QgsMessageLog.logMessage(message, tag, Qgis.Info)
-
 

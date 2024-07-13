@@ -27,7 +27,8 @@ import sys
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QFileDialog, QTreeWidgetItem
-from collections import defaultdict
+from qgis.core import QgsMessageLog, Qgis
+
 import ezdxf
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
@@ -48,16 +49,68 @@ class Dxf_Pgsql_Converter_Dialog(QtWidgets.QDialog, FORM_CLASS):
         file_name, _ = QFileDialog.getOpenFileName(self, "Select DXF File", "", "DXF Files (*.dxf);;All Files (*)", options=options)
         if file_name:
             dxf = ezdxf.readfile(file_name)
-            layers = defaultdict(list)
             if dxf:
-                for entity in dxf.modelspace():
-                    layer_name = entity.dxf.layer
-                    layers[layer_name].append(entity)
-            self.populate_tree_widget(list(layers.keys()))
+                msp = dxf.modelspace()
+
+                group = msp.groupby(dxfattrib="layer")
+
+                for layer, entities in group.items():
+                    log_message(f'Layer "{layer}" contains following entities:')
+                    for entity in entities:
+                        log_message(f"    {entity} color - {entity.dxf.color}; linetype - {entity.dxf.linetype}; lineweight - {entity.dxf.lineweight}; ltscale - {entity.dxf.ltscale}; invisible - {entity.dxf.invisible}; true_color - {entity.dxf.true_color}; transparency - {entity.dxf.transparency};")
+                    log_message("-"*40)
+                self.populate_tree_widget(group)
 
     def populate_tree_widget(self, layers):
         self.treeWidget.clear()  # Clear the tree widget before populating it
-        for layer in layers:
-            item = QTreeWidgetItem([layer])
-            self.treeWidget.addTopLevelItem(item)
+        for layer, entities in layers.items():
+            layer_item = QTreeWidgetItem([layer])
+            self.treeWidget.addTopLevelItem(layer_item)
+            for entity in entities:
+                entity_description = f"Объект: {entity.dxftype()}"
+                entity_item = QTreeWidgetItem([entity_description])
+                layer_item.addChild(entity_item)
+                # Add attributes of the entity as children of the entity_item
+                attributes = [
+                    f"Color: {entity.dxf.color}",
+                    f"Linetype: {entity.dxf.linetype}",
+                    f"Lineweight: {entity.dxf.lineweight}",
+                    f"Ltscale: {entity.dxf.ltscale}",
+                    f"Invisible: {entity.dxf.invisible}",
+                    f"True Color: {entity.dxf.true_color}",
+                    f"Transparency: {entity.dxf.transparency}"
+                ]
+                geometry_properties = {
+                'LINE': ["start", "end"],
+                'POINT': ["location"],
+                'CIRCLE': ["center", "radius"],
+                'ARC': ["center", "radius", "start_angle", "end_angle"],
+                'ELLIPSE': ["center", "major_axis", "extrusion"],
+                'SPLINE': ["degree"],
+                'INSERT': ["name", "insert", "xscale", "yscale", "zscale", "rotation", "row_count", "row_spacing", "column_count", "column_spacing"],
+                '3DSOLID': ["history_handle"],
+                '3DFACE': ["vtx0", "vtx1", "vtx2", "vtx3", "invisible_edges"],
+                'LWPOLYLINE': ["elevation", "flags", "const_width", "count"],
+                'MULTILEADER': ["arrow_head_handle", "arrow_head_size", "block_color", "block_connection_type", "block_record_handle", "block_rotation", "block_scale_vector", "content_type", "dogleg_length", "has_dogleg", "has_landing", "has_text_frame", "is_annotative", "is_text_direction_negative", "leader_extend_to_text", "leader_line_color"],
+                'TEXT': ["text", "insert", "align_point", "height", "rotation", "oblique", "style", "width", "halign", "valign", "text_generation_flag"]
+                }
+
+                geometry = []
+                entity_type = entity.dxftype()
+                if entity_type in geometry_properties:
+                    geometry = [f"{prop.capitalize()}: {getattr(entity.dxf, prop)}" for prop in geometry_properties[entity_type]]
+                attr_header = QTreeWidgetItem(['Атрибуты'])
+                entity_item.addChild(attr_header)
+                geometry_header = QTreeWidgetItem(['Геометрия'])
+                entity_item.addChild(geometry_header)
+                for attr in attributes:
+                    attr_item = QTreeWidgetItem([attr])
+                    attr_header.addChild(attr_item)
+                for g in geometry:
+                    g_item = QTreeWidgetItem([g])
+                    geometry_header.addChild(g_item)
+
+def log_message(message, tag='QGIS'):
+    QgsMessageLog.logMessage(message, tag, Qgis.Info)
+
 

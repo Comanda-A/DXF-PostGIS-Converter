@@ -24,6 +24,7 @@
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
+from qgis.core import Qgis
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -31,6 +32,7 @@ from .resources import *
 from .Dxf_Pgsql_Converter_Dialog import Dxf_Pgsql_Converter_Dialog
 import os.path
 
+from .DrawRect import RectangleMapTool
 
 class Dxf_Pgsql_Converter:
     """QGIS Plugin Implementation."""
@@ -45,6 +47,7 @@ class Dxf_Pgsql_Converter:
         """
         # Save reference to the QGIS interface
         self.iface = iface
+        self.canvas = self.iface.mapCanvas()
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
         # initialize locale
@@ -180,6 +183,13 @@ class Dxf_Pgsql_Converter:
             self.iface.removeToolBarIcon(action)
 
 
+    def selectArea(self):
+        self.dlg.hide()
+        self.rect = RectangleMapTool(self.canvas, self.dlg)
+        self.iface.mapCanvas().setMapTool(self.rect)
+        self.iface.messageBar().pushMessage("Подсказка", "Выделите желаемую область для импорта", level=Qgis.Info)
+    
+     
     def run(self):
         """Run method that performs all the real work"""
 
@@ -189,6 +199,8 @@ class Dxf_Pgsql_Converter:
             self.first_start = False
             self.dlg = Dxf_Pgsql_Converter_Dialog()
 
+        self.dlg.selectionButton.clicked.connect(self.selectArea)
+        self.dlg.set_selectionButton_status()
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop

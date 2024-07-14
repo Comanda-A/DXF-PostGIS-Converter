@@ -32,6 +32,7 @@ from qgis.core import QgsMessageLog, Qgis
 from .db_manager import DBManager
 
 import ezdxf
+from ezdxf import select
 
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
@@ -47,28 +48,35 @@ class Dxf_Pgsql_Converter_Dialog(QtWidgets.QDialog, FORM_CLASS):
         self.pushButton.clicked.connect(self.select_dxf_button)
         self.treeWidget.itemChanged.connect(self.handle_item_changed)
         self.connectButton.clicked.connect(self.connect_to_db)
-    
+        self.msp = None
+        self.tree_items = {}  # словарь для быстрого доступа к элементам QTreeWidgetItem
+        self.selectable = False
+        self.fileIsOpen = False
     def select_dxf_button(self):
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
         file_name, _ = QFileDialog.getOpenFileName(self, "Select DXF File", "", "DXF Files (*.dxf);;All Files (*)", options=options)
+        log_message(str(file_name))
         if file_name:
             self.label.setText(os.path.basename(file_name))
             dxf = ezdxf.readfile(file_name)
             if dxf:
-                msp = dxf.modelspace()
-
-                group = msp.groupby(dxfattrib="layer")
+                self.msp = dxf.modelspace()
+                self.fileIsOpen = True
+                group = self.msp.groupby(dxfattrib="layer")
 
                 for layer, entities in group.items():
                     log_message(f'Layer "{layer}" contains following entities:')
-                    for entity in entities:
-                        log_message(f"    {entity} color - {entity.dxf.color}; linetype - {entity.dxf.linetype}; lineweight - {entity.dxf.lineweight}; ltscale - {entity.dxf.ltscale}; invisible - {entity.dxf.invisible}; true_color - {entity.dxf.true_color}; transparency - {entity.dxf.transparency};")
+                    #for entity in entities:
+                        #log_message(f"    {entity} color - {entity.dxf.color}; linetype - {entity.dxf.linetype}; lineweight - {entity.dxf.lineweight}; ltscale - {entity.dxf.ltscale}; invisible - {entity.dxf.invisible}; true_color - {entity.dxf.true_color}; transparency - {entity.dxf.transparency};")
                     log_message("-"*40)
                 self.populate_tree_widget(group)
+            else:
+                self.fileIsOpen = False
+            self.set_selectionButton_status()
 
     def handle_item_changed(self, item, column):
-        if item.checkState(column) == Qt.Checked or item.checkState(column) == Qt.Unchecked:
+        if (item.checkState(column) == Qt.Checked or item.checkState(column) == Qt.Unchecked) and not(self.selectable):
             self.update_child_check_states(item, item.checkState(column))
 
     def update_child_check_states(self, parent_item, check_state):
@@ -81,16 +89,21 @@ class Dxf_Pgsql_Converter_Dialog(QtWidgets.QDialog, FORM_CLASS):
     
     def populate_tree_widget(self, layers):
         self.treeWidget.clear()  # Clear the tree widget before populating it
+        self.tree_items.clear()  # Clear the dictionary before populating it
+
         for layer, entities in layers.items():
             layer_item = QTreeWidgetItem(['Слой: ' + layer])
             layer_item.setCheckState(0, Qt.Unchecked)
             self.treeWidget.addTopLevelItem(layer_item)
+            self.tree_items[layer] = {'item': layer_item, 'entities': {}}
+
             for entity in entities:
-                entity_description = f"Объект: {entity.dxftype()}"
+                entity_description = f"Объект: {entity}"
                 entity_item = QTreeWidgetItem([entity_description])
                 entity_item.setCheckState(0, Qt.Unchecked)  # Add a checkbox to the entity item
                 layer_item.addChild(entity_item)
-                
+                self.tree_items[layer]['entities'][entity_description] = entity_item
+
                 # Add attributes of the entity as children of the entity_item
                 attributes = [
                     f"Color: {entity.dxf.color}",
@@ -143,7 +156,47 @@ class Dxf_Pgsql_Converter_Dialog(QtWidgets.QDialog, FORM_CLASS):
                     g_item = QTreeWidgetItem([g])
                     g_item.setCheckState(0, Qt.Unchecked)  # Add a checkbox to each geometry item
                     geometry_header.addChild(g_item)
+    def select_area(self, xMin, xMax, yMin, yMax):
+        self.selectable = True
+        self.print_tree_items()
+        window = select.Window((xMin, yMin), (xMax, yMax))
+        layers_to_check = set()  
+        for entity in select.bbox_inside(window, self.msp):
+            #log_message(str(entity))
+            self.check_entity_in_tree(entity, layers_to_check)
 
+        # Отметим все слои, в которых были отмечены объекты
+        for layer in layers_to_check:
+            self.tree_items[layer]['item'].setCheckState(0, Qt.Checked)
+        self.selectable = False
+
+    def check_entity_in_tree(self, entity, layers_to_check):
+        layer_name = entity.dxf.layer
+        entity_description = f"Объект: {entity}"
+
+        if layer_name in self.tree_items:
+            layer_data = self.tree_items[layer_name]['entities']
+            if entity_description in layer_data:
+                entity_item = layer_data[entity_description]
+                entity_item.setCheckState(0, Qt.Checked)
+                self.update_child_check_states(entity_item, Qt.Checked)
+                layers_to_check.add(layer_name)
+    def print_tree_items(self):
+        for layer, data in self.tree_items.items():
+            log_message(f"Layer: {layer}")
+            layer_item = data['item']
+            layer_checked = layer_item.checkState(0) == Qt.Checked
+            log_message(f"  Layer Checked: {layer_checked}")
+            for entity_description, entity_item in data['entities'].items():
+                entity_checked = entity_item.checkState(0) == Qt.Checked
+                log_message(f"    Entity: {entity_description}, Checked: {entity_checked}")
+    def set_selectionButton_status(self):
+        if self.fileIsOpen:
+            self.selectionButton.setEnabled(True)
+        else:
+            self.selectionButton.setEnabled(False)
+
+         
     def connect_to_db(self):
         host = self.hostLineEdit.text()
         port = self.portLineEdit.text()
@@ -156,7 +209,6 @@ class Dxf_Pgsql_Converter_Dialog(QtWidgets.QDialog, FORM_CLASS):
             self.statusLabel.setText("Connected to database")
         else:
             self.statusLabel.setText("Failed to connect to database")
-
+    
 def log_message(message, tag='QGIS'):
     QgsMessageLog.logMessage(message, tag, Qgis.Info)
-

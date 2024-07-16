@@ -24,16 +24,17 @@
 """
 
 
-# noinspection PyPep8Naming
 def classFactory(iface):  # pylint: disable=invalid-name
     """Load Converter class from file Converter.
 
     :param iface: A QGIS interface instance.
     :type iface: QgsInterface
     """
-    #
+    
+    # Check and install required dependencies
     from .install_packages import check_dependencies
     check_dependencies.check(['ezdxf'])
 
-    from .Dxf_Pgsql_Converter import Dxf_Pgsql_Converter
-    return Dxf_Pgsql_Converter(iface)
+    # Import and return the main plugin class
+    from .dxf_to_db_converter import DxfToDBConverter
+    return DxfToDBConverter(iface)

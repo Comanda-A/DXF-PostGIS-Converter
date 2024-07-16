@@ -5,18 +5,17 @@ from qgis.PyQt.QtWidgets import QMessageBox
 
 
 def check(required_packages):
-    # Check if required packages are installed
+    """
+    Check if required packages are installed and prompt to install them if missing.
+
+    :param required_packages: List of required package names.
+    """
     missing_packages = []
     for package in required_packages:
         try:
             importlib.import_module(package)
-            if package == 'ezdxf':
-                import ezdxf
-                if ezdxf.__version__ != '1.3.2':
-                    missing_packages.append('ezdxf==1.3.2')
         except:
             missing_packages.append(package)
-            pass 
 
     if missing_packages:
         message = "The following Python packages are required to use the plugin DXF-PostGIS Converter:\n\n"

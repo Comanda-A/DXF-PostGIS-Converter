@@ -207,8 +207,38 @@ class Dxf_Pgsql_Converter_Dialog(QtWidgets.QDialog, FORM_CLASS):
         self.db_manager = DBManager(host, port, database, user, password)
         if self.db_manager.connect():
             self.statusLabel.setText("Connected to database")
+            self.push()
         else:
             self.statusLabel.setText("Failed to connect to database")
-    
+    def push(self):
+        selected_objects = []
+        for layer, data in self.tree_items.items():
+            if data['item'].checkState(0) == Qt.Checked:
+                for entity_description, entity_item in data['entities'].items():
+                    if entity_item.checkState(0) == Qt.Checked:
+                        attributes = []
+                        geometry = []
+                        for i in range(entity_item.childCount()):
+                            child = entity_item.child(i)
+                            if child.text(0) == 'Атрибуты':
+                                attributes = [attr.text(0) for attr in self.get_checked_children(child)]
+                            elif child.text(0) == 'Геометрия':
+                                geometry = [geom.text(0) for geom in self.get_checked_children(child)]
+                        selected_objects.append({
+                            'layer': layer,
+                            'entities': entity_item.text(0),
+                            'attributes': attributes,
+                            'geometry': geometry
+                        })
+        if selected_objects:
+            self.db_manager.save_selected_objects(selected_objects)
+            log_message("Push")
+    def get_checked_children(self, parent_item):
+        checked_children = []
+        for i in range(parent_item.childCount()):
+            child = parent_item.child(i)
+            if child.checkState(0) == Qt.Checked:
+                checked_children.append(child)
+        return checked_children
 def log_message(message, tag='QGIS'):
     QgsMessageLog.logMessage(message, tag, Qgis.Info)

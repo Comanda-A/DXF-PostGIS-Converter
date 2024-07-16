@@ -201,6 +201,7 @@ class Dxf_Pgsql_Converter:
 
         self.dlg.selectionButton.clicked.connect(self.selectArea)
         self.dlg.set_selectionButton_status()
+        self.dlg.statusLabel.setText("No connect")
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop

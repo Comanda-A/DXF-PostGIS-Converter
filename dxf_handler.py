@@ -1,68 +1,49 @@
-
 import ezdxf
-from collections import defaultdict
+from ezdxf import select
+from .logger import Logger
+from qgis.core import QgsApplication
+from PyQt5.QtCore import QThread, pyqtSignal, QObject, QTimer
 
 
-class DxfHandler:
-    """Class for handling and processing DXF files."""
-
-    def __init__(self, filepath):
+class DXFHandler(QObject):
+    progressChanged = pyqtSignal(int)
+    def __init__(self):
+        super().__init__()
+        self.msp = None
+        self.file_is_open = False
+       
+    def read_dxf_file(self, file_name):
         """
-        Initialize the handler with the path to a DXF file.
-
-        :param filepath: Path to the DXF file.
-        """
-        self.filepath = filepath
-        self.doc = None
-        self.layers = defaultdict(list)
-        self._read_dxf()
-
-    def _read_dxf(self):
-        """
-        Read the DXF file and process its layers.
+        Reads a DXF file and returns a dictionary groupby layer.
         """
         try:
-            self.doc = ezdxf.readfile(self.filepath)
+            dxf = ezdxf.readfile(file_name)
+            self.msp = dxf.modelspace()
+            self.file_is_open = True
+
+            self.process_entities(self.msp)
+
+            return self.msp.groupby(dxfattrib="layer")
         except IOError:
-            print(f"File {self.filepath} not found or could not be read.")
+            Logger.log_message(f"File {file_name} not found or could not be read.")
+            self.file_is_open = False
         except ezdxf.DXFStructureError:
-            print(f"Invalid DXF file format: {self.filepath}")
-        else:
-            self._process_layers()
+            Logger.log_message(f"Invalid DXF file format: {file_name}")
+            self.file_is_open = False
+        return None
+    def select_entities_in_area(self, x_min, x_max, y_min, y_max):
+        """
+        Select entities within the specified area.
+        """
+        window = select.Window((x_min, y_min), (x_max, y_max))
+        entities = list(ezdxf.select.bbox_inside(window, self.msp))
+        self.process_entities(entities)
 
-    def _process_layers(self):
-        """
-        Process the layers of the DXF file and store entities in the layers dictionary.
-        """
-        if self.doc:
-            for entity in self.doc.modelspace():
-                layer_name = entity.dxf.layer
-                self.layers[layer_name].append(entity)
-
-    def get_entities_by_layer(self, layer_name):
-        """
-        Get all entities from a specified layer.
-
-        :param layer_name: Name of the layer.
-        :return: List of entities in the specified layer.
-        """
-        return self.layers.get(layer_name, [])
-
-    def get_all_layers(self):
-        """
-        Get a list of all layer names.
-
-        :return: List of all layer names.
-        """
-        return list(self.layers.keys())
-
-    def get_all_entities(self):
-        """
-        Get all entities from all layers.
-
-        :return: List of all entities.
-        """
-        all_entities = []
-        for entities in self.layers.values():
-            all_entities.extend(entities)
-        return all_entities
+        return entities
+    #TODO: пустышка для видимости прогресса (возможно получится подвязать к реальному прогрессу)
+    def process_entities(self, entities):
+        total_entities = len(entities)
+        for i, entity in enumerate(entities):
+            # Simulate processing of each entity
+            progress = int((i + 1) / total_entities * 100)
+            self.progressChanged.emit(progress)

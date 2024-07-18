@@ -8,6 +8,8 @@ from .logger import Logger
 from .dxf_handler import DXFHandler
 from .tree_widget_handler import TreeWidgetHandler
 from .worker_handler import WorkerHandler
+from .connection_data_dialog import ConnectionDataDialog
+from .connection_data_manager import get_all_db_names, get_connection, event_db_connection_changed
 
 # Load UI file for PyQt
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -24,8 +26,12 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.setupUi(self)
         self.pushButton.clicked.connect(self.select_dxf_button)
         self.treeWidget.itemChanged.connect(self.handle_item_changed)
-        self.connectButton.clicked.connect(self.connect_to_db)
         self.selectionButton.clicked.connect(self.push)
+        self.settings_newConnectionButton.clicked.connect(self.new_connection_button)
+        self.settings_dbComboBox.currentIndexChanged.connect(self.select_dbcombobox)
+        event_db_connection_changed.append(self.update_dbcombobox)
+
+        self.update_dbcombobox()
 
         self.dxf_handler = DXFHandler()
         self.tree_widget_handler = TreeWidgetHandler(self.treeWidget)
@@ -45,8 +51,6 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             self.label.setText(os.path.basename(file_name))
             self.start_long_task("read_dxf_file", self.dxf_handler.read_dxf_file, self.dxf_handler, file_name)
 
-
-
     def start_long_task(self, task_id, func, real_func,  *args):
         """
         Starts a long task by creating a progress dialog and connecting it to a worker handler.
@@ -63,7 +67,6 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.worker_handler.start_worker(func, self.on_finished, self.progress_dialog.setValue, real_func, task_id, *args)
 
         self.progress_dialog.canceled.connect(self.worker_handler.stop_worker)
-
 
     def on_finished(self, task_id, result):
         """
@@ -137,3 +140,32 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         if selected_objects:
             self.db_manager.save_selected_objects(selected_objects)
             Logger.log_message("Push")
+
+    def new_connection_button(self):
+        self.connection_dialog = ConnectionDataDialog()
+        self.connection_dialog.show()
+        result = self.connection_dialog.exec_()
+        
+        # See if OK was pressed
+        if result:
+            # Do something useful here - delete the line containing pass and
+            # substitute with your code.
+            pass
+
+    def update_dbcombobox(self):
+        db_names = get_all_db_names()
+        self.settings_dbComboBox.clear()
+        self.settings_dbComboBox.addItems(db_names)
+
+    def select_dbcombobox(self, index):
+        if index >= 0:
+            db_name = self.settings_dbComboBox.itemText(index)
+            Logger.log_message(str(db_name))
+            connection = get_connection(db_name)
+            #self.settings_dbComboBox.setCurrentIndex(index)
+            print(f"Connecting to {db_name} with details: {connection}")
+
+    def eventFilter(self, source, event):
+        if event.type() == QtCore.QEvent.FocusIn and source is self.settings_dbComboBox:
+            self.update_dbcombobox()
+        return super(ConverterDialog, self).eventFilter(source, event)

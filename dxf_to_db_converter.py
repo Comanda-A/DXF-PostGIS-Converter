@@ -176,7 +176,7 @@ class DxfToDBConverter:
 
         self.dlg.selectionButton.clicked.connect(self.selectArea)
         self.dlg.set_selection_button_status()
-        self.dlg.statusLabel.setText("No connect")
+        self.dlg.settings_statusLabel.setText("No connect")
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop

@@ -51,4 +51,11 @@ def get_all_db_names():
     global db_connections
     return list(db_connections.keys())
 
+def delete_connection(db_name):
+    global db_connections
+    if db_name in db_connections:
+        del db_connections[db_name]
+        save_connections_to_file()
+        call_event_db_connection_changed()
+
 load_connections()

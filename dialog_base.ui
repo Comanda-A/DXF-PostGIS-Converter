@@ -56,7 +56,8 @@
      </property>
      <property name="font">
       <font>
-       <pointsize>12</pointsize>
+       <pointsize>9</pointsize>
+       <kerning>false</kerning>
       </font>
      </property>
      <property name="text">
@@ -170,10 +171,10 @@
     <widget class="QPushButton" name="settings_newConnectionButton">
      <property name="geometry">
       <rect>
-       <x>240</x>
+       <x>300</x>
        <y>35</y>
        <width>191</width>
-       <height>31</height>
+       <height>28</height>
       </rect>
      </property>
      <property name="text">
@@ -184,7 +185,7 @@
      <property name="geometry">
       <rect>
        <x>10</x>
-       <y>90</y>
+       <y>80</y>
        <width>221</width>
        <height>16</height>
       </rect>
@@ -197,9 +198,9 @@
      <property name="geometry">
       <rect>
        <x>10</x>
-       <y>120</y>
+       <y>110</y>
        <width>681</width>
-       <height>441</height>
+       <height>451</height>
       </rect>
      </property>
      <property name="columnCount">
@@ -213,6 +214,19 @@
        <string notr="true">1</string>
       </property>
      </column>
+    </widget>
+    <widget class="QPushButton" name="settings_editButton">
+     <property name="geometry">
+      <rect>
+       <x>230</x>
+       <y>35</y>
+       <width>61</width>
+       <height>28</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>edit</string>
+     </property>
     </widget>
    </widget>
   </widget>

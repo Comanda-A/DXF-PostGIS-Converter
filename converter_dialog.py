@@ -10,6 +10,7 @@ from .tree_widget_handler import TreeWidgetHandler
 from .worker_handler import WorkerHandler
 from .connection_data_dialog import ConnectionDataDialog
 from .connection_data_manager import get_all_db_names, get_connection, event_db_connection_changed
+from .edit_connections_dialog import EditConnectionsDialog
 
 # Load UI file for PyQt
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -28,6 +29,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.treeWidget.itemChanged.connect(self.handle_item_changed)
         self.selectionButton.clicked.connect(self.push)
         self.settings_newConnectionButton.clicked.connect(self.new_connection_button)
+        self.settings_editButton.clicked.connect(self.edit_connections_button)
         self.settings_dbComboBox.currentIndexChanged.connect(self.select_dbcombobox)
         event_db_connection_changed.append(self.update_dbcombobox)
 
@@ -169,3 +171,14 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         if event.type() == QtCore.QEvent.FocusIn and source is self.settings_dbComboBox:
             self.update_dbcombobox()
         return super(ConverterDialog, self).eventFilter(source, event)
+    
+    def edit_connections_button(self):
+        self.edit_dialog = EditConnectionsDialog()
+        self.edit_dialog.show()
+        result = self.edit_dialog.exec_()
+        
+        # See if OK was pressed
+        if result:
+            # Do something useful here - delete the line containing pass and
+            # substitute with your code.
+            pass

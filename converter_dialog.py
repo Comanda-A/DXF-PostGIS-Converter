@@ -27,7 +27,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.setupUi(self)
         self.pushButton.clicked.connect(self.select_dxf_button)
         self.treeWidget.itemChanged.connect(self.handle_item_changed)
-        self.selectionButton.clicked.connect(self.push)
+        self.importButton.clicked.connect(self.push)
         self.settings_newConnectionButton.clicked.connect(self.new_connection_button)
         self.settings_editButton.clicked.connect(self.edit_connections_button)
         self.settings_dbComboBox.currentIndexChanged.connect(self.select_dbcombobox)
@@ -35,7 +35,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
         self.update_dbcombobox()
 
-        self.dxf_handler = DXFHandler()
+        self.dxf_handler = DXFHandler(self.type_shape, self.type_selection)
+        Logger.log_message(f'{self.type_shape.currentText()}, {self.type_selection.currentText()}')
         self.tree_widget_handler = TreeWidgetHandler(self.treeWidget)
 
         self.worker_handler = WorkerHandler()
@@ -79,6 +80,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         if result is not None:
             if task_id == "read_dxf_file":
                 self.tree_widget_handler.populate_tree_widget(result)
+                self.selectionButton.setEnabled(True)
             elif task_id == "select_entities_in_area":
                 self.tree_widget_handler.select_area(result)
         
@@ -110,7 +112,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.db_manager = DBManager(host, port, database, user, password)
         if self.db_manager.connect():
             self.statusLabel.setText("Connected to database")
-            self.push()
+            self.importButton.setEnabled(True)
+            #self.push()
         else:
             self.statusLabel.setText("Failed to connect to database")
 

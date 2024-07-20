@@ -7,11 +7,12 @@ from PyQt5.QtCore import QThread, pyqtSignal, QObject, QTimer
 
 class DXFHandler(QObject):
     progressChanged = pyqtSignal(int)
-    def __init__(self):
+    def __init__(self, type_shape, type_selection):
         super().__init__()
         self.msp = None
         self.file_is_open = False
-       
+        self.type_shape = type_shape
+        self.type_selection = type_selection
     def read_dxf_file(self, file_name):
         """
         Reads a DXF file and returns a dictionary groupby layer.
@@ -31,14 +32,45 @@ class DXFHandler(QObject):
             Logger.log_message(f"Invalid DXF file format: {file_name}")
             self.file_is_open = False
         return None
-    def select_entities_in_area(self, x_min, x_max, y_min, y_max):
+    def select_entities_in_area(self, *args):
         """
-        Select entities within the specified area.
+        Select entities within the specified area based on the selection type.
+        
+        :param shape: Type of shape used for selection ('rect', 'circle', 'polygon').
+        :param selection_type: Type of selection ('inside', 'outside', 'overlap', 'chained').
+        :param args: Parameters for the shape (coordinates, center point, radius, etc.).
         """
-        window = select.Window((x_min, y_min), (x_max, y_max))
-        entities = list(ezdxf.select.bbox_inside(window, self.msp))
+        # Map selection types to selection functions
+        selection_functions = {
+            'inside': select.bbox_inside,
+            'outside': select.bbox_outside,
+            'overlap': select.bbox_overlap
+        }
+        
+        if self.type_selection.currentText() not in selection_functions:
+            raise ValueError(f"Unsupported selection type: {self.type_selection.currentText()}")
+        
+        # Map shape types to shape creation functions
+        shape_creators = {
+            'rect': lambda x_min, x_max, y_min, y_max: select.Window((x_min, y_min), (x_max, y_max)),
+            'circle': lambda centerPoint, radius: select.Circle(centerPoint, radius),
+            'polygon': lambda points: select.Polygon(points)
+        }
+        
+        if self.type_shape.currentText() not in shape_creators:
+            raise ValueError(f"Unsupported shape type: {self.type_shape.currentText()}")
+        
+        # Create the shape object
+        shape_obj = shape_creators[self.type_shape.currentText()](*args)
+        
+        # Get the appropriate selection function
+        selection_func = selection_functions[self.type_selection.currentText()]
+        
+        # Select entities
+        entities = list(selection_func(shape_obj, self.msp))
+        
+        # Process and return entities
         self.process_entities(entities)
-
         return entities
     #TODO: пустышка для видимости прогресса (возможно получится подвязать к реальному прогрессу)
     def process_entities(self, entities):

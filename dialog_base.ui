@@ -48,9 +48,9 @@
     <widget class="QLabel" name="label">
      <property name="geometry">
       <rect>
-       <x>440</x>
+       <x>540</x>
        <y>10</y>
-       <width>241</width>
+       <width>141</width>
        <height>41</height>
       </rect>
      </property>
@@ -89,6 +89,9 @@
      </column>
     </widget>
     <widget class="QPushButton" name="selectionButton">
+     <property name="enabled">
+      <bool>false</bool>
+     </property>
      <property name="geometry">
       <rect>
        <x>170</x>
@@ -112,6 +115,101 @@
        <width>401</width>
        <height>71</height>
       </rect>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="type_shape">
+     <property name="geometry">
+      <rect>
+       <x>550</x>
+       <y>60</y>
+       <width>131</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <item>
+      <property name="text">
+       <string>rect</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>circle</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>polygon</string>
+      </property>
+     </item>
+    </widget>
+    <widget class="QComboBox" name="type_selection">
+     <property name="geometry">
+      <rect>
+       <x>550</x>
+       <y>90</y>
+       <width>131</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <item>
+      <property name="text">
+       <string>inside</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>outside</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>overlap</string>
+      </property>
+     </item>
+    </widget>
+    <widget class="QLabel" name="label_2">
+     <property name="geometry">
+      <rect>
+       <x>470</x>
+       <y>60</y>
+       <width>61</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Тип фигуры</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_3">
+     <property name="geometry">
+      <rect>
+       <x>450</x>
+       <y>90</y>
+       <width>91</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Правило выбора</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="importButton">
+     <property name="enabled">
+      <bool>false</bool>
+     </property>
+     <property name="geometry">
+      <rect>
+       <x>440</x>
+       <y>10</y>
+       <width>101</width>
+       <height>41</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Импорт</string>
+     </property>
+     <property name="checkable">
+      <bool>false</bool>
      </property>
     </widget>
    </widget>
@@ -226,6 +324,19 @@
      </property>
      <property name="text">
       <string>edit</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="connectionButton">
+     <property name="geometry">
+      <rect>
+       <x>580</x>
+       <y>30</y>
+       <width>91</width>
+       <height>28</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Подключиться</string>
      </property>
     </widget>
    </widget>

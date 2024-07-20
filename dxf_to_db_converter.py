@@ -4,6 +4,8 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 from qgis.core import Qgis
 from .DrawRect import RectangleMapTool
+from .DrawCircle import CircleMapTool
+from .DrawPolygon import PolygonMapTool
 from .resources import *
 from .converter_dialog import ConverterDialog
 import os.path
@@ -161,8 +163,15 @@ class DxfToDBConverter:
 
     def selectArea(self):
         self.dlg.hide()
-        self.rect = RectangleMapTool(self.canvas, self.dlg)
-        self.iface.mapCanvas().setMapTool(self.rect)
+        if(self.dlg.type_shape.currentText() == 'rect'):
+            self.rect = RectangleMapTool(self.canvas, self.dlg)
+            self.iface.mapCanvas().setMapTool(self.rect)
+        elif(self.dlg.type_shape.currentText() == 'circle'):
+            self.circle = CircleMapTool(self.canvas, self.dlg)
+            self.iface.mapCanvas().setMapTool(self.circle)
+        elif(self.dlg.type_shape.currentText() == 'polygon'):
+            self.polygon = PolygonMapTool(self.canvas, self.dlg)
+            self.iface.mapCanvas().setMapTool(self.polygon)
         self.iface.messageBar().pushMessage("Подсказка", "Выделите желаемую область для импорта", level=Qgis.Info)
     
      

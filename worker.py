@@ -22,5 +22,5 @@ class Worker(QObject):
             result = self.func(*self.args)
             self.finished.emit(self.task_id, result)
         except Exception as e:
-            Logger.log_message(str(e))
+            Logger.log_message(f'Error worker: {str(e)}')
             self.finished.emit(self.task_id, None)

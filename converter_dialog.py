@@ -32,6 +32,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.settings_editButton.clicked.connect(self.edit_connections_button)
         self.settings_dbComboBox.currentIndexChanged.connect(self.select_dbcombobox)
         event_db_connection_changed.append(self.update_dbcombobox)
+        self.connectionButton.clicked.connect(self.connect_to_db)
 
         self.update_dbcombobox()
 
@@ -103,19 +104,22 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         """
         Connect to the database using provided credentials.
         """
-        host = self.hostLineEdit.text()
-        port = self.portLineEdit.text()
-        database = self.databaseLineEdit.text()
-        user = self.userLineEdit.text()
-        password = self.passwordLineEdit.text()
+        db_name = self.settings_dbComboBox.currentText()
+        db_info = get_connection(db_name)
+
+        host = db_info['host']
+        port = db_info['port']
+        database = db_name
+        user = db_info['user']
+        password = db_info['password']
 
         self.db_manager = DBManager(host, port, database, user, password)
         if self.db_manager.connect():
-            self.statusLabel.setText("Connected to database")
+            self.settings_statusLabel.setText(f"Connected to database {db_name}")
             self.importButton.setEnabled(True)
             #self.push()
         else:
-            self.statusLabel.setText("Failed to connect to database")
+            self.settings_statusLabel.setText(f"Failed to connect to database {db_name}")
 
     def push(self):
         """

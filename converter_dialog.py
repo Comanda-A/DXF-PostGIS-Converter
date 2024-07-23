@@ -1,6 +1,6 @@
 import os
-from PyQt5 import QtWidgets, QtCore
-from qgis.PyQt import uic, QtWidgets
+import json
+from qgis.PyQt import uic, QtWidgets, QtCore
 from qgis.PyQt.QtWidgets import QFileDialog, QProgressDialog
 from qgis.PyQt.QtCore import Qt
 from .db_manager import DBManager
@@ -11,6 +11,7 @@ from .worker_handler import WorkerHandler
 from .connection_data_dialog import ConnectionDataDialog
 from .connection_data_manager import get_all_db_names, get_connection, event_db_connection_changed
 from .edit_connections_dialog import EditConnectionsDialog
+from .layer_set_viewer import LayerSetViewer
 
 # Load UI file for PyQt
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -28,11 +29,9 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.pushButton.clicked.connect(self.select_dxf_button)
         self.treeWidget.itemChanged.connect(self.handle_item_changed)
         self.importButton.clicked.connect(self.push)
-        self.settings_newConnectionButton.clicked.connect(self.new_connection_button)
         self.settings_editButton.clicked.connect(self.edit_connections_button)
         self.settings_dbComboBox.currentIndexChanged.connect(self.select_dbcombobox)
         event_db_connection_changed.append(self.update_dbcombobox)
-        self.connectionButton.clicked.connect(self.connect_to_db)
 
         self.update_dbcombobox()
 
@@ -100,24 +99,26 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         """
         self.selectionButton.setEnabled(self.dxf_handler.file_is_open)
 
-    def connect_to_db(self):
+    def connect_to_db(self, db_name, connection_data):
         """
         Connect to the database using provided credentials.
         """
-        db_name = self.settings_dbComboBox.currentText()
-        db_info = get_connection(db_name)
 
-        host = db_info['host']
-        port = db_info['port']
+        if hasattr(self, 'db_manager'):
+            self.db_manager.close()
+
+        host = connection_data['host']
+        port = connection_data['port']
         database = db_name
-        user = db_info['user']
-        password = db_info['password']
+        user = connection_data['user']
+        password = connection_data['password']
 
         self.db_manager = DBManager(host, port, database, user, password)
         if self.db_manager.connect():
             self.settings_statusLabel.setText(f"Connected to database {db_name}")
             self.importButton.setEnabled(True)
-            #self.push()
+            layerViewer = LayerSetViewer(self.db_manager, self.settings_structureTreeWidget)
+            layerViewer.load_layer_sets()
         else:
             self.settings_statusLabel.setText(f"Failed to connect to database {db_name}")
 
@@ -125,7 +126,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         """
         Push selected objects to the database.
         """
-        selected_objects = []
+        selected_objects = {}
         for layer, data in self.tree_widget_handler.tree_items.items():
             if data['item'].checkState(0) == Qt.Checked:
                 for entity_description, entity_item in data['entities'].items():
@@ -139,27 +140,26 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                             elif child.text(0) == 'Геометрия':
                                 geometry = [geom.text(0) for geom in self.tree_widget_handler.get_checked_children(child)]
 
-                        selected_objects.append({
-                            'layer': layer,
-                            'entities': entity_item.text(0),
+                        if layer not in selected_objects:
+                            selected_objects[layer] = []
+
+                        selected_objects[layer].append({
+                            'entity_description': entity_item.text(0),
                             'attributes': attributes,
                             'geometry': geometry
                         })
 
         if selected_objects:
-            self.db_manager.save_selected_objects(selected_objects)
-            Logger.log_message("Push")
+            layers = []
+            for layer_name, entities in selected_objects.items():
+                json_data = json.dumps(entities)
+                layers.append({
+                    'layer_name': layer_name,
+                    'json_data': json_data
+                })
 
-    def new_connection_button(self):
-        self.connection_dialog = ConnectionDataDialog()
-        self.connection_dialog.show()
-        result = self.connection_dialog.exec_()
-        
-        # See if OK was pressed
-        if result:
-            # Do something useful here - delete the line containing pass and
-            # substitute with your code.
-            pass
+            self.db_manager.save_layer_set("Example Layer Set", "This is an example layer set.", layers)
+            Logger.log_message("Push")
 
     def update_dbcombobox(self):
         db_names = get_all_db_names()
@@ -169,10 +169,9 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
     def select_dbcombobox(self, index):
         if index >= 0:
             db_name = self.settings_dbComboBox.itemText(index)
-            Logger.log_message(str(db_name))
             connection = get_connection(db_name)
-            #self.settings_dbComboBox.setCurrentIndex(index)
             print(f"Connecting to {db_name} with details: {connection}")
+            self.connect_to_db(db_name, connection)
 
     def eventFilter(self, source, event):
         if event.type() == QtCore.QEvent.FocusIn and source is self.settings_dbComboBox:
@@ -183,9 +182,3 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.edit_dialog = EditConnectionsDialog()
         self.edit_dialog.show()
         result = self.edit_dialog.exec_()
-        
-        # See if OK was pressed
-        if result:
-            # Do something useful here - delete the line containing pass and
-            # substitute with your code.
-            pass

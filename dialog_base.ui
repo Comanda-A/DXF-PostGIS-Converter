@@ -266,19 +266,6 @@
       <string>База данных</string>
      </property>
     </widget>
-    <widget class="QPushButton" name="settings_newConnectionButton">
-     <property name="geometry">
-      <rect>
-       <x>300</x>
-       <y>35</y>
-       <width>191</width>
-       <height>28</height>
-      </rect>
-     </property>
-     <property name="text">
-      <string>Создать новое подключение</string>
-     </property>
-    </widget>
     <widget class="QLabel" name="settings_structureLabel">
      <property name="geometry">
       <rect>
@@ -324,19 +311,6 @@
      </property>
      <property name="text">
       <string>edit</string>
-     </property>
-    </widget>
-    <widget class="QPushButton" name="connectionButton">
-     <property name="geometry">
-      <rect>
-       <x>580</x>
-       <y>30</y>
-       <width>91</width>
-       <height>28</height>
-      </rect>
-     </property>
-     <property name="text">
-      <string>Подключиться</string>
      </property>
     </widget>
    </widget>

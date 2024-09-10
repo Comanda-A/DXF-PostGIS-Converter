@@ -1,7 +1,8 @@
 import os
 import json
+
 from qgis.PyQt import uic, QtWidgets, QtCore
-from qgis.PyQt.QtWidgets import QFileDialog, QProgressDialog
+from qgis.PyQt.QtWidgets import QFileDialog, QProgressDialog, QLineEdit
 from qgis.PyQt.QtCore import Qt
 from .db_manager import DBManager
 from .logger import Logger
@@ -9,10 +10,11 @@ from .dxf_handler import DXFHandler
 from .tree_widget_handler import TreeWidgetHandler
 from .worker_handler import WorkerHandler
 from .connection_data_dialog import ConnectionDataDialog
-from .connection_data_manager import get_all_db_names, get_connection, event_db_connection_changed
+from .connection_data_manager import get_all_db_names, get_connection, event_db_connection_changed, get_all_table_name_in_current_db, get_table_name_in_current_db
 from .edit_connections_dialog import EditConnectionsDialog
+from .edit_table_name_dialog import EditTableNameDialog
 from .layer_set_viewer import LayerSetViewer
-
+from .FieldMappingDialog import FieldMappingDialog
 # Load UI file for PyQt
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'dialog_base.ui'))
@@ -26,15 +28,23 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         """Constructor."""
         super(ConverterDialog, self).__init__(parent)
         self.setupUi(self)
+        self.table_name = "layers"
+        self.db_name = "None"
         self.pushButton.clicked.connect(self.select_dxf_button)
         self.treeWidget.itemChanged.connect(self.handle_item_changed)
         self.importButton.clicked.connect(self.push)
         self.settings_editButton.clicked.connect(self.edit_connections_button)
+        self.settings_editButton_2.clicked.connect(self.edit_table_name_button)
+        #self.settings_editButton_2.enabled.
+        self.settings_connectButton.clicked.connect(self.select_dbcombobox)
         self.settings_dbComboBox.currentIndexChanged.connect(self.select_dbcombobox)
+        self.settings_tbComboBox.currentIndexChanged.connect(self.select_tbcombobox)
         event_db_connection_changed.append(self.update_dbcombobox)
-
+        event_db_connection_changed.append(self.update_tbcombobox)
         self.update_dbcombobox()
-
+        self.table_name_input = QLineEdit(self)
+        self.field_mapping_input = QLineEdit(self)
+    
         self.dxf_handler = DXFHandler(self.type_shape, self.type_selection)
         Logger.log_message(f'{self.type_shape.currentText()}, {self.type_selection.currentText()}')
         self.tree_widget_handler = TreeWidgetHandler(self.treeWidget)
@@ -113,7 +123,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         user = connection_data['user']
         password = connection_data['password']
 
-        self.db_manager = DBManager(host, port, database, user, password)
+        self.db_manager = DBManager(host, port, database, user, password, self.table_name)
         if self.db_manager.connect():
             self.settings_statusLabel.setText(f"Connected to database {db_name}")
             self.importButton.setEnabled(True)
@@ -157,8 +167,12 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                     'layer_name': layer_name,
                     'json_data': json_data
                 })
-
-            self.db_manager.save_layer_set("Example Layer Set", "This is an example layer set.", layers)
+            self.db_manager.save_layer_set(
+                "Example Layer Set", 
+                "This is an example layer set.", 
+                layers,
+                self.table_name, 
+                self.checkBox.isChecked())
             Logger.log_message("Push")
 
     def update_dbcombobox(self):
@@ -168,10 +182,21 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def select_dbcombobox(self, index):
         if index >= 0:
-            db_name = self.settings_dbComboBox.itemText(index)
-            connection = get_connection(db_name)
-            print(f"Connecting to {db_name} with details: {connection}")
-            self.connect_to_db(db_name, connection)
+            self.db_name = self.settings_dbComboBox.itemText(index)
+            connection = get_connection(self.db_name)
+            print(f"Connecting to {self.db_name} with details: {connection}")
+            self.connect_to_db(self.db_name, connection)
+            self.update_tbcombobox()
+    def update_tbcombobox(self):
+        db_names = get_all_table_name_in_current_db(self.db_name)
+        self.settings_tbComboBox.clear()
+        self.settings_tbComboBox.addItems(db_names)
+
+    def select_tbcombobox(self, index):
+        if index >= 0:
+            db_table_name = self.settings_tbComboBox.itemText(index)
+            name = get_table_name_in_current_db(self.db_name, db_table_name)
+            self.table_name = name
 
     def eventFilter(self, source, event):
         if event.type() == QtCore.QEvent.FocusIn and source is self.settings_dbComboBox:
@@ -182,3 +207,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.edit_dialog = EditConnectionsDialog()
         self.edit_dialog.show()
         result = self.edit_dialog.exec_()
+    def edit_table_name_button(self):
+        self.edit_dialog = EditTableNameDialog(self.db_name)
+        self.edit_dialog.show()
+        result = self.edit_dialog.exec_()
+        

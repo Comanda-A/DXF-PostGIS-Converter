@@ -270,7 +270,7 @@
      <property name="geometry">
       <rect>
        <x>10</x>
-       <y>80</y>
+       <y>310</y>
        <width>221</width>
        <height>16</height>
       </rect>
@@ -283,9 +283,9 @@
      <property name="geometry">
       <rect>
        <x>10</x>
-       <y>110</y>
+       <y>330</y>
        <width>681</width>
-       <height>451</height>
+       <height>231</height>
       </rect>
      </property>
      <property name="columnCount">
@@ -303,8 +303,79 @@
     <widget class="QPushButton" name="settings_editButton">
      <property name="geometry">
       <rect>
+       <x>310</x>
+       <y>40</y>
+       <width>61</width>
+       <height>28</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>edit</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="settings_connectButton">
+     <property name="geometry">
+      <rect>
        <x>230</x>
-       <y>35</y>
+       <y>40</y>
+       <width>71</width>
+       <height>28</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>connect</string>
+     </property>
+    </widget>
+    <widget class="QCheckBox" name="checkBox">
+     <property name="enabled">
+      <bool>true</bool>
+     </property>
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>70</y>
+       <width>211</width>
+       <height>16</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Перезаписывать таблицу полностью</string>
+     </property>
+     <property name="checkable">
+      <bool>true</bool>
+     </property>
+     <property name="checked">
+      <bool>false</bool>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="settings_tbComboBox">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>120</y>
+       <width>211</width>
+       <height>21</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QLabel" name="settings_dbLabel_2">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>100</y>
+       <width>191</width>
+       <height>16</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Текущая таблица для записи</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="settings_editButton_2">
+     <property name="geometry">
+      <rect>
+       <x>230</x>
+       <y>110</y>
        <width>61</width>
        <height>28</height>
       </rect>

@@ -41,7 +41,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.settings_tbComboBox.currentIndexChanged.connect(self.select_tbcombobox)
         event_db_connection_changed.append(self.update_dbcombobox)
         event_db_connection_changed.append(self.update_tbcombobox)
-        self.update_dbcombobox()
+        self.initialize_combobox()
         self.table_name_input = QLineEdit(self)
         self.field_mapping_input = QLineEdit(self)
     
@@ -184,9 +184,12 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         if index >= 0:
             self.db_name = self.settings_dbComboBox.itemText(index)
             connection = get_connection(self.db_name)
-            print(f"Connecting to {self.db_name} with details: {connection}")
+            Logger.log_message(f"Connecting to {self.db_name} with details: {connection}")
             self.connect_to_db(self.db_name, connection)
             self.update_tbcombobox()
+            # Сохраняем индекс в QGIS Settings
+            settings = QtCore.QSettings()
+            settings.setValue('converter_dialog/db_index', index)
     def update_tbcombobox(self):
         db_names = get_all_table_name_in_current_db(self.db_name)
         self.settings_tbComboBox.clear()
@@ -197,6 +200,9 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             db_table_name = self.settings_tbComboBox.itemText(index)
             name = get_table_name_in_current_db(self.db_name, db_table_name)
             self.table_name = name
+            # Сохраняем индекс таблицы
+            settings = QtCore.QSettings()
+            settings.setValue('converter_dialog/tb_index', index)
 
     def eventFilter(self, source, event):
         if event.type() == QtCore.QEvent.FocusIn and source is self.settings_dbComboBox:
@@ -211,4 +217,31 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.edit_dialog = EditTableNameDialog(self.db_name)
         self.edit_dialog.show()
         result = self.edit_dialog.exec_()
+    def initialize_combobox(self):
+        # Инициализация сохранённых индексов
+        settings = QtCore.QSettings()
+        db_index = settings.value('converter_dialog/db_index', 0, type=int)
+        tb_index = settings.value('converter_dialog/tb_index', 0, type=int)
+        self.update_dbcombobox()
+
+        # Установка индексов в ComboBox
+        self.settings_dbComboBox.setCurrentIndex(db_index)
+
+        # Инициализация db_name и table_name значениями из ComboBox
+        if self.settings_dbComboBox.count() > 0:
+            self.db_name = self.settings_dbComboBox.itemText(db_index)
+        else:
+            self.db_name = "None"
+
+        self.update_tbcombobox()  # обновляем таблицы в соответствии с выбранной базой данных
+        self.settings_tbComboBox.setCurrentIndex(tb_index)
+
+        if self.settings_tbComboBox.count() > 0:
+            self.table_name = self.settings_tbComboBox.itemText(tb_index)
+        else:
+            self.table_name = "layers"
+
+
+        Logger.log_message(f"Initialized db_name: {self.db_name}, table_name: {self.table_name}")
+
         

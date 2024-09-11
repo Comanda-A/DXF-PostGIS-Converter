@@ -1,45 +1,47 @@
-from qgis.PyQt.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton
+from qgis.PyQt.QtWidgets import QDialog, QVBoxLayout, QLabel, QComboBox, QPushButton, QFormLayout
 
 class FieldMappingDialog(QDialog):
-    def __init__(self, layer_fields, table_fields, parent=None):
-        super(FieldMappingDialog, self).__init__(parent)
+    def __init__(self, layer_fields, table_columns, parent=None):
+        super().__init__(parent)
         self.setWindowTitle("Field Mapping")
         self.layer_fields = layer_fields
-        self.table_fields = table_fields
+        self.table_columns = table_columns
         self.mapping = {}
 
-        layout = QVBoxLayout(self)
+        self.init_ui()
 
-        # Create dropdowns for each field in the layer
-        for layer_field in self.layer_fields:
-            h_layout = QHBoxLayout()
-            label = QLabel(layer_field)
-            combo = QComboBox()
-            combo.addItems([''] + self.table_fields)
-            h_layout.addWidget(label)
-            h_layout.addWidget(combo)
-            layout.addLayout(h_layout)
+    def init_ui(self):
+        layout = QVBoxLayout()
 
-            # Store mapping in the form of {layer_field: table_field}
-            combo.currentIndexChanged.connect(lambda index, lf=layer_field, c=combo: self.update_mapping(lf, c))
+        form_layout = QFormLayout()
 
-        # Add Ok and Cancel buttons
-        button_layout = QHBoxLayout()
-        ok_button = QPushButton("OK")
-        cancel_button = QPushButton("Cancel")
-        button_layout.addWidget(ok_button)
-        button_layout.addWidget(cancel_button)
-        layout.addLayout(button_layout)
+        # For each field in the layer, create a combo box to map it to a table column
+        self.comboboxes = {}
+        for field in self.layer_fields:
+            label = QLabel(field)
+            combobox = QComboBox()
+            combobox.addItems(self.table_columns)
+            form_layout.addRow(label, combobox)
+            self.comboboxes[field] = combobox
 
-        ok_button.clicked.connect(self.accept)
-        cancel_button.clicked.connect(self.reject)
+        layout.addLayout(form_layout)
 
-    def update_mapping(self, layer_field, combo_box):
-        selected_table_field = combo_box.currentText()
-        if selected_table_field:
-            self.mapping[layer_field] = selected_table_field
-        else:
-            self.mapping.pop(layer_field, None)
+        # OK and Cancel buttons
+        btn_layout = QVBoxLayout()
+        ok_btn = QPushButton("OK")
+        cancel_btn = QPushButton("Cancel")
+
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn.clicked.connect(self.reject)
+
+        layout.addWidget(ok_btn)
+        layout.addWidget(cancel_btn)
+
+        self.setLayout(layout)
 
     def get_mapping(self):
+        # Create mapping from the UI selections
+        for field, combobox in self.comboboxes.items():
+            self.mapping[field] = combobox.currentText()
         return self.mapping
+

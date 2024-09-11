@@ -1,16 +1,17 @@
 import psycopg2
 from psycopg2 import OperationalError
 from qgis.PyQt.QtWidgets import QMessageBox
+from .logger import Logger
 
 class DBManager:
-    def __init__(self, host, port, database, user, password, table_name):
+    def __init__(self, host, port, database, user, password):
         self.host = host
         self.port = port
         self.database = database
         self.user = user
         self.password = password
         self.connection = None
-        self.table_name = table_name
+        self.table_name = "layers"
 
     def connect(self):
         try:
@@ -21,11 +22,11 @@ class DBManager:
                 user=self.user,
                 password=self.password
             )
-            print("Connected to PostgreSQL database")
+            Logger.log_message("Connected to PostgreSQL database")
             self.create_tables_and_triggers()
             return True
         except OperationalError as e:
-            print(f"Error connecting to PostgreSQL database: {e}")
+            Logger.log_message(f"Error connecting to PostgreSQL database: {e}")
             return False
 
     def create_tables_and_triggers(self):
@@ -89,9 +90,9 @@ class DBManager:
         cursor.close()
         return exists
 
-    def save_layer_set(self, name, description, layers, table_name=None, truncate=False):
+    def save_layer_set(self, name, description, layers, table_name=None, truncate=False, onlyMapping=False, logMessage=False):
         if not self.connection:
-            print("No database connection.")
+            Logger.log_message("No database connection.")
             return False
 
         self.table_name = table_name
@@ -100,7 +101,7 @@ class DBManager:
 
             if table_name and self.table_exists(table_name):
                 if truncate:
-                    print(f"Truncating existing table '{table_name}' and inserting new data.")
+                    Logger.log_message(f"Truncating existing table '{table_name}' and inserting new data.")
                     message = "Перезаписать существующую таблицу?"
 
                     reply = QMessageBox.question(None, 'Попытка перезаписи', message,
@@ -117,15 +118,13 @@ class DBManager:
                     cursor.execute(insert_layer_set_query, (name, description))
                     layer_set_id = cursor.fetchone()[0]
                     insert_layer_query = (
-                        "INSERT INTO layers (layer_set_id, layer_name, json_data) VALUES (%s, %s, %s)"
+                        f"INSERT INTO {self.table_name} (layer_set_id, layer_name, json_data) VALUES (%s, %s, %s)"
                     )
                     for layer in layers:
                         cursor.execute(insert_layer_query, (layer_set_id, layer['layer_name'], layer['json_data']))
 
-            
-                else:
-                    print(f"Saving data into existing table '{table_name}'")
-                    
+                elif onlyMapping:
+                    Logger.log_message(f"Saving data into existing table '{table_name}'")
                     message = "Перезаписать поля существующей таблицы?"
 
                     reply = QMessageBox.question(None, 'Попытка перезаписи', message,
@@ -133,23 +132,70 @@ class DBManager:
 
                     if reply == QMessageBox.No:
                         return
+
                     update_layer_query = (
-                        "UPDATE layers SET json_data = %s, updated_at = CURRENT_TIMESTAMP "
-                        "WHERE layer_name = %s"
+                        f"UPDATE {self.table_name} SET json_data = %s, updated_at = CURRENT_TIMESTAMP WHERE layer_name = %s"
                     )
                     for layer in layers:
                         cursor.execute(update_layer_query, (layer['json_data'], layer['layer_name']))
 
+                else:
+                    Logger.log_message(f"Updating and inserting data in table '{table_name}'")
+
+                    insert_layer_set_query = (
+                        "INSERT INTO layer_sets (name, description) VALUES (%s, %s) RETURNING id"
+                    )
+                    cursor.execute(insert_layer_set_query, (name, description))
+                    layer_set_id = cursor.fetchone()[0]
+
+                    for layer in layers:
+                        # Check if the layer already exists
+                        check_layer_query = f"SELECT id FROM {self.table_name} WHERE layer_name = %s"
+                        cursor.execute(check_layer_query, (layer['layer_name'],))
+                        result = cursor.fetchone()
+
+                        if result:
+                            # Ask if user wants to overwrite existing data
+
+                            message = f"Перезаписать данные для слоя {layer['layer_name']}?"
+                            if logMessage:
+                                reply = QMessageBox.question(None, 'Попытка перезаписи', message,
+                                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                            if not logMessage:
+                                reply = QMessageBox.Yes;
+                            if reply == QMessageBox.Yes:
+                                # Update existing layer
+                                update_layer_query = (
+                                    f"UPDATE {self.table_name} SET json_data = %s, updated_at = CURRENT_TIMESTAMP WHERE layer_name = %s"
+                                )
+                                cursor.execute(update_layer_query, (layer['json_data'], layer['layer_name']))
+                        else:
+                            # Insert new layer
+                            insert_layer_query = (
+                                f"INSERT INTO {self.table_name} (layer_set_id, layer_name, json_data) VALUES (%s, %s, %s)"
+                            )
+                            cursor.execute(insert_layer_query, (layer_set_id, layer['layer_name'], layer['json_data']))
+
             else:
-                print(f"Creating new layer set and saving data.")
-            self.create_tables_and_triggers()
+                Logger.log_message(f"Creating new layer set and saving data.")
+                self.create_tables_and_triggers()
+                insert_layer_set_query = (
+                    "INSERT INTO layer_sets (name, description) VALUES (%s, %s) RETURNING id"
+                )
+                cursor.execute(insert_layer_set_query, (name, description))
+                layer_set_id = cursor.fetchone()[0]
+                insert_layer_query = (
+                    f"INSERT INTO {self.table_name} (layer_set_id, layer_name, json_data) VALUES (%s, %s, %s)"
+                )
+                for layer in layers:
+                    cursor.execute(insert_layer_query, (layer_set_id, layer['layer_name'], layer['json_data']))
 
             self.connection.commit()
-            print("Layer set and layers saved successfully")
+            Logger.log_message("Layer set and layers saved successfully")
             return True
 
         except OperationalError as e:
-            print(f"Error saving data: {e}")
+            Logger.log_message(f"Error saving data: {e}")
             return False
         finally:
             if cursor:
@@ -159,4 +205,4 @@ class DBManager:
     def close(self):
         if self.connection:
             self.connection.close()
-            print("PostgreSQL connection closed")
+            Logger.log_message("PostgreSQL connection closed")

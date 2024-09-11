@@ -2,7 +2,7 @@ import os
 import json
 
 from qgis.PyQt import uic, QtWidgets, QtCore
-from qgis.PyQt.QtWidgets import QFileDialog, QProgressDialog, QLineEdit
+from qgis.PyQt.QtWidgets import QFileDialog, QProgressDialog, QLineEdit, QDialog
 from qgis.PyQt.QtCore import Qt
 from .db_manager import DBManager
 from .logger import Logger
@@ -28,8 +28,6 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         """Constructor."""
         super(ConverterDialog, self).__init__(parent)
         self.setupUi(self)
-        self.table_name = "layers"
-        self.db_name = "None"
         self.pushButton.clicked.connect(self.select_dxf_button)
         self.treeWidget.itemChanged.connect(self.handle_item_changed)
         self.importButton.clicked.connect(self.push)
@@ -42,13 +40,13 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         event_db_connection_changed.append(self.update_dbcombobox)
         event_db_connection_changed.append(self.update_tbcombobox)
         self.initialize_combobox()
-        self.table_name_input = QLineEdit(self)
-        self.field_mapping_input = QLineEdit(self)
     
+        self.truncateCheckBox.stateChanged.connect(self.on_truncate_checked)
+        self.onlyMappingCheckBox.stateChanged.connect(self.on_onlyMapping_checked)
+
         self.dxf_handler = DXFHandler(self.type_shape, self.type_selection)
         Logger.log_message(f'{self.type_shape.currentText()}, {self.type_selection.currentText()}')
         self.tree_widget_handler = TreeWidgetHandler(self.treeWidget)
-
         self.worker_handler = WorkerHandler()
         self.progress_dialog = None
 
@@ -123,7 +121,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         user = connection_data['user']
         password = connection_data['password']
 
-        self.db_manager = DBManager(host, port, database, user, password, self.table_name)
+        self.db_manager = DBManager(host, port, database, user, password)
         if self.db_manager.connect():
             self.settings_statusLabel.setText(f"Connected to database {db_name}")
             self.importButton.setEnabled(True)
@@ -172,7 +170,9 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                 "This is an example layer set.", 
                 layers,
                 self.table_name, 
-                self.checkBox.isChecked())
+                self.truncateCheckBox.isChecked(),
+                self.onlyMappingCheckBox.isChecked(),
+                self.logCheckBox.isChecked())
             Logger.log_message("Push")
 
     def update_dbcombobox(self):
@@ -220,8 +220,16 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
     def initialize_combobox(self):
         # Инициализация сохранённых индексов
         settings = QtCore.QSettings()
-        db_index = settings.value('converter_dialog/db_index', 0, type=int)
-        tb_index = settings.value('converter_dialog/tb_index', 0, type=int)
+        try:
+            db_index = int(settings.value('converter_dialog/db_index', 0))
+            tb_index = int(settings.value('converter_dialog/tb_index', 0))
+        except:
+            Logger.log_message(f"Error load data")
+            settings.remove('converter_dialog/db_index')
+            settings.remove('converter_dialog/tb_index')
+            db_index = 0
+            tb_index = 0
+            
         self.update_dbcombobox()
 
         # Установка индексов в ComboBox
@@ -244,4 +252,17 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
         Logger.log_message(f"Initialized db_name: {self.db_name}, table_name: {self.table_name}")
 
+    def on_truncate_checked(self, state):
+        if state == Qt.Checked:
+            self.onlyMappingCheckBox.setChecked(False)
+
+    def on_onlyMapping_checked(self, state):
+        if state == Qt.Checked:
+            self.truncateCheckBox.setChecked(False)
+    #TODO: зародыш явного маппирования, но тогда нужно структуру записи в бд менять
+    def show_field_mapping_dialog(self, layer_fields, table_columns):
+        dialog = FieldMappingDialog(layer_fields, table_columns)
+        if dialog.exec_() == QDialog.Accepted:
+            return dialog.get_mapping()
+        return None
         

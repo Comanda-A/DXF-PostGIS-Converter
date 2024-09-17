@@ -94,6 +94,7 @@ class TreeWidgetHandler:
             geometry_header.addChild(geom_item)
 
     def select_area(self, entities):
+        self.clear_all_checks()
         self.selectable = True
         #self.print_tree_items()        
         layers_to_check = set()
@@ -152,4 +153,9 @@ class TreeWidgetHandler:
             if child.checkState(0) == Qt.Checked:
                 checked_children.append(child)
         return checked_children
+    def clear_all_checks(self):
+        for i in range(self.tree_widget.topLevelItemCount()):
+            item = self.tree_widget.topLevelItem(i)
+            item.setCheckState(0, Qt.Unchecked)
+            self.update_child_check_states(item, Qt.Unchecked)
 

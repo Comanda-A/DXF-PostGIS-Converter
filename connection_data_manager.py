@@ -33,13 +33,13 @@ def save_connections_to_file():
         json.dump(db_connections, file, indent=4)
 
 
-def save_connection(db_name, user, password, host, port, table_name):
+def save_connection(db_name, user, password, host, port):
     db_connections[db_name] = {
         'user': user,
         'password': password,
         'host': host,
         'port': port,
-        'table_name': table_name
+        'table_name': None
     }
     save_connections_to_file()
     call_event_db_connection_changed()

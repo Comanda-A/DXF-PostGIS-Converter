@@ -1,14 +1,17 @@
 from qgis.PyQt.QtWidgets import QTreeWidgetItem, QProgressDialog
 from qgis.PyQt.QtCore import Qt
 from qgis.core import QgsApplication
+from shapely.geometry import Point
 
-from .logger import Logger
+from .logger.logger import Logger
 
 class TreeWidgetHandler:
-    def __init__(self, tree_widget):
+
+    def __init__(self, tree_widget, selectable: bool = True):
         self.tree_widget = tree_widget
         self.tree_items = {}  # Dictionary for quick access to QTreeWidgetItem elements
         self.selectable = False
+        self.tree_widget.itemChanged.connect(self.handle_item_changed)
 
     def handle_item_changed(self, item, column):
         if (item.checkState(column) == Qt.Checked or item.checkState(column) == Qt.Unchecked) and not self.selectable:
@@ -25,13 +28,13 @@ class TreeWidgetHandler:
         self.tree_items.clear()
 
         for layer, entities in layers.items():
-            layer_item = QTreeWidgetItem([f'Слой: {layer}'])
+            layer_item = QTreeWidgetItem([f'Layer: {layer}'])
             layer_item.setCheckState(0, Qt.Unchecked)
             self.tree_widget.addTopLevelItem(layer_item)
             self.tree_items[layer] = {'item': layer_item, 'entities': {}}
 
             for entity in entities:
-                entity_description = f"Объект: {entity}"
+                entity_description = f"{entity}"
                 entity_item = QTreeWidgetItem([entity_description])
                 entity_item.setCheckState(0, Qt.Unchecked)
                 layer_item.addChild(entity_item)
@@ -76,10 +79,10 @@ class TreeWidgetHandler:
         if entity_type in geometry_properties:
             geometry = [f"{prop.capitalize()}: {getattr(entity.dxf, prop)}" for prop in geometry_properties[entity_type]]
 
-        attr_header = QTreeWidgetItem(['Атрибуты'])
+        attr_header = QTreeWidgetItem(['Attributes'])
         attr_header.setCheckState(0, Qt.Unchecked)
         entity_item.addChild(attr_header)
-        geometry_header = QTreeWidgetItem(['Геометрия'])
+        geometry_header = QTreeWidgetItem(['Geometry'])
         geometry_header.setCheckState(0, Qt.Unchecked)
         entity_item.addChild(geometry_header)
 
@@ -126,7 +129,7 @@ class TreeWidgetHandler:
 
     def check_entity_in_tree(self, entity, layers_to_check):
         layer_name = entity.dxf.layer
-        entity_description = f"Объект: {entity}"
+        entity_description = f"{entity}"
 
         if layer_name in self.tree_items:
             layer_data = self.tree_items[layer_name]['entities']
@@ -153,6 +156,34 @@ class TreeWidgetHandler:
             if child.checkState(0) == Qt.Checked:
                 checked_children.append(child)
         return checked_children
+    
+    def get_all_checked_entities(self):
+        checked_entities = {}
+        
+        for layer, data in self.tree_items.items():
+            if data['item'].checkState(0) == Qt.Checked:
+                for entity_description, entity_item in data['entities'].items():
+                    if entity_item.checkState(0) == Qt.Checked:
+                        attributes = []
+                        geometry = []
+                        for i in range(entity_item.childCount()):
+                            child = entity_item.child(i)
+                            if child.text(0) == 'Attributes':
+                                attributes = [attr.text(0) for attr in self.get_checked_children(child)]
+                            elif child.text(0) == 'Geometry':
+                                geometry = [geom.text(0) for geom in self.get_checked_children(child)]
+
+                        if layer not in checked_entities:
+                            checked_entities[layer] = []
+
+                        checked_entities[layer].append({
+                            'entity_description': entity_item.text(0),
+                            'attributes': attributes,
+                            'geometry': geometry
+                        })
+
+        return checked_entities
+
     def clear_all_checks(self):
         for i in range(self.tree_widget.topLevelItemCount()):
             item = self.tree_widget.topLevelItem(i)

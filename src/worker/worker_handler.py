@@ -1,6 +1,8 @@
 from PyQt5.QtCore import QThread
 from .worker import Worker
-from .logger import Logger
+from ..logger.logger import Logger
+
+
 class WorkerHandler:
     def __init__(self):
         self.worker_thread = None

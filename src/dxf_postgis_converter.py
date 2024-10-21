@@ -3,15 +3,13 @@ from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 from qgis.core import Qgis
-from .DrawRect import RectangleMapTool
-from .DrawCircle import CircleMapTool
-from .DrawPolygon import PolygonMapTool
-from .resources import *
-from .converter_dialog import ConverterDialog
+
+from .gui.main_dialog import ConverterDialog
+
 import os.path
 
 
-class DxfToDBConverter:
+class DxfPostGISConverter:
     """QGIS Plugin Implementation."""
 
     def __init__(self, iface):
@@ -159,22 +157,8 @@ class DxfToDBConverter:
                 self.translate_string(u'&DXF-PostGIS Converter'),
                 action)
             self.iface.removeToolBarIcon(action)
-
-
-    def selectArea(self):
-        self.dlg.hide()
-        if(self.dlg.type_shape.currentText() == 'rect'):
-            self.rect = RectangleMapTool(self.canvas, self.dlg)
-            self.iface.mapCanvas().setMapTool(self.rect)
-        elif(self.dlg.type_shape.currentText() == 'circle'):
-            self.circle = CircleMapTool(self.canvas, self.dlg)
-            self.iface.mapCanvas().setMapTool(self.circle)
-        elif(self.dlg.type_shape.currentText() == 'polygon'):
-            self.polygon = PolygonMapTool(self.canvas, self.dlg)
-            self.iface.mapCanvas().setMapTool(self.polygon)
-        self.iface.messageBar().pushMessage("Подсказка", "Выделите желаемую область для импорта", level=Qgis.Info)
-    
      
+
     def run(self):
         """Run method that performs all the real work"""
         # Create the dialog with elements (after translation) and keep reference
@@ -182,16 +166,3 @@ class DxfToDBConverter:
         if self.first_start == True:
             self.first_start = False
             self.dlg = ConverterDialog()
-
-        self.dlg.selectionButton.clicked.connect(self.selectArea)
-        self.dlg.set_selection_button_status()
-        self.dlg.settings_statusLabel.setText("No connect")
-        # show the dialog
-        self.dlg.show()
-        # Run the dialog event loop
-        result = self.dlg.exec_()
-        # See if OK was pressed
-        if result:
-            # Do something useful here - delete the line containing pass and
-            # substitute with your code.
-            pass

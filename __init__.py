@@ -33,8 +33,14 @@ def classFactory(iface):  # pylint: disable=invalid-name
     
     # Check and install required dependencies
     from .install_packages import check_dependencies
-    check_dependencies.check(['ezdxf'])
+    check_dependencies.check([
+        'ezdxf',
+        'sqlalchemy',
+        'geoalchemy2',
+        'psycopg2',
+        'shapely'
+    ])
 
     # Import and return the main plugin class
-    from .dxf_to_db_converter import DxfToDBConverter
-    return DxfToDBConverter(iface)
+    from .src.dxf_postgis_converter import DxfPostGISConverter
+    return DxfPostGISConverter(iface)

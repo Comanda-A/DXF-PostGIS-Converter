@@ -1,23 +1,38 @@
 import os
 import json
+import random
 
 from qgis.PyQt import uic, QtWidgets, QtCore
 from qgis.PyQt.QtWidgets import QFileDialog, QProgressDialog, QLineEdit, QDialog
 from qgis.PyQt.QtCore import Qt
-from .db_manager import DBManager
-from .logger import Logger
-from .dxf_handler import DXFHandler
-from .tree_widget_handler import TreeWidgetHandler
-from .worker_handler import WorkerHandler
+
+from ..logger.logger import Logger
+from .saved_databases_dialog import SavedDatabasesDialog
+from ..db.saved_databases_manager import get_all_connections, get_connection, event_db_connections_edited
+from ..db.database import connect_to_database
+from ..dxf.dxf_handler import DXFHandler
+from ..tree_widget_handler import TreeWidgetHandler
+from ..db.database import send_layers_to_db
+
+
+'''
+from ..db.db_manager import DBManager
+from ..logger.logger import Logger
+from ..dxf.tree_widget_handler import TreeWidgetHandler
+from ..worker.worker_handler import WorkerHandler
 from .connection_data_dialog import ConnectionDataDialog
-from .connection_data_manager import get_all_db_names, get_connection, event_db_connection_changed, get_all_table_name_in_current_db, get_table_name_in_current_db
+from ..db.connection_data_manager import get_all_db_names, get_connection, event_db_connection_changed, get_all_table_name_in_current_db, get_table_name_in_current_db
 from .edit_connections_dialog import EditConnectionsDialog
 from .edit_table_name_dialog import EditTableNameDialog
-from .layer_set_viewer import LayerSetViewer
-from .FieldMappingDialog import FieldMappingDialog
+from ...layer_set_viewer import LayerSetViewer
+from ..FieldMappingDialog import FieldMappingDialog
+'''
+
+
 # Load UI file for PyQt
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
-    os.path.dirname(__file__), 'dialog_base.ui'))
+    os.path.dirname(__file__), 'main_dialog.ui'))
+
 
 class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
     """
@@ -28,6 +43,99 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         """Constructor."""
         super(ConverterDialog, self).__init__(parent)
         self.setupUi(self)
+
+        self.dxf_handler = DXFHandler()
+
+        # нажатие по кнопке edit в settings
+        self.settings_saved_db_button.clicked.connect(
+            lambda : SavedDatabasesDialog()
+        )
+
+        # нажатие по кнопке connect в настройках
+        self.settings_connect_db_button.clicked.connect(self.connect_to_db_button)
+
+        # нажатие по кнопке выбора dxf файла
+        self.open_dxf_button.clicked.connect(self.open_dxf_button_click)
+        
+        # нажатие по кнопке export_to_db_button
+        self.export_to_db_button.clicked.connect(self.export_to_db_button_click)
+
+        # событие изменения сохраненных подключений
+        event_db_connections_edited.append(self.refresh_settings_databases_combobox)
+
+        # создание TreeWidgetHandler для dxf_tree_widget
+        self.dxf_tree_widget_handler = TreeWidgetHandler(self.dxf_tree_widget)
+
+        self.refresh_settings_databases_combobox()
+
+        # отображение окна
+        self.show_dialog()
+    
+    
+    def show_dialog(self):
+        ''' Show the dialog '''
+        self.show()
+        # Run the dialog event loop
+        result = self.exec_()
+        # See if OK was pressed
+        if result:
+            # Do something useful here - delete the line containing pass and
+            # substitute with your code.
+            pass
+
+    
+    def refresh_settings_databases_combobox(self):
+        ''' Обновление содержимого combobox в settings_databases_combobox '''
+        db_names = get_all_connections().keys()
+        self.settings_databases_combobox.clear()
+        self.settings_databases_combobox.addItems(db_names)
+
+
+    def connect_to_db_button(self):
+        db_name = self.settings_databases_combobox.currentText()
+        connection = get_connection(db_name)
+        if connection is not None:
+            connect_to_database(
+                connection['username'],
+                connection['password'],
+                connection['host'],
+                connection['port'],
+                db_name
+            )
+        else:
+            Logger.log_warning('Database is unselected!')
+
+
+    def open_dxf_button_click(self):
+        """
+        Open DXF file and populate tree widget with layers and entities.
+        """
+        options = QFileDialog.Options()
+        options |= QFileDialog.ReadOnly
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select DXF File", "", "DXF Files (*.dxf);;All Files (*)", options=options)
+        if file_name:
+            self.dxf_handler.read_dxf_file(file_name, self.refresh_dfx_tree_widget)
+
+
+    def refresh_dfx_tree_widget(self):
+        if self.dxf_handler.file_is_open:
+            self.dxf_tree_widget_handler.populate_tree_widget(self.dxf_handler.get_layers())
+        else:
+            self.dxf_tree_widget_handler.populate_tree_widget({})
+
+        self.select_area_button.setEnabled(self.dxf_handler.file_is_open)
+        self.export_to_db_button.setEnabled(self.dxf_handler.file_is_open)
+
+    
+    def export_to_db_button_click(self):
+        checked_layers = self.dxf_tree_widget_handler.get_all_checked_entities()
+        send_layers_to_db('f_' + str(random.randint(0, 10000)), checked_layers)
+
+
+
+'''
+
+
         self.pushButton.clicked.connect(self.select_dxf_button)
         self.treeWidget.itemChanged.connect(self.handle_item_changed)
         self.importButton.clicked.connect(self.push)
@@ -50,85 +158,6 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.worker_handler = WorkerHandler()
         self.progress_dialog = None
 
-    def select_dxf_button(self):
-        """
-        Handle DXF file selection and populate tree widget with layers and entities.
-        """
-        options = QFileDialog.Options()
-        options |= QFileDialog.ReadOnly
-        file_name, _ = QFileDialog.getOpenFileName(self, "Select DXF File", "", "DXF Files (*.dxf);;All Files (*)", options=options)
-        #Logger.log_message(str(file_name))
-        if file_name:
-            self.label.setText(os.path.basename(file_name))
-            self.start_long_task("read_dxf_file", self.dxf_handler.read_dxf_file, self.dxf_handler, file_name)
-
-    def start_long_task(self, task_id, func, real_func,  *args):
-        """
-        Starts a long task by creating a progress dialog and connecting it to a worker handler.
-        Args:
-            task_id (str): The identifier of the task.
-            func (callable): The function to be executed.
-            real_func (callable): The function to be executed in the worker.
-            *args: Variable length argument list.
-        """
-        self.progress_dialog = QProgressDialog("Processing...", "Cancel", 0, 100, self)
-        self.progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
-        self.progress_dialog.show()
-
-        self.worker_handler.start_worker(func, self.on_finished, self.progress_dialog.setValue, real_func, task_id, *args)
-
-        self.progress_dialog.canceled.connect(self.worker_handler.stop_worker)
-
-    def on_finished(self, task_id, result):
-        """
-        Handles the completion of a task by stopping the worker.
-        """
-        self.worker_handler.stop_worker()
-
-        if result is not None:
-            if task_id == "read_dxf_file":
-                self.tree_widget_handler.populate_tree_widget(result)
-                self.selectionButton.setEnabled(True)
-            elif task_id == "select_entities_in_area":
-                self.tree_widget_handler.select_area(result)
-        
-        self.set_selection_button_status()
-        self.progress_dialog.close()
-
-    def handle_item_changed(self, item, column):
-        """
-        Handle changes in item check state and propagate changes to child items.
-        """
-        self.tree_widget_handler.handle_item_changed(item, column)
-
-    def set_selection_button_status(self):
-        """
-        Enable or disable the selection button based on whether a file is open.
-        """
-        self.selectionButton.setEnabled(self.dxf_handler.file_is_open)
-
-    def connect_to_db(self, db_name, connection_data):
-        """
-        Connect to the database using provided credentials.
-        """
-
-        if hasattr(self, 'db_manager'):
-            self.db_manager.close()
-
-        host = connection_data['host']
-        port = connection_data['port']
-        database = db_name
-        user = connection_data['user']
-        password = connection_data['password']
-
-        self.db_manager = DBManager(host, port, database, user, password)
-        if self.db_manager.connect():
-            self.settings_statusLabel.setText(f"Connected to database {db_name}")
-            self.importButton.setEnabled(True)
-            layerViewer = LayerSetViewer(self.db_manager, self.settings_structureTreeWidget)
-            layerViewer.load_layer_sets()
-        else:
-            self.settings_statusLabel.setText(f"Failed to connect to database {db_name}")
 
     def push(self):
         """
@@ -174,22 +203,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.onlyMappingCheckBox.isChecked(),
                 self.logCheckBox.isChecked())
             Logger.log_message("Push")
-
-    def update_dbcombobox(self):
-        db_names = get_all_db_names()
-        self.settings_dbComboBox.clear()
-        self.settings_dbComboBox.addItems(db_names)
-
-    def select_dbcombobox(self, index):
-        if index >= 0:
-            self.db_name = self.settings_dbComboBox.itemText(index)
-            connection = get_connection(self.db_name)
-            Logger.log_message(f"Connecting to {self.db_name} with details: {connection}")
-            self.connect_to_db(self.db_name, connection)
-            self.update_tbcombobox()
-            # Сохраняем индекс в QGIS Settings
-            settings = QtCore.QSettings()
-            settings.setValue('converter_dialog/db_index', index)
+    
     def update_tbcombobox(self):
         db_names = get_all_table_name_in_current_db(self.db_name)
         self.settings_tbComboBox.clear()
@@ -213,10 +227,12 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.edit_dialog = EditConnectionsDialog()
         self.edit_dialog.show()
         result = self.edit_dialog.exec_()
+    
     def edit_table_name_button(self):
         self.edit_dialog = EditTableNameDialog(self.db_name)
         self.edit_dialog.show()
         result = self.edit_dialog.exec_()
+   
     def initialize_combobox(self):
         # Инициализация сохранённых индексов
         settings = QtCore.QSettings()
@@ -259,6 +275,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
     def on_onlyMapping_checked(self, state):
         if state == Qt.Checked:
             self.truncateCheckBox.setChecked(False)
+    
     #TODO: зародыш явного маппирования, но тогда нужно структуру записи в бд менять
     def show_field_mapping_dialog(self, layer_fields, table_columns):
         dialog = FieldMappingDialog(layer_fields, table_columns)
@@ -266,3 +283,5 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             return dialog.get_mapping()
         return None
         
+'''
+

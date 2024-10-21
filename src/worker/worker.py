@@ -1,5 +1,5 @@
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
-from .logger import Logger
+from ..logger.logger import Logger
 
 class Worker(QObject):
     progressChanged = pyqtSignal(int)

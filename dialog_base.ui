@@ -23,7 +23,7 @@
     </rect>
    </property>
    <property name="currentIndex">
-    <number>2</number>
+    <number>0</number>
    </property>
    <widget class="QWidget" name="tab">
     <attribute name="title">
@@ -79,12 +79,35 @@
        <height>421</height>
       </rect>
      </property>
+     <property name="minimumSize">
+      <size>
+       <width>671</width>
+       <height>0</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>671</width>
+       <height>421</height>
+      </size>
+     </property>
+     <property name="columnCount">
+      <number>2</number>
+     </property>
      <attribute name="headerVisible">
       <bool>false</bool>
      </attribute>
      <column>
       <property name="text">
-       <string notr="true">1</string>
+       <string>1</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>2</string>
+      </property>
+      <property name="textAlignment">
+       <set>AlignTrailing|AlignVCenter</set>
       </property>
      </column>
     </widget>

@@ -1,6 +1,6 @@
 import os
 import json
-
+import asyncio
 from qgis.PyQt import uic, QtWidgets, QtCore
 from qgis.PyQt.QtWidgets import QFileDialog, QProgressDialog, QLineEdit, QDialog
 from qgis.PyQt.QtCore import Qt
@@ -28,7 +28,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         """Constructor."""
         super(ConverterDialog, self).__init__(parent)
         self.setupUi(self)
-        self.pushButton.clicked.connect(self.select_dxf_button)
+        #self.pushButton.clicked.connect(self.select_dxf_button)
         self.treeWidget.itemChanged.connect(self.handle_item_changed)
         self.importButton.clicked.connect(self.push)
         self.settings_editButton.clicked.connect(self.edit_connections_button)
@@ -40,7 +40,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         event_db_connection_changed.append(self.update_dbcombobox)
         event_db_connection_changed.append(self.update_tbcombobox)
         self.initialize_combobox()
-    
+
         self.truncateCheckBox.stateChanged.connect(self.on_truncate_checked)
         self.onlyMappingCheckBox.stateChanged.connect(self.on_onlyMapping_checked)
 
@@ -50,19 +50,26 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.worker_handler = WorkerHandler()
         self.progress_dialog = None
 
-    def select_dxf_button(self):
+    async def read_dxf(self, file_name):
         """
         Handle DXF file selection and populate tree widget with layers and entities.
         """
-        options = QFileDialog.Options()
-        options |= QFileDialog.ReadOnly
-        file_name, _ = QFileDialog.getOpenFileName(self, "Select DXF File", "", "DXF Files (*.dxf);;All Files (*)", options=options)
-        #Logger.log_message(str(file_name))
-        if file_name:
-            self.label.setText(os.path.basename(file_name))
-            self.start_long_task("read_dxf_file", self.dxf_handler.read_dxf_file, self.dxf_handler, file_name)
+        self.label.setText(os.path.basename(file_name))
+        await self.start_long_task("read_dxf_file", self.dxf_handler.read_dxf_file, self.dxf_handler, file_name)
+    async def read_multiple_dxf(self, file_names):
+        """
+        Handle multiple DXF file selections and populate tree widget with layers and entities.
+        """
+        total_files = len(file_names)
+        self.progress_dialog = QProgressDialog("Processing...", "Cancel", 0, total_files, self)
+        self.progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
+        self.progress_dialog.show()
 
-    def start_long_task(self, task_id, func, real_func,  *args):
+        tasks = [self.read_dxf(file_name) for file_name in file_names]
+        await asyncio.gather(*tasks)
+
+
+    async def start_long_task(self, task_id, func, real_func,  *args):
         """
         Starts a long task by creating a progress dialog and connecting it to a worker handler.
         Args:
@@ -71,20 +78,19 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             real_func (callable): The function to be executed in the worker.
             *args: Variable length argument list.
         """
-        self.progress_dialog = QProgressDialog("Processing...", "Cancel", 0, 100, self)
-        self.progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
-        self.progress_dialog.show()
 
-        self.worker_handler.start_worker(func, self.on_finished, self.progress_dialog.setValue, real_func, task_id, *args)
+        loop = asyncio.get_event_loop()
+        future = loop.run_in_executor(None, func, *args)
+        result = await future
 
-        self.progress_dialog.canceled.connect(self.worker_handler.stop_worker)
+        self.on_finished(task_id, result)
+        #self.worker_handler.start_worker(func, self.on_finished, self.progress_dialog.setValue, real_func, task_id, *args)
 
     def on_finished(self, task_id, result):
         """
         Handles the completion of a task by stopping the worker.
         """
         self.worker_handler.stop_worker()
-
         if result is not None:
             if task_id == "read_dxf_file":
                 self.tree_widget_handler.populate_tree_widget(result)

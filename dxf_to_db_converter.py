@@ -6,6 +6,7 @@ from qgis.core import Qgis
 from .DrawRect import RectangleMapTool
 from .DrawCircle import CircleMapTool
 from .DrawPolygon import PolygonMapTool
+from .dxf_tools.clsADXF2Shape import clsADXF2Shape
 from .resources import *
 from .converter_dialog import ConverterDialog
 import os.path
@@ -25,6 +26,7 @@ class DxfToDBConverter:
         # Save reference to the QGIS interface
         self.iface = iface
         self.canvas = self.iface.mapCanvas()
+        self.subplugin = None  # Переменная для подплагина
 
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -163,27 +165,32 @@ class DxfToDBConverter:
 
     def selectArea(self):
         self.dlg.hide()
-        if(self.dlg.type_shape.currentText() == 'rect'):
+        if self.dlg.type_shape.currentText() == 'rect':
             self.rect = RectangleMapTool(self.canvas, self.dlg)
             self.iface.mapCanvas().setMapTool(self.rect)
-        elif(self.dlg.type_shape.currentText() == 'circle'):
+        elif self.dlg.type_shape.currentText() == 'circle':
             self.circle = CircleMapTool(self.canvas, self.dlg)
             self.iface.mapCanvas().setMapTool(self.circle)
-        elif(self.dlg.type_shape.currentText() == 'polygon'):
+        elif self.dlg.type_shape.currentText() == 'polygon':
             self.polygon = PolygonMapTool(self.canvas, self.dlg)
             self.iface.mapCanvas().setMapTool(self.polygon)
         self.iface.messageBar().pushMessage("Подсказка", "Выделите желаемую область для импорта", level=Qgis.Info)
-    
-     
+
+    def run_subplugin(self):
+        """Запуск подплагина"""
+        self.subplugin = clsADXF2Shape(self.dlg)  # Инициализация подплагина
+        self.subplugin.run()  # Вызов метода подплагина
+
     def run(self):
         """Run method that performs all the real work"""
         # Create the dialog with elements (after translation) and keep reference
         # Only create GUI ONCE in callback, so that it will only load when the plugin is started
-        if self.first_start == True:
+        if self.first_start:
             self.first_start = False
             self.dlg = ConverterDialog()
 
         self.dlg.selectionButton.clicked.connect(self.selectArea)
+        self.dlg.pushButton.clicked.connect(self.run_subplugin)
         self.dlg.set_selection_button_status()
         self.dlg.settings_statusLabel.setText("No connect")
         # show the dialog

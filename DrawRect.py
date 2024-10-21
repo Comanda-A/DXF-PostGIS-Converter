@@ -1,6 +1,7 @@
 from qgis.gui import QgsRubberBand, QgsMapToolEmitPoint, QgsMapTool
 from PyQt5 import QtGui
 from qgis.core import QgsWkbTypes, QgsRectangle, QgsPointXY
+import asyncio
 
 class RectangleMapTool(QgsMapToolEmitPoint):
     def __init__(self, canvas, dlg):
@@ -41,7 +42,7 @@ class RectangleMapTool(QgsMapToolEmitPoint):
             self.yMax = r.yMaximum()
                 
             self.dlg.show()
-            self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, None, self.xMin, self.xMax, self.yMin, self.yMax)
+            asyncio.run(self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, None, self.xMin, self.xMax, self.yMin, self.yMax))
             self.dlg.coord.setPlainText(f"Координаты квадрата:\n Минимум Х:{self.xMin}\nМинимум Y:{self.yMin}\nМаксимум Х:{self.xMax}\nМаксимум Y:{self.yMax}")
 
             """ ------------------ """

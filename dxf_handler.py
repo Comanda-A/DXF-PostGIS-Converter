@@ -1,9 +1,9 @@
 import ezdxf
 from ezdxf import select
 from .logger import Logger
-from qgis.core import QgsApplication
-from PyQt5.QtCore import QThread, pyqtSignal, QObject, QTimer
-
+from PyQt5.QtCore import QThread, pyqtSignal, QObject, QTimer, QVariant
+from qgis.PyQt.QtGui import QColor, QFont
+import math
 
 class DXFHandler(QObject):
     progressChanged = pyqtSignal(int)
@@ -24,7 +24,12 @@ class DXFHandler(QObject):
 
             self.process_entities(self.msp)
 
-            return self.msp.groupby(dxfattrib="layer")
+            # Get all entities grouped by layer
+            layers_entities = self.msp.groupby(dxfattrib="layer")
+
+            return layers_entities, file_name
+
+
         except IOError:
             Logger.log_message(f"File {file_name} not found or could not be read.")
             self.file_is_open = False
@@ -32,6 +37,7 @@ class DXFHandler(QObject):
             Logger.log_message(f"Invalid DXF file format: {file_name}")
             self.file_is_open = False
         return None
+
     def select_entities_in_area(self, *args):
         """
         Select entities within the specified area based on the selection type.

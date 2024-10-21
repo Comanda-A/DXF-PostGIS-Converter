@@ -2,3 +2,6 @@ venv/
 __pycache__/
 /__pycache__
 /install_packages/__pycache__
+dxf_examples/example.gpkg
+dxf_examples/example.gpkg-shm
+dxf_examples/example.gpkg-wal

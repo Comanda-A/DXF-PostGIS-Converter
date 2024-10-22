@@ -3,14 +3,15 @@ from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 from qgis.core import Qgis
-from .DrawRect import RectangleMapTool
-from .DrawCircle import CircleMapTool
-from .DrawPolygon import PolygonMapTool
-from .dxf_tools.clsADXF2Shape import clsADXF2Shape
-from .resources import *
+
+from ..src.draw.DrawRect import RectangleMapTool
+from ..src.draw.DrawCircle import CircleMapTool
+from ..src.draw.DrawPolygon import PolygonMapTool
+from ..src.logger.logger import Logger
+from ..src.plugins.dxf_tools.clsADXF2Shape import clsADXF2Shape
 
 from .gui.main_dialog import ConverterDialog
-
+from .. import resources
 import os.path
 
 
@@ -28,7 +29,7 @@ class DxfPostGISConverter:
         # Save reference to the QGIS interface
         self.iface = iface
         self.canvas = self.iface.mapCanvas()
-        self.subplugin = None  # Переменная для подплагина
+        self.subplugin = None
 
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -180,8 +181,9 @@ class DxfPostGISConverter:
 
     def run_subplugin(self):
         """Запуск подплагина"""
-        self.subplugin = clsADXF2Shape(self.dlg)  # Инициализация подплагина
-        self.subplugin.run()  # Вызов метода подплагина
+        Logger.log_message("Запуск подплагина")
+        self.subplugin = clsADXF2Shape(self.dlg)
+        self.subplugin.run()
 
     def run(self):
         """Run method that performs all the real work"""
@@ -190,10 +192,10 @@ class DxfPostGISConverter:
         if self.first_start:
             self.first_start = False
             self.dlg = ConverterDialog()
+            self.dlg.select_area_button.clicked.connect(self.selectArea)
+            self.dlg.open_dxf_button.clicked.connect(self.run_subplugin)
+            self.dlg.select_area_button.setEnabled(self.dlg.dxf_handler.file_is_open)
 
-        self.dlg.selectionButton.clicked.connect(self.selectArea)
-        self.dlg.pushButton.clicked.connect(self.run_subplugin)
-        self.dlg.set_selection_button_status()
         self.dlg.settings_statusLabel.setText("No connect")
         # show the dialog
         self.dlg.show()

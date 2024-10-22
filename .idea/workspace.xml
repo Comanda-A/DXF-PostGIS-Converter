@@ -5,17 +5,42 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="ec8514d9-64bd-4afe-af70-595e5d163f2f" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/converter_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/converter_dialog.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dialog_base.ui" beforeDir="false" afterPath="$PROJECT_DIR$/dialog_base.ui" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dxf_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/dxf_handler.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dxf_to_db_converter.py" beforeDir="false" afterPath="$PROJECT_DIR$/dxf_to_db_converter.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/install_packages/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/install_packages/requirements.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tree_widget_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/tree_widget_handler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/LICENSE" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/LICENSE" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/TransformTools.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/TransformTools.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/clsADXF2Shape.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/clsADXF2Shape.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/clsDBase.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/clsDBase.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/clsDXFTools.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/clsDXFTools.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/donate.png" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/donate.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/fnc4ADXF2Shape.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/fnc4ADXF2Shape.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/fnc4all.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/fnc4all.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/icon.png" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/icon.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/m_icon.png" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/m_icon.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/metadata.txt" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/metadata.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/resources.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/resources.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/resources.qrc" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/resources.qrc" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/resourcesqt4.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/resourcesqt4.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/uiADXF2Shape.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/uiADXF2Shape.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/uiADXF2Shape.ui" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/uiADXF2Shape.ui" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/uiAbout.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/uiAbout.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dxf_tools/uiAbout.ui" beforeDir="false" afterPath="$PROJECT_DIR$/src/plugins/dxf_tools/uiAbout.ui" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/dxf/dxf_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/dxf/dxf_handler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/dxf_postgis_converter.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/dxf_postgis_converter.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui/main_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui/main_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tree_widget_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tree_widget_handler.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
   </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -44,6 +69,13 @@
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
 }</component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\nikita\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins\DXF-PostGIS-Converter\src\plugins" />
+      <recent name="C:\Users\nikita\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins\DXF-PostGIS-Converter\src" />
+      <recent name="C:\Users\nikita\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins\DXF-PostGIS-Converter" />
+    </key>
+  </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -67,10 +99,35 @@
       <workItem from="1729448403077" duration="36000" />
       <workItem from="1729498414579" duration="4416000" />
       <workItem from="1729516645693" duration="631000" />
+      <workItem from="1729560318182" duration="2493000" />
     </task>
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <option name="LAST_COMMIT_MESSAGE" value="" />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/src/gui/main_dialog.py</url>
+          <option name="timeStamp" value="1" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
   </component>
 </project>

@@ -4,7 +4,40 @@ from PyQt5.QtWidgets import QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, 
 
 from qgis.core import QgsApplication
 from shapely.geometry import Point
+import os
 from .logger.logger import Logger
+
+
+def remove_item(item, tree_widget):
+    # Удаляем элемент
+    index = tree_widget.indexOfTopLevelItem(item)
+    if index != -1:
+        tree_widget.takeTopLevelItem(index)
+    else:
+        parent = item.parent()
+        parent.removeChild(item)
+
+
+def add_remove_button_to_item(item, tree_widget):
+    # Создаем кнопку
+    remove_button = QPushButton('Удалить')
+
+    # Устанавливаем размер кнопки
+    remove_button.setFixedSize(80, 20)
+
+    # Привязываем кнопку к обработчику нажатия
+    remove_button.clicked.connect(lambda: remove_item(item, tree_widget))
+
+    # Создаем контейнер для кнопки
+    widget = QWidget()
+    layout = QHBoxLayout(widget)
+    layout.addWidget(remove_button)
+    layout.setAlignment(Qt.AlignRight)
+    layout.setContentsMargins(0, 0, 0, 0)
+    widget.setLayout(layout)
+
+    # Добавляем кнопку в соответствующую колонку узла дерева
+    tree_widget.setItemWidget(item, 1, widget)
 
 
 class TreeWidgetHandler:
@@ -29,36 +62,6 @@ class TreeWidgetHandler:
             child_item.setCheckState(0, check_state)
             self.update_child_check_states(child_item, check_state)
 
-    def add_remove_button_to_item(self, item, tree_widget):
-        # Создаем кнопку
-        remove_button = QPushButton('Удалить')
-
-        # Устанавливаем размер кнопки
-        remove_button.setFixedSize(80, 20)
-
-        # Привязываем кнопку к обработчику нажатия
-        remove_button.clicked.connect(lambda: self.remove_item(item, tree_widget))
-
-        # Создаем контейнер для кнопки
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-        layout.addWidget(remove_button)
-        layout.setAlignment(Qt.AlignRight)
-        layout.setContentsMargins(0, 0, 0, 0)
-        widget.setLayout(layout)
-
-        # Добавляем кнопку в соответствующую колонку узла дерева
-        tree_widget.setItemWidget(item, 1, widget)
-
-    def remove_item(self, item, tree_widget):
-        # Удаляем элемент
-        index = tree_widget.indexOfTopLevelItem(item)
-        if index != -1:
-            tree_widget.takeTopLevelItem(index)
-        else:
-            parent = item.parent()
-            parent.removeChild(item)
-
     def populate_tree_widget(self, layers):
 
         layers, full_path = layers[0], layers[1]
@@ -70,7 +73,7 @@ class TreeWidgetHandler:
         file_item.setCheckState(0, Qt.Unchecked)
         self.tree_widget.addTopLevelItem(file_item)
 
-        self.add_remove_button_to_item(file_item, self.tree_widget)
+        add_remove_button_to_item(file_item, self.tree_widget)
 
         for layer, entities in layers.items():
             layer_item = QTreeWidgetItem([f'Layer: {layer}'])
@@ -205,6 +208,7 @@ class TreeWidgetHandler:
                 checked_children.append(child)
         return checked_children
 
+    #TODO: модернизируй согласно новой структуре (если это необходимо)
     def get_all_checked_entities(self):
         checked_entities = {}
 

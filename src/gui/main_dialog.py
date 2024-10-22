@@ -45,7 +45,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         super(ConverterDialog, self).__init__(parent)
         self.setupUi(self)
 
-        self.dxf_handler = DXFHandler()
+        self.dxf_handler = DXFHandler(self.type_shape, self.type_selection)
 
         # нажатие по кнопке edit в settings
         self.settings_saved_db_button.clicked.connect(
@@ -54,9 +54,6 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # нажатие по кнопке connect в настройках
         self.settings_connect_db_button.clicked.connect(self.connect_to_db_button)
-
-        # нажатие по кнопке выбора dxf файла
-        self.open_dxf_button.clicked.connect(self.open_dxf_button_click)
 
         # нажатие по кнопке export_to_db_button
         self.export_to_db_button.clicked.connect(self.export_to_db_button_click)
@@ -70,7 +67,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.refresh_settings_databases_combobox()
 
         # отображение окна
-        self.show_dialog()
+        #self.show_dialog()
 
 
     def show_dialog(self):
@@ -106,17 +103,53 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         else:
             Logger.log_warning('Database is unselected!')
 
-    #Переделать
-    def open_dxf_button_click(self):
+    async def read_dxf(self, file_name):
         """
-        Open DXF file and populate tree widget with layers and entities.
+        Handle DXF file selection and populate tree widget with layers and entities.
         """
-        options = QFileDialog.Options()
-        options |= QFileDialog.ReadOnly
-        file_name, _ = QFileDialog.getOpenFileName(self, "Select DXF File", "", "DXF Files (*.dxf);;All Files (*)", options=options)
-        if file_name:
-            self.dxf_handler.read_dxf_file(file_name, self.refresh_dfx_tree_widget)
+        self.label.setText(os.path.basename(file_name))
+        await self.start_long_task("read_dxf_file", self.dxf_handler.read_dxf_file, self.dxf_handler, file_name)
 
+    async def read_multiple_dxf(self, file_names):
+        """
+        Handle multiple DXF file selections and populate tree widget with layers and entities.
+        """
+        total_files = len(file_names)
+        self.progress_dialog = QProgressDialog("Processing...", "Cancel", 0, total_files, self)
+        self.progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
+        self.progress_dialog.show()
+
+        tasks = [self.read_dxf(file_name) for file_name in file_names]
+        await asyncio.gather(*tasks)
+
+    async def start_long_task(self, task_id, func, real_func, *args):
+        """
+        Starts a long task by creating a progress dialog and connecting it to a worker handler.
+        Args:
+            task_id (str): The identifier of the task.
+            func (callable): The function to be executed.
+            real_func (callable): The function to be executed in the worker.
+            *args: Variable length argument list.
+        """
+
+        loop = asyncio.get_event_loop()
+        future = loop.run_in_executor(None, func, *args)
+        result = await future
+
+        self.on_finished(task_id, result)
+
+    def on_finished(self, task_id, result):
+        """
+        Handles the completion of a task by stopping the worker.
+        """
+        if result is not None:
+            if task_id == "read_dxf_file":
+                self.dxf_tree_widget_handler.populate_tree_widget(result)
+            elif task_id == "select_entities_in_area":
+                self.dxf_tree_widget_handler.select_area(result)
+
+        self.select_area_button.setEnabled(self.dxf_handler.file_is_open)
+        self.progress_dialog.close()
 
     def refresh_dfx_tree_widget(self):
         if self.dxf_handler.file_is_open:

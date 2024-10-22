@@ -177,11 +177,12 @@ class DxfPostGISConverter:
         elif self.dlg.type_shape.currentText() == 'polygon':
             self.polygon = PolygonMapTool(self.canvas, self.dlg)
             self.iface.mapCanvas().setMapTool(self.polygon)
-        self.iface.messageBar().pushMessage("Подсказка", "Выделите желаемую область для импорта", level=Qgis.Info)
+
+        self.iface.messageBar().pushMessage("Подсказка", "Выделите желаемую область для импорта", level=Qgis.Info, duration=5)
+        self.iface.messageBar().pushMessage("Предупреждение", "Выделение работает с ПЕРВОЙ АКТИВНОЙ группой слоев", level=Qgis.Warning, duration=3)
 
     def run_subplugin(self):
         """Запуск подплагина"""
-        Logger.log_message("Запуск подплагина")
         self.subplugin = clsADXF2Shape(self.dlg)
         self.subplugin.run()
 

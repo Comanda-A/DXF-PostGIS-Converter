@@ -4,7 +4,6 @@ from PyQt5.QtWidgets import QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, 
 
 from qgis.core import QgsApplication
 from shapely.geometry import Point
-import os
 from .logger.logger import Logger
 
 
@@ -64,9 +63,7 @@ class TreeWidgetHandler:
 
     def populate_tree_widget(self, layers):
 
-        layers, full_path = layers[0], layers[1]
-
-        file_name = os.path.basename(full_path)
+        layers, file_name = layers[0], layers[1]
 
         # Создаем элемент для file_name на вершине дерева
         file_item = QTreeWidgetItem([f'Файл: {file_name}'])

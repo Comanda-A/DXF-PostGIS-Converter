@@ -1,15 +1,28 @@
 import ezdxf
 from ezdxf import select
+import os
+
 from ..logger.logger import Logger
 from PyQt5.QtCore import QThread, pyqtSignal, QObject, QTimer, QVariant
+from qgis.core import QgsProject, QgsLayerTreeGroup
 
+def get_first_visible_group():
+    layer_tree = QgsProject.instance().layerTreeRoot()
+    for child in layer_tree.children():
+        if isinstance(child, QgsLayerTreeGroup) and child.isVisible():
+            group_name = child.name()
+            if ".dxf" in group_name:
+                # Отрезаем всё, что идёт после ".dxf"
+                dxf_name = group_name.split(".dxf")[0] + ".dxf"
+                return dxf_name
+    return None
 
 class DXFHandler(QObject):
     progressChanged = pyqtSignal(int)
 
     def __init__(self, type_shape, type_selection):
         super().__init__()
-        self.msp = None
+        self.msps = {}
         self.file_is_open = False
         self.type_shape = type_shape
         self.type_selection = type_selection
@@ -20,13 +33,17 @@ class DXFHandler(QObject):
         """
         try:
             dxf = ezdxf.readfile(file_name)
-            self.msp = dxf.modelspace()
+            msp = dxf.modelspace()
+            file_name = os.path.basename(file_name)
+
+            self.msps[file_name] = msp
+
             self.file_is_open = True
 
-            self.process_entities(self.msp)
-
+            self.process_entities(msp)
+            Logger.log_message(f"File {file_name} successfully read.")
             # Get all entities grouped by layer
-            layers_entities = self.msp.groupby(dxfattrib="layer")
+            layers_entities = msp.groupby(dxfattrib="layer")
 
             return layers_entities, file_name
 
@@ -39,7 +56,6 @@ class DXFHandler(QObject):
             self.file_is_open = False
         return None
 
-    # TODO: добавить поддержку мультифайлов (как это при select сделать? Придется каждый проверять, что вызовет большую бессмысленную нагрузку. Или добавить важное УСЛОВИЕ при котором он будет выбирать объекты только ОДНОГО активного слоя QGIS, это по эффективнее звучит, но костыль)
     def select_entities_in_area(self, *args):
         """
         Select entities within the specified area based on the selection type.
@@ -74,10 +90,14 @@ class DXFHandler(QObject):
         # Get the appropriate selection function
         selection_func = selection_functions[self.type_selection.currentText()]
 
-        # Select entities
-        entities = list(selection_func(shape_obj, self.msp))
+        active_layer = get_first_visible_group()
+        if active_layer:
+            Logger.log_message(f"Активный слой: {active_layer}")
+        else:
+            Logger.log_warning("Активный слой не выбран.")
 
-        # Process and return entities
+        entities = list(selection_func(shape_obj, self.msps[active_layer]))
+
         self.process_entities(entities)
         return entities
 
@@ -88,9 +108,11 @@ class DXFHandler(QObject):
             # Simulate processing of each entity
             progress = int((i + 1) / total_entities * 100)
             self.progressChanged.emit(progress)
+
+    # TODO: поправь как тебе удобно
     def get_layers(self) -> dict:
-        line = self.msp.query("LWPOLYLINE").first
+        line = self.msps[0].query("LWPOLYLINE").first
         for point in line:
             Logger.log_message(str(point))
 
-        return self.msp.groupby(dxfattrib="layer")
+        return self.msps[0].groupby(dxfattrib="layer")

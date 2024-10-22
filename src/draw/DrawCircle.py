@@ -1,4 +1,5 @@
 import math
+import asyncio
 from qgis.gui import QgsRubberBand, QgsMapToolEmitPoint, QgsMapTool
 from PyQt5 import QtGui
 from qgis.core import QgsWkbTypes, QgsPointXY
@@ -38,7 +39,7 @@ class CircleMapTool(QgsMapToolEmitPoint):
             self.radius = radius
                 
             self.dlg.show()
-            self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, None, self.centerPoint, self.radius)
+            asyncio.run(self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, None, self.centerPoint, self.radius))
             self.dlg.coord.setPlainText(f"Координаты круга:\n Центр :{self.centerPoint}\nРадиус:{self.radius}")
             self.reset()
 

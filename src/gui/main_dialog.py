@@ -1,6 +1,7 @@
 import os
 import json
 import random
+import asyncio
 
 from qgis.PyQt import uic, QtWidgets, QtCore
 from qgis.PyQt.QtWidgets import QFileDialog, QProgressDialog, QLineEdit, QDialog
@@ -56,7 +57,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # нажатие по кнопке выбора dxf файла
         self.open_dxf_button.clicked.connect(self.open_dxf_button_click)
-        
+
         # нажатие по кнопке export_to_db_button
         self.export_to_db_button.clicked.connect(self.export_to_db_button_click)
 
@@ -70,8 +71,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # отображение окна
         self.show_dialog()
-    
-    
+
+
     def show_dialog(self):
         ''' Show the dialog '''
         self.show()
@@ -83,7 +84,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             # substitute with your code.
             pass
 
-    
+
     def refresh_settings_databases_combobox(self):
         ''' Обновление содержимого combobox в settings_databases_combobox '''
         db_names = get_all_connections().keys()
@@ -105,7 +106,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         else:
             Logger.log_warning('Database is unselected!')
 
-
+    #Переделать
     def open_dxf_button_click(self):
         """
         Open DXF file and populate tree widget with layers and entities.
@@ -126,7 +127,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.select_area_button.setEnabled(self.dxf_handler.file_is_open)
         self.export_to_db_button.setEnabled(self.dxf_handler.file_is_open)
 
-    
+
     def export_to_db_button_click(self):
         checked_layers = self.dxf_tree_widget_handler.get_all_checked_entities()
         send_layers_to_db('f_' + str(random.randint(0, 10000)), checked_layers)
@@ -148,7 +149,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         event_db_connection_changed.append(self.update_dbcombobox)
         event_db_connection_changed.append(self.update_tbcombobox)
         self.initialize_combobox()
-    
+
         self.truncateCheckBox.stateChanged.connect(self.on_truncate_checked)
         self.onlyMappingCheckBox.stateChanged.connect(self.on_onlyMapping_checked)
 
@@ -157,7 +158,92 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.tree_widget_handler = TreeWidgetHandler(self.treeWidget)
         self.worker_handler = WorkerHandler()
         self.progress_dialog = None
+    #TODO: отсюда взять
+    async def read_dxf(self, file_name):
+        """
+        Handle DXF file selection and populate tree widget with layers and entities.
+        """
+        self.label.setText(os.path.basename(file_name))
+        await self.start_long_task("read_dxf_file", self.dxf_handler.read_dxf_file, self.dxf_handler, file_name)
+    async def read_multiple_dxf(self, file_names):
+        """
+        Handle multiple DXF file selections and populate tree widget with layers and entities.
+        """
+        total_files = len(file_names)
+        self.progress_dialog = QProgressDialog("Processing...", "Cancel", 0, total_files, self)
+        self.progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
+        self.progress_dialog.show()
 
+        tasks = [self.read_dxf(file_name) for file_name in file_names]
+        await asyncio.gather(*tasks)
+
+
+    async def start_long_task(self, task_id, func, real_func,  *args):
+        """
+        Starts a long task by creating a progress dialog and connecting it to a worker handler.
+        Args:
+            task_id (str): The identifier of the task.
+            func (callable): The function to be executed.
+            real_func (callable): The function to be executed in the worker.
+            *args: Variable length argument list.
+        """
+
+        loop = asyncio.get_event_loop()
+        future = loop.run_in_executor(None, func, *args)
+        result = await future
+
+        self.on_finished(task_id, result)
+        #self.worker_handler.start_worker(func, self.on_finished, self.progress_dialog.setValue, real_func, task_id, *args)
+
+    def on_finished(self, task_id, result):
+        """
+        Handles the completion of a task by stopping the worker.
+        """
+        self.worker_handler.stop_worker()
+        if result is not None:
+            if task_id == "read_dxf_file":
+                self.tree_widget_handler.populate_tree_widget(result)
+                self.selectionButton.setEnabled(True)
+            elif task_id == "select_entities_in_area":
+                self.tree_widget_handler.select_area(result)
+        
+        self.set_selection_button_status()
+        self.progress_dialog.close()
+
+    def handle_item_changed(self, item, column):
+        """
+        Handle changes in item check state and propagate changes to child items.
+        """
+        self.tree_widget_handler.handle_item_changed(item, column)
+
+    def set_selection_button_status(self):
+        """
+        Enable or disable the selection button based on whether a file is open.
+        """
+        self.selectionButton.setEnabled(self.dxf_handler.file_is_open)
+
+    def connect_to_db(self, db_name, connection_data):
+        """
+        Connect to the database using provided credentials.
+        """
+
+        if hasattr(self, 'db_manager'):
+            self.db_manager.close()
+
+        host = connection_data['host']
+        port = connection_data['port']
+        database = db_name
+        user = connection_data['user']
+        password = connection_data['password']
+
+        self.db_manager = DBManager(host, port, database, user, password)
+        if self.db_manager.connect():
+            self.settings_statusLabel.setText(f"Connected to database {db_name}")
+            self.importButton.setEnabled(True)
+            layerViewer = LayerSetViewer(self.db_manager, self.settings_structureTreeWidget)
+            layerViewer.load_layer_sets()
+        else:
+            self.settings_statusLabel.setText(f"Failed to connect to database {db_name}")
 
     def push(self):
         """

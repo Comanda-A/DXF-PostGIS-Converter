@@ -31,7 +31,7 @@ class DXFHandler(QObject):
         self.finish_callback = finish_callback
         self._start_long_task("read_dxf_file", self._read_dxf_file, self, file_name)
 
-    
+
     def _read_dxf_file(self, file_name):
         """
         Reads a DXF file and returns a dictionary groupby layer.
@@ -41,6 +41,11 @@ class DXFHandler(QObject):
             self.msp = self.dxf.modelspace()
             self.file_is_open = True
             self.process_entities(self.msp)
+
+            layers_entities = self.msp.groupby(dxfattrib="layer")
+
+            return layers_entities, file_name
+
         except IOError:
             Logger.log_message(f"File {file_name} not found or could not be read.")
             self.file_is_open = False
@@ -48,7 +53,7 @@ class DXFHandler(QObject):
             Logger.log_message(f"Invalid DXF file format: {file_name}")
             self.file_is_open = False
 
-
+    #TODO: переделать
     def _start_long_task(self, task_id, func, real_func, *args):
         """
         Starts a long task by creating a progress dialog and connecting it to a worker handler.
@@ -64,10 +69,10 @@ class DXFHandler(QObject):
         self.worker_handler.start_worker(func, self._on_finished, self.progress_dialog.setValue, real_func, task_id, *args)
         self.progress_dialog.canceled.connect(self.worker_handler.stop_worker)
 
-
+    #TODO: переделать
     def _on_finished(self, task_id, result):
         self.worker_handler.stop_worker()
-        self.finish_callback() 
+        self.finish_callback()
         self.progress_dialog.close()
 
         if self.file_is_open:
@@ -75,7 +80,7 @@ class DXFHandler(QObject):
         else:
             QMessageBox.critical(None, "", "Failed to open dxf file  :(")
 
-        
+
 
 
 
@@ -119,7 +124,7 @@ class DXFHandler(QObject):
         # Process and return entities
         self.process_entities(entities)
         return entities
-    
+
 
     #TODO: пустышка для видимости прогресса (возможно получится подвязать к реальному прогрессу)
     def process_entities(self, entities):
@@ -135,4 +140,4 @@ class DXFHandler(QObject):
         for point in line:
             Logger.log_message(str(point))
 
-        return self.msp.groupby(dxfattrib="layer")      
+        return self.msp.groupby(dxfattrib="layer")

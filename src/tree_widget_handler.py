@@ -1,9 +1,11 @@
 from qgis.PyQt.QtWidgets import QTreeWidgetItem, QProgressDialog
 from qgis.PyQt.QtCore import Qt
+from PyQt5.QtWidgets import QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView
+
 from qgis.core import QgsApplication
 from shapely.geometry import Point
-
 from .logger.logger import Logger
+
 
 class TreeWidgetHandler:
 
@@ -12,6 +14,10 @@ class TreeWidgetHandler:
         self.tree_items = {}  # Dictionary for quick access to QTreeWidgetItem elements
         self.selectable = False
         self.tree_widget.itemChanged.connect(self.handle_item_changed)
+
+        # Set the stretch factors for the columns
+        self.tree_widget.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.tree_widget.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
 
     def handle_item_changed(self, item, column):
         if (item.checkState(column) == Qt.Checked or item.checkState(column) == Qt.Unchecked) and not self.selectable:
@@ -23,14 +29,53 @@ class TreeWidgetHandler:
             child_item.setCheckState(0, check_state)
             self.update_child_check_states(child_item, check_state)
 
+    def add_remove_button_to_item(self, item, tree_widget):
+        # Создаем кнопку
+        remove_button = QPushButton('Удалить')
+
+        # Устанавливаем размер кнопки
+        remove_button.setFixedSize(80, 20)
+
+        # Привязываем кнопку к обработчику нажатия
+        remove_button.clicked.connect(lambda: self.remove_item(item, tree_widget))
+
+        # Создаем контейнер для кнопки
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.addWidget(remove_button)
+        layout.setAlignment(Qt.AlignRight)
+        layout.setContentsMargins(0, 0, 0, 0)
+        widget.setLayout(layout)
+
+        # Добавляем кнопку в соответствующую колонку узла дерева
+        tree_widget.setItemWidget(item, 1, widget)
+
+    def remove_item(self, item, tree_widget):
+        # Удаляем элемент
+        index = tree_widget.indexOfTopLevelItem(item)
+        if index != -1:
+            tree_widget.takeTopLevelItem(index)
+        else:
+            parent = item.parent()
+            parent.removeChild(item)
+
     def populate_tree_widget(self, layers):
-        self.tree_widget.clear()
-        self.tree_items.clear()
+
+        layers, full_path = layers[0], layers[1]
+
+        file_name = os.path.basename(full_path)
+
+        # Создаем элемент для file_name на вершине дерева
+        file_item = QTreeWidgetItem([f'Файл: {file_name}'])
+        file_item.setCheckState(0, Qt.Unchecked)
+        self.tree_widget.addTopLevelItem(file_item)
+
+        self.add_remove_button_to_item(file_item, self.tree_widget)
 
         for layer, entities in layers.items():
             layer_item = QTreeWidgetItem([f'Layer: {layer}'])
             layer_item.setCheckState(0, Qt.Unchecked)
-            self.tree_widget.addTopLevelItem(layer_item)
+            file_item.addChild(layer_item)
             self.tree_items[layer] = {'item': layer_item, 'entities': {}}
 
             for entity in entities:
@@ -125,6 +170,9 @@ class TreeWidgetHandler:
 
         for layer in layers_to_check:
             self.tree_items[layer]['item'].setCheckState(0, Qt.Checked)
+            parent = self.tree_items[layer]['item'].parent()
+            parent.setCheckState(0, Qt.Checked)
+
         self.selectable = False
 
     def check_entity_in_tree(self, entity, layers_to_check):
@@ -156,10 +204,10 @@ class TreeWidgetHandler:
             if child.checkState(0) == Qt.Checked:
                 checked_children.append(child)
         return checked_children
-    
+
     def get_all_checked_entities(self):
         checked_entities = {}
-        
+
         for layer, data in self.tree_items.items():
             if data['item'].checkState(0) == Qt.Checked:
                 for entity_description, entity_item in data['entities'].items():

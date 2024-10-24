@@ -40,10 +40,11 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
     Dialog class for the DXF to DB converter plugin.
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, iface, parent=None):
         """Constructor."""
         super(ConverterDialog, self).__init__(parent)
         self.setupUi(self)
+        self.iface = iface
 
         self.dxf_handler = DXFHandler(self.type_shape, self.type_selection)
 
@@ -65,21 +66,6 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.dxf_tree_widget_handler = TreeWidgetHandler(self.dxf_tree_widget)
 
         self.refresh_settings_databases_combobox()
-
-        # отображение окна
-        #self.show_dialog()
-
-
-    def show_dialog(self):
-        ''' Show the dialog '''
-        self.show()
-        # Run the dialog event loop
-        result = self.exec_()
-        # See if OK was pressed
-        if result:
-            # Do something useful here - delete the line containing pass and
-            # substitute with your code.
-            pass
 
 
     def refresh_settings_databases_combobox(self):
@@ -148,6 +134,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             elif task_id == "select_entities_in_area":
                 self.dxf_tree_widget_handler.select_area(result)
 
+        self.export_to_db_button.setEnabled(self.dxf_handler.file_is_open)
         self.select_area_button.setEnabled(self.dxf_handler.file_is_open)
         self.progress_dialog.close()
 
@@ -162,10 +149,34 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
 
     def export_to_db_button_click(self):
-        checked_layers = self.dxf_tree_widget_handler.get_all_checked_entities()
-        send_layers_to_db('f_' + str(random.randint(0, 10000)), checked_layers)
+        from .export_dialog import ExportDialog
 
+        dlg = ExportDialog(self.dxf_tree_widget_handler)
+        dlg.show()
+        result = dlg.exec_()         
 
+        # See if OK was pressed
+        if result:
+            pass
+        
+        self.show_window()
+        
+        #from ..plugins.db_manager.db_manager import DBManager
+
+        #dlg = DBManager(self.iface)
+        #dlg.show()
+        #dlg.raise_()
+        #dlg.setWindowState(dlg.windowState() & ~Qt.WindowState.WindowMinimized)
+        #dlg.activateWindow()
+
+        #checked_layers = self.dxf_tree_widget_handler.get_all_checked_entities()
+        #send_layers_to_db('f_' + str(random.randint(0, 10000)), checked_layers)
+
+    def show_window(self):
+        # Показать окно и сделать его активным
+        self.raise_()
+        self.activateWindow()
+        self.show()
 
 '''
 

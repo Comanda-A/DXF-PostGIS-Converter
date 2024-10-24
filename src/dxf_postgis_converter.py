@@ -192,7 +192,7 @@ class DxfPostGISConverter:
         # Only create GUI ONCE in callback, so that it will only load when the plugin is started
         if self.first_start:
             self.first_start = False
-            self.dlg = ConverterDialog()
+            self.dlg = ConverterDialog(self.iface)
             self.dlg.select_area_button.clicked.connect(self.selectArea)
             self.dlg.open_dxf_button.clicked.connect(self.run_subplugin)
             self.dlg.select_area_button.setEnabled(self.dlg.dxf_handler.file_is_open)

@@ -163,19 +163,10 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.db_structure_treewidget.clear()
         # Получаем список всех зарегистрированных подключений PostGIS
         settings = QgsProviderRegistry.instance().providerMetadata('postgres').connections()
-        
-        index = 0
-        def get_color():
-            if index % 2 == 0:  # Четный индекс
-                return QColor(240, 240, 240)  # Светло-серый
-            else:  # Нечетный индекс
-                return  QColor(255, 255, 255)  # Белый
 
         for conn_name, conn_metadata in settings.items():
             uri = QgsDataSourceUri(conn_metadata.uri())
             conn_item = QTreeWidgetItem([conn_name])
-            color = get_color()
-            conn_item.setBackground(0 ,color)
             self.db_structure_treewidget.addTopLevelItem(conn_item)
 
             info_button = QPushButton('info') # Создаем кнопку

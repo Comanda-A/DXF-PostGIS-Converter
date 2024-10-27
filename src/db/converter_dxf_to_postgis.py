@@ -3,7 +3,9 @@ from shapely.geometry.base import BaseGeometry
 from ezdxf.entities import DXFEntity, Point as DXFPoint, Line, Polyline, LWPolyline, Circle, Arc, MultiLeader, Insert, Solid3d
 from ezdxf.entities.text import Text
 from ezdxf.math import Vec3
+from . import models
 import math
+import ezdxf
 import numpy as np
 
 from ..logger.logger import Logger
@@ -50,6 +52,67 @@ def convert_dxf_to_postgis(entity: DXFEntity) -> tuple[str, BaseGeometry, dict]:
 
     return geom_type, geometry, _verify_extra_data(extra_data)
 
+
+def convert_postgis_to_dxf(
+    layers: list[models.Layer],
+    geom_objects: list[models.GeometricObject],
+    non_geom_objects: list[models.NonGeometricObject],
+    path: str
+):
+    # Создаем новый документ DXF
+    doc = ezdxf.new()
+
+    # Добавляем слои и объекты в DXF
+    for layer in layers:
+        doc.layers.new(name=layer.name)
+
+    # Добавление геометрических объектов
+    for geom_object in geom_objects:
+        layer_name = geom_object.layer_relationship.name
+        geom_type = geom_object.geom_type
+
+        if geom_type == 'POINT':
+            pass
+
+        elif geom_type == 'LINE':
+            pass
+            
+        elif geom_type == 'POLYLINE':
+            pass
+
+        elif geom_type == 'LWPOLYLINE':
+            pass
+        
+        elif geom_type == 'CIRCLE':
+            pass
+
+        elif geom_type == 'ARC':
+            pass
+
+        elif geom_type == 'MULTILEADER':
+            pass
+
+        elif geom_type == 'INSERT':
+            pass
+
+        elif geom_type == '3DSOLID':
+            pass
+
+        else:
+            Logger.log_error(f'postgis to dxf. dxf type = "{geom_type}" not supported.')
+            # raise Exception(f'dxf type = "{geom_type}" not supported")
+
+    # Добавление негеометрических объектов
+    for non_geom_object in non_geom_objects:
+        layer_name = non_geom_object.layer.name
+        geom_type = non_geom_object.geom_type
+
+        # Пример добавления текстового объекта
+        if geom_type == 'TEXT':
+            pass
+
+    # Сохраняем DXF файл
+    doc.saveas(path)
 
 
 def _replace_vec3_to_list(data):

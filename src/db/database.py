@@ -8,7 +8,7 @@ from geoalchemy2.shape import from_shape
 from ..logger.logger import Logger
 from datetime import datetime, timezone
 from . import models
-from .converter_dxf_to_postgis import convert_dxf_to_postgis
+from .converter_dxf_to_postgis import convert_dxf_to_postgis, convert_postgis_to_dxf
 from ..dxf.dxf_handler import DXFHandler
 from ..tree_widget_handler import TreeWidgetHandler
 
@@ -153,6 +153,9 @@ def import_dxf(
     layers = db.query(models.Layer).filter(models.Layer.file_id == file_id).all()
     geom_objects = db.query(models.GeometricObject).filter(models.GeometricObject.file_id == file_id).all()
     non_geom_objects = db.query(models.NonGeometricObject).filter(models.NonGeometricObject.file_id == file_id).all()
+
+    # Вызываем функцию конверта данных в DXF
+    convert_postgis_to_dxf(layers, geom_objects, non_geom_objects, path)
 
 
 def get_all_files_from_db(

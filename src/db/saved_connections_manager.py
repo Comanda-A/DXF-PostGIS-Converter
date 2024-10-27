@@ -2,7 +2,7 @@
 
 '''
 Скрипт управляет сохранением, загрузкой и обновлением подключений к базам данных для плагина. 
-Он сохраняет данные о подключениях (пользователь, пароль, хост, порт и имя базы данных) в 
+Он сохраняет данные о подключениях (пользователь, пароль, имя подключения) в 
 локальный файл db_connections.json, который хранится в директории ~/Documents/DXF-PostGIS-Converter.
 '''
 
@@ -50,23 +50,21 @@ def save_connections():
 
 
 # Функция для добавления нового подключения
-def add_connection(dbname, username, password, host, port):
+def add_connection(connection_name, username, password):
     # Добавляем новое подключение в словарь
-    db_connections[dbname] = {
+    db_connections[connection_name] = {
         'username': username,
-        'password': password,
-        'host': host,
-        'port': port
+        'password': password
     }
     save_connections()  # Сохраняем обновленные подключения
     _call_event_db_connection_changed()  # Вызываем событие изменения подключения
-    Logger.log_message(f"Connection for database '{dbname}' saved successfully.")  # Логируем успешное сохранение
+    Logger.log_message(f"Connection '{connection_name}' saved successfully.")  # Логируем успешное сохранение
 
 
 # Функция для получения подключения по имени базы данных
-def get_connection(db_name):
+def get_connection(connection_name):
     global db_connections
-    return db_connections.get(db_name)  # Возвращаем подключение, если оно есть, иначе None
+    return db_connections.get(connection_name)  # Возвращаем подключение, если оно есть, иначе None
 
 
 # Функция для получения всех сохраненных подключений
@@ -77,12 +75,18 @@ def get_all_connections():
 
 
 # Функция для удаления подключения по имени базы данных
-def delete_connection(db_name):
+def delete_connection(connection_name):
     global db_connections
-    if db_name in db_connections:  # Проверяем, существует ли подключение
-        del db_connections[db_name]  # Удаляем подключение из словаря
+    if connection_name in db_connections:  # Проверяем, существует ли подключение
+        del db_connections[connection_name]  # Удаляем подключение из словаря
         save_connections()  # Сохраняем изменения
         _call_event_db_connection_changed()  # Вызываем событие изменения подключения
+
+
+def edit_connection_via_dialog(connection_name):
+    from ..gui.db_connection_dialog import DBConnectionDialog
+    dlg = DBConnectionDialog(connection_name)
+
 
 
 # Загружаем подключения при инициализации

@@ -5,9 +5,12 @@ from qgis.PyQt.QtCore import Qt
 from PyQt5.QtWidgets import QTreeWidgetItem, QHeaderView
 import os
 
+from ..db.saved_connections_manager import *
 from ..plugins.db_manager.db_plugins.plugin import DBPlugin
 from ..tree_widget_handler import TreeWidgetHandler
 from ..logger.logger import Logger
+from ..db.database import export_dxf
+from ..dxf.dxf_handler import DXFHandler
 
 
 # Load UI file for PyQt
@@ -15,12 +18,13 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(os.path.dirname(__file__), 'export_d
 
 class ExportDialog(QtWidgets.QDialog, FORM_CLASS):
 
-    def __init__(self, dxf_tree_widget_handler: TreeWidgetHandler, parent=None):
+    def __init__(self, dxf_tree_widget_handler: TreeWidgetHandler, dxf_handler: DXFHandler, parent=None):
         """Constructor."""
         super(ExportDialog, self).__init__(parent)
         self.setupUi(self)
         self.dlg = None
         self.dxf_tree_widget_handler = dxf_tree_widget_handler
+        self.dxf_handler = dxf_handler
 
         self.address = 'none'
         self.port = '5432'
@@ -30,12 +34,27 @@ class ExportDialog(QtWidgets.QDialog, FORM_CLASS):
         self.schemaname = 'none'
 
         self.select_db_button.clicked.connect(self.on_select_db_button_clicked)
+
+        self.port_lineedit.textChanged.connect(self.on_port_changed)
+        self.password_lineedit.textChanged.connect(self.on_password_changed)
+
+        # Подписываемся на сигналы кнопок
+        self.buttonBox.accepted.connect(self.on_ok_clicked)
+        self.buttonBox.rejected.connect(self.on_cancel_clicked)
         
         # Set the stretch factors for the columns
         self.tree_widget.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tree_widget.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
 
         self.refresh_data_dialog()
+
+
+    def on_port_changed(self, text):
+        self.port = text
+
+
+    def on_password_changed(self, text):
+        self.password = text
 
 
     def copy_checked_items(self, parent_item, new_parent_item):
@@ -78,17 +97,15 @@ class ExportDialog(QtWidgets.QDialog, FORM_CLASS):
 
                 self.copy_checked_items(file_item, new_file_item)
 
+
     def refresh_data_dialog(self):
         self.populate_tree_widget()
-        
-        if self.dlg is not None:
-            self.address_label.setText(self.address)
-            self.port_lineedit.setText(self.port)
-            self.dbname_label.setText(self.dbname)
-            self.schema_label.setText(self.schemaname)
-            self.username_label.setText(self.username)
-            self.password_lineedit.setText(self.password)
-        
+        self.address_label.setText(self.address)
+        self.port_lineedit.setText(self.port)
+        self.dbname_label.setText(self.dbname)
+        self.schema_label.setText(self.schemaname)
+        self.username_label.setText(self.username)
+        self.password_lineedit.setText(self.password)
         self.show_window()
 
 
@@ -112,6 +129,25 @@ class ExportDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.dbname = self.dlg.db_tree.currentDatabase().connection().db.connector.dbname
                 self.username = self.dlg.db_tree.currentDatabase().connection().db.connector.user
                 self.schemaname = self.dlg.db_tree.currentSchema().name
-
+                conn = get_connection(self.dbname)
+                self.password = conn['password'] if conn is not None else self.password
 
             self.refresh_data_dialog()
+
+    def on_ok_clicked(self):
+        add_connection(self.dbname, self.username, self.password, self.address, self.port)
+        #try:
+        export_dxf(
+            self.username,
+            self.password,                
+            self.address,                   
+            self.port,                  
+            self.dbname,
+            self.dxf_handler
+        )
+        self.accept()
+        #except Exception as e:
+        #Logger.log_error(str(e))
+
+    def on_cancel_clicked(self):
+        self.reject()

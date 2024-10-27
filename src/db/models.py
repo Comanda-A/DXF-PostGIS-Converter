@@ -40,9 +40,10 @@ class NonGeometricObject(Base):
     __tablename__ = 'non_geometric_objects'
 
     id = Column(Integer, primary_key=True)
+    file_id = Column(Integer, ForeignKey('files.id'), nullable=False)
     layer_id = Column(Integer, ForeignKey('layers.id'), nullable=False)
     geom_type = Column(String, nullable=False)
-    geometry = Column(JSONB, nullable=False)  # просто в json
+    extra_data = Column(JSONB, nullable=False)  # просто в json
 
     layer = relationship('Layer', back_populates='non_geometric_objects')
 
@@ -52,32 +53,10 @@ class GeometricObject(Base):
     __tablename__ = 'geometric_objects'
 
     id = Column(Integer, primary_key=True)
+    file_id = Column(Integer, ForeignKey('files.id'), nullable=False)
     layer_id = Column(Integer, ForeignKey('layers.id'), nullable=False)
     geom_type = Column(String, nullable=False)
     geometry = Column(Geometry('GEOMETRYZ', srid=4326), nullable=False)  # PostGIS тип GEOMETRYZ
+    extra_data = Column(JSONB, nullable=False)  # доп данные в json
 
     layer_relationship  = relationship('Layer', back_populates='geometric_objects')
-    geometry_relationship  = relationship('Geometry', back_populates='geometric_object')
-    attribute_relationship  = relationship('Attribute', back_populates='geometric_object')
-
-
-class Geometry(Base):
-    ''' Таблица с геометрией объектов. '''
-    __tablename__ = 'geometries'
-
-    id = Column(Integer, primary_key=True)
-    object_id = Column(Integer, ForeignKey('geometric_objects.id'), nullable=False)
-    value = Column(JSONB, nullable=False)
-
-    geometric_object = relationship('GeometricObject', back_populates='geometry_relationship')
-
-
-class Attribute(Base):
-    ''' Таблица с атибутами объектов. '''
-    __tablename__ = 'attributes'
-
-    id = Column(Integer, primary_key=True)
-    object_id = Column(Integer, ForeignKey('geometric_objects.id'), nullable=False)
-    value = Column(JSONB, nullable=False)
-
-    geometric_object = relationship('GeometricObject', back_populates='attribute_relationship')

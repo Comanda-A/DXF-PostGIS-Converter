@@ -6,7 +6,7 @@ from qgis.PyQt import uic
 import os
 
 from .db_connection_dialog import DBConnectionDialog
-from ..db.saved_databases_manager import get_all_connections, delete_connection, event_db_connections_edited
+from ..db.saved_connections_manager import get_all_connections, delete_connection, event_db_connections_edited
 from ..logger.logger import Logger
 
 

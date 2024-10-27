@@ -1,6 +1,5 @@
-from qgis.PyQt.QtWidgets import QTreeWidgetItem, QProgressDialog
+from qgis.PyQt.QtWidgets import QTreeWidgetItem, QProgressDialog, QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView
 from qgis.PyQt.QtCore import Qt
-from PyQt5.QtWidgets import QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView
 
 from qgis.core import QgsApplication
 from shapely.geometry import Point

@@ -197,7 +197,6 @@ class DxfPostGISConverter:
             self.dlg.open_dxf_button.clicked.connect(self.run_subplugin)
             self.dlg.select_area_button.setEnabled(self.dlg.dxf_handler.file_is_open)
 
-        self.dlg.settings_statusLabel.setText("No connect")
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop

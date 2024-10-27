@@ -3,17 +3,21 @@ import json
 import random
 import asyncio
 
+from qgis.PyQt.QtGui import QColor, QPalette
 from qgis.PyQt import uic, QtWidgets, QtCore
-from qgis.PyQt.QtWidgets import QFileDialog, QProgressDialog, QLineEdit, QDialog
+from qgis.PyQt.QtWidgets import QMessageBox, QProgressDialog, QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView, QFileDialog
 from qgis.PyQt.QtCore import Qt
+from qgis.core import QgsProviderRegistry, QgsDataSourceUri
+from functools import partial
+
 
 from ..logger.logger import Logger
 from .saved_databases_dialog import SavedDatabasesDialog
-from ..db.saved_databases_manager import get_all_connections, get_connection, event_db_connections_edited
-from ..db.database import connect_to_database
+from ..db.saved_connections_manager import get_all_connections, get_connection, edit_connection_via_dialog
+from ..db.database import export_dxf
 from ..dxf.dxf_handler import DXFHandler
 from ..tree_widget_handler import TreeWidgetHandler
-from ..db.database import send_layers_to_db
+from ..db.database import get_all_files_from_db
 
 
 '''
@@ -47,26 +51,19 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.iface = iface
 
         self.dxf_handler = DXFHandler(self.type_shape, self.type_selection)
-
-        # нажатие по кнопке edit в settings
-        self.settings_saved_db_button.clicked.connect(
-            lambda : SavedDatabasesDialog()
-        )
-
-        # нажатие по кнопке connect в настройках
-        self.settings_connect_db_button.clicked.connect(self.connect_to_db_button)
+        self.dxf_tree_widget_handler = TreeWidgetHandler(self.dxf_tree_widget)
+        self.db_tree_widget_handler = TreeWidgetHandler(self.db_structure_treewidget)
 
         # нажатие по кнопке export_to_db_button
         self.export_to_db_button.clicked.connect(self.export_to_db_button_click)
 
-        # событие изменения сохраненных подключений
-        event_db_connections_edited.append(self.refresh_settings_databases_combobox)
+        # нажатие по другой вкладке tabWidget
+        self.tabWidget.currentChanged.connect(self.handle_tab_change)
 
-        # создание TreeWidgetHandler для dxf_tree_widget
-        self.dxf_tree_widget_handler = TreeWidgetHandler(self.dxf_tree_widget)
-
-        self.refresh_settings_databases_combobox()
-
+    def handle_tab_change(self, index):
+        # 0 - dxf-postgis, 1 - postgis - dxf, 2 - setting
+        if index == 1:
+            self.refresh_db_structure_treewidget()
 
     def refresh_settings_databases_combobox(self):
         ''' Обновление содержимого combobox в settings_databases_combobox '''
@@ -74,18 +71,11 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.settings_databases_combobox.clear()
         self.settings_databases_combobox.addItems(db_names)
 
-
     def connect_to_db_button(self):
         db_name = self.settings_databases_combobox.currentText()
         connection = get_connection(db_name)
         if connection is not None:
-            connect_to_database(
-                connection['username'],
-                connection['password'],
-                connection['host'],
-                connection['port'],
-                db_name
-            )
+            Logger.log_warning('пока что не работает')
         else:
             Logger.log_warning('Database is unselected!')
 
@@ -151,7 +141,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
     def export_to_db_button_click(self):
         from .export_dialog import ExportDialog
 
-        dlg = ExportDialog(self.dxf_tree_widget_handler)
+        dlg = ExportDialog(self.dxf_tree_widget_handler, self.dxf_handler)
         dlg.show()
         result = dlg.exec_()         
 
@@ -160,17 +150,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             pass
         
         self.show_window()
-        
-        #from ..plugins.db_manager.db_manager import DBManager
 
-        #dlg = DBManager(self.iface)
-        #dlg.show()
-        #dlg.raise_()
-        #dlg.setWindowState(dlg.windowState() & ~Qt.WindowState.WindowMinimized)
-        #dlg.activateWindow()
-
-        #checked_layers = self.dxf_tree_widget_handler.get_all_checked_entities()
-        #send_layers_to_db('f_' + str(random.randint(0, 10000)), checked_layers)
 
     def show_window(self):
         # Показать окно и сделать его активным
@@ -178,9 +158,129 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.activateWindow()
         self.show()
 
+
+    def refresh_db_structure_treewidget(self):
+        self.db_structure_treewidget.clear()
+        # Получаем список всех зарегистрированных подключений PostGIS
+        settings = QgsProviderRegistry.instance().providerMetadata('postgres').connections()
+        
+        index = 0
+        def get_color():
+            if index % 2 == 0:  # Четный индекс
+                return QColor(240, 240, 240)  # Светло-серый
+            else:  # Нечетный индекс
+                return  QColor(255, 255, 255)  # Белый
+
+        for conn_name, conn_metadata in settings.items():
+            uri = QgsDataSourceUri(conn_metadata.uri())
+            conn_item = QTreeWidgetItem([conn_name])
+            color = get_color()
+            conn_item.setBackground(0 ,color)
+            self.db_structure_treewidget.addTopLevelItem(conn_item)
+
+            info_button = QPushButton('info') # Создаем кнопку
+            info_button.setFixedSize(80, 20)
+            info_button.clicked.connect(
+                partial(self.open_db_info_dialog, conn_name, uri.database(), uri.host(), uri.port()))
+            widget = QWidget() # Создаем контейнер для кнопки
+            layout = QHBoxLayout(widget)
+            layout.addWidget(info_button)
+            layout.setAlignment(Qt.AlignLeft)
+            layout.setContentsMargins(0, 0, 0, 0)
+            widget.setLayout(layout)
+            self.db_structure_treewidget.setItemWidget(conn_item, 1, widget) # Добавляем кнопку в соответствующую колонку узла дерева
+            
+            self.db_structure_treewidget.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            self.db_structure_treewidget.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+            
+            conn = get_connection(conn_name) or {}
+            username = conn.get('username', 'N/A')
+            password = conn.get('password', 'N/A')
+            files = get_all_files_from_db(username, password, uri.host(), uri.port(), uri.database())
+            
+            if files is None:
+                conn_item.setText(0, f'{conn_name} (Error when receiving data)')
+            else:
+                for file in files:
+                    entity_description = f"{file['filename']}"
+                    entity_item = QTreeWidgetItem([entity_description])
+                    conn_item.addChild(entity_item)
+
+                    info_button = QPushButton('import') # Создаем кнопку
+                    info_button.setFixedSize(80, 20)
+                    info_button.clicked.connect(
+                        partial(self.import_from_db_button_click, conn_name, uri.database(), uri.host(), uri.port(), file['filename'], file['id']))
+                    widget = QWidget() # Создаем контейнер для кнопки
+                    layout = QHBoxLayout(widget)
+                    layout.addWidget(info_button)
+                    layout.setAlignment(Qt.AlignLeft)
+                    layout.setContentsMargins(20, 0, 0, 0)
+                    widget.setLayout(layout)
+                    self.db_structure_treewidget.setItemWidget(entity_item, 1, widget) # Добавляем кнопку в соответствующую колонку узла дерева
+
+
+    def open_db_info_dialog(self, conn_name, dbname, host, port):
+        # Получаем данные о подключении
+        conn = get_connection(conn_name) or {}
+        username = conn.get('username', 'N/A')
+        password = conn.get('password', 'N/A')
+
+        # Формируем текст для отображения
+        info_text = (
+            f"Connection: {conn_name}\n"
+            f"Database: {dbname}\n"
+            f"Username: {username}\n"
+            f"Password: {password}\n"
+            f"Host: {host}\n"
+            f"Port: {port}"
+        )
+
+        # Создаем диалоговое окно
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.setWindowTitle("Database Connection Info")
+        msg_box.setText(info_text)
+
+        # Добавляем кнопки
+        edit_button = msg_box.addButton("Edit", QMessageBox.ActionRole)
+        ok_button = msg_box.addButton(QMessageBox.Ok)
+
+        # Отображаем диалоговое окно
+        msg_box.exec_()
+
+        # Проверяем, какую кнопку нажали
+        if msg_box.clickedButton() == edit_button:
+            edit_connection_via_dialog(conn_name)
+            self.refresh_db_structure_treewidget()
+            self.open_db_info_dialog(conn_name, dbname, host, port)
+
+
+    def import_from_db_button_click(self, conn_name, dbname, host, port, file_name, file_id):
+        # Открываем диалоговое окно для выбора пути сохранения файла
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(None, "Save file as", "", "Все файлы (*)", options=options)
+        
+        if file_path:
+
+        else:
+            QMessageBox.warning(None, "Error", "Please select the path to save the file.")
+
+
+
 '''
 
-
+    uri = QgsDataSourceUri(conn_metadata.uri())
+            connection_info = {
+                'name': conn_name,
+                'host': uri.host(),
+                'port': uri.port(),
+                'database': uri.database(),
+                'username': uri.username(),
+                'password': uri.password(),
+                'schema': uri.schema(),
+                'table': uri.table()
+            }
+            Logger.log_message(str(connection_info))
         self.pushButton.clicked.connect(self.select_dxf_button)
         self.treeWidget.itemChanged.connect(self.handle_item_changed)
         self.importButton.clicked.connect(self.push)

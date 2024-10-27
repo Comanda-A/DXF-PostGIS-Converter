@@ -8,7 +8,7 @@ from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler
 from ..tree_widget_handler import TreeWidgetHandler
 from src.worker import WorkerHandler
-from ..db.saved_databases_manager import save_table_name_in_current_db
+from ..db.saved_connections_manager import save_table_name_in_current_db
 
 # Load UI file for PyQt
 FORM_CLASS, _ = uic.loadUiType(os.path.join(

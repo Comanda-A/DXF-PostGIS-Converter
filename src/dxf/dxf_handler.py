@@ -1,5 +1,8 @@
 import ezdxf
 from ezdxf import select
+from ezdxf.layouts.layout import Modelspace
+from ezdxf.document import Drawing
+
 import os
 
 from ..logger.logger import Logger
@@ -22,7 +25,8 @@ class DXFHandler(QObject):
 
     def __init__(self, type_shape, type_selection):
         super().__init__()
-        self.msps = {}
+        self.msps: dict[str, Modelspace] = {}
+        self.dxf: dict[str, Drawing] = {}
         self.file_is_open = False
         self.type_shape = type_shape
         self.type_selection = type_selection
@@ -32,20 +36,20 @@ class DXFHandler(QObject):
         Reads a DXF file and returns a dictionary groupby layer.
         """
         try:
-            dxf = ezdxf.readfile(file_name)
-            msp = dxf.modelspace()
-            file_name = os.path.basename(file_name)
+            fn = os.path.basename(file_name)
+            self.dxf[fn] = ezdxf.readfile(file_name)
+            msp = self.dxf[fn].modelspace()
 
-            self.msps[file_name] = msp
+            self.msps[fn] = msp
 
             self.file_is_open = True
 
             self.process_entities(msp)
-            Logger.log_message(f"File {file_name} successfully read.")
+            Logger.log_message(f"File {fn} successfully read.")
             # Get all entities grouped by layer
             layers_entities = msp.groupby(dxfattrib="layer")
 
-            return layers_entities, file_name
+            return layers_entities, fn
 
 
         except IOError:
@@ -110,9 +114,11 @@ class DXFHandler(QObject):
             self.progressChanged.emit(progress)
 
     # TODO: поправь как тебе удобно
-    def get_layers(self) -> dict:
-        line = self.msps[0].query("LWPOLYLINE").first
-        for point in line:
-            Logger.log_message(str(point))
+    def get_layers(self, filename=None) -> dict:
+        if filename is None:
+            filename = next(iter(self.dxf))
 
-        return self.msps[0].groupby(dxfattrib="layer")
+        if filename in self.msps:
+            return self.msps[filename].groupby(dxfattrib="layer")
+        else:
+            return {} # file not found

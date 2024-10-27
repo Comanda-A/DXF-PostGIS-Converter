@@ -4,7 +4,7 @@ from qgis.PyQt import uic, QtWidgets
 from qgis.PyQt.QtWidgets import QFileDialog, QProgressDialog
 from qgis.PyQt.QtCore import Qt
 
-from ..db.saved_databases_manager import add_connection
+from ..db.saved_connections_manager import add_connection
 
 
 # Load UI file for PyQt
@@ -14,10 +14,11 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(
 
 class DBConnectionDialog(QtWidgets.QDialog, FORM_CLASS):
 
-    def __init__(self, parent=None):
+    def __init__(self, connection_name, parent=None):
         """Constructor."""
         super(DBConnectionDialog, self).__init__(parent)
         self.setupUi(self)
+        self.connection_name = connection_name
         self.saveButton.clicked.connect(self.save_button)
         self.show_dialog()
     
@@ -34,11 +35,9 @@ class DBConnectionDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def save_button(self):
         add_connection(
-            self.databaseLineEdit.text(),
+            self.connection_name,
             self.userLineEdit.text(),
             self.passwordLineEdit.text(),
-            self.hostLineEdit.text(),
-            self.portLineEdit.text()
         )
         self.accept()
         

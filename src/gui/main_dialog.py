@@ -14,7 +14,7 @@ from functools import partial
 from ..logger.logger import Logger
 from .saved_databases_dialog import SavedDatabasesDialog
 from ..db.saved_connections_manager import get_all_connections, get_connection, edit_connection_via_dialog
-from ..db.database import export_dxf
+from ..db.database import send_layers_to_db
 from ..dxf.dxf_handler import DXFHandler
 from ..tree_widget_handler import TreeWidgetHandler
 from ..db.database import get_all_files_from_db
@@ -261,7 +261,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         file_path, _ = QFileDialog.getSaveFileName(None, "Save file as", "", "Все файлы (*)", options=options)
         
         if file_path:
-
+            QMessageBox.information(None, "Сохранение файла", f"Файл будет сохранен по пути: {file_path}")
         else:
             QMessageBox.warning(None, "Error", "Please select the path to save the file.")
 

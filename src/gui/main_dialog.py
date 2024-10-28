@@ -1,9 +1,6 @@
 import os
-import json
-import random
 import asyncio
 
-from qgis.PyQt.QtGui import QColor, QPalette
 from qgis.PyQt import uic, QtWidgets, QtCore
 from qgis.PyQt.QtWidgets import QMessageBox, QProgressDialog, QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView, QFileDialog
 from qgis.PyQt.QtCore import Qt
@@ -12,26 +9,10 @@ from functools import partial
 
 
 from ..logger.logger import Logger
-from .saved_databases_dialog import SavedDatabasesDialog
 from ..db.saved_connections_manager import get_all_connections, get_connection, edit_connection_via_dialog
-from ..db.database import send_layers_to_db
 from ..dxf.dxf_handler import DXFHandler
 from ..tree_widget_handler import TreeWidgetHandler
 from ..db.database import get_all_files_from_db
-
-
-'''
-from ..db.db_manager import DBManager
-from ..logger.logger import Logger
-from ..dxf.tree_widget_handler import TreeWidgetHandler
-from ..worker.worker_handler import WorkerHandler
-from .connection_data_dialog import ConnectionDataDialog
-from ..db.connection_data_manager import get_all_db_names, get_connection, event_db_connection_changed, get_all_table_name_in_current_db, get_table_name_in_current_db
-from .edit_connections_dialog import EditConnectionsDialog
-from .edit_table_name_dialog import EditTableNameDialog
-from ...layer_set_viewer import LayerSetViewer
-from ..FieldMappingDialog import FieldMappingDialog
-'''
 
 
 # Load UI file for PyQt

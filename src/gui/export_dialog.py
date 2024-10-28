@@ -135,7 +135,7 @@ class ExportDialog(QtWidgets.QDialog, FORM_CLASS):
             self.refresh_data_dialog()
 
     def on_ok_clicked(self):
-        add_connection(self.dbname, self.username, self.password, self.address, self.port)
+        add_connection(self.dbname, self.username, self.password)
         #try:
         export_dxf(
             self.username,

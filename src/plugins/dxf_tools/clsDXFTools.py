@@ -491,7 +491,7 @@ def EineDXF(uiParent, mLay_crs, bZielSave, sOutForm, grpProjekt, AktList, Kern, 
 
         try:
             if sOutForm == "SHP":
-                opt = ('-skipfailures %s -nlt %s %s -sql "select *, ogr_style from entities where OGR_GEOMETRY %s"') % (
+                opt = ('-skipfailures %s -nlt %s %s -sql "select *, ogr_style from entities where OGR_GEOMETRY %s" -mapFieldType StringList=String') % (
                 AktOpt, v[1], optGCP, v[2])
                 if bGen3D:
                     opt = opt + ' -dim 3 '
@@ -507,11 +507,15 @@ def EineDXF(uiParent, mLay_crs, bZielSave, sOutForm, grpProjekt, AktList, Kern, 
 
             if sOutForm == "GPKG":
 
+                """ old code
                 if sCharSet == "System":
                     ogrCharSet = locale.getlocale()[1]
                 else:
                     ogrCharSet = sCharSet
                 ogrCharSet = ogrCharSet.upper()
+                """
+                ogrCharSet = "UTF-8"
+
                 opt = '-append -update --config DXF_ENCODING "' + ogrCharSet + '" '
 
                 if myQGIS_VERSION_INT() < 31000:
@@ -523,7 +527,7 @@ def EineDXF(uiParent, mLay_crs, bZielSave, sOutForm, grpProjekt, AktList, Kern, 
 
                 opt = opt + '--config DXF_INCLUDE_RAW_CODE_VALUES TRUE '
                 opt = opt + (
-                    '%s -nlt %s %s -sql "select *, ogr_style from entities where OGR_GEOMETRY %s" -nln "%s"') % (
+                    '%s -nlt %s %s -sql "select *, ogr_style from entities where OGR_GEOMETRY %s" -nln "%s" -mapFieldType StringList=String') % (
                       AktOpt, v[1], optGCP, v[2], gpkgTable)
                 if bGen3D:
                     opt = opt + ' -dim 3 '

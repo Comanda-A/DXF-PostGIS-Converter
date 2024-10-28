@@ -266,7 +266,7 @@ def splitText(fText, TxtType):
 def ShapeCodepage2Utf8(OrgShpDat, TargetShpDat, OrgCodePage):
     TargetCodePage = "utf8"
     if OrgCodePage == "System":
-        OrgCodePage = locale.getdefaultlocale()[1]
+        OrgCodePage = locale.getlocale()[1]
 
     oLayer = QgsVectorLayer(OrgShpDat, '', 'ogr')
     oLayer.setProviderEncoding(OrgCodePage)

@@ -5,3 +5,4 @@ __pycache__/
 dxf_examples/example.gpkg
 dxf_examples/example.gpkg-shm
 dxf_examples/example.gpkg-wal
+/.idea

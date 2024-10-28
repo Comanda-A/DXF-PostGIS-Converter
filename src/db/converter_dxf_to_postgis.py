@@ -70,37 +70,90 @@ def convert_postgis_to_dxf(
     for geom_object in geom_objects:
         layer_name = geom_object.layer_relationship.name
         geom_type = geom_object.geom_type
+        attributes = geom_object.extra_data.get('attributes', {})
+        attribs = {}
 
+        # Проверяем и добавляем атрибуты, если они имеют корректные значения
+        if "color" in attributes and attributes["color"] is not None:
+            attribs["color"] = attributes["color"]
+
+        if "layer" in attributes and attributes["layer"] is not None:
+            attribs["layer"] = attributes["layer"]
+
+        if "location" in attributes and isinstance(attributes["location"], list) and len(attributes["location"]) >= 3:
+            attribs["location"] = tuple(attributes["location"])  # Преобразуем список в кортеж
+
+        if "ltscale" in attributes and isinstance(attributes["ltscale"], list) and attributes["ltscale"]:
+            attribs["ltscale"] = attributes["ltscale"][0]  # Берем первый элемент, если это список
+
+        if "linetype" in attributes and isinstance(attributes["linetype"], list) and attributes["linetype"]:
+            attribs["linetype"] = attributes["linetype"][0]  # Берем первый элемент, если это список
+
+        if "invisible" in attributes and isinstance(attributes["invisible"], list) and attributes["invisible"]:
+            attribs["invisible"] = attributes["invisible"][0]  # Берем первый элемент, если это список
+
+        if "lineweight" in attributes and isinstance(attributes["lineweight"], list) and attributes["lineweight"]:
+            attribs["lineweight"] = attributes["lineweight"][0]  # Берем первый элемент, если это список
+
+        if "true_color" in attributes and isinstance(attributes["true_color"], list) and attributes["true_color"]:
+            attribs["true_color"] = attributes["true_color"][0]  # Берем первый элемент, если это список
+
+        if "transparency" in attributes and attributes["transparency"] is not None:
+            attribs["transparency"] = attributes["transparency"]
+        
         if geom_type == 'POINT':
-            pass
+            location = tuple(geom_object.extra_data['attributes']['location'])
+            doc.modelspace().add_point(
+                location,
+                dxfattribs=attribs
+            )
 
         elif geom_type == 'LINE':
-            pass
+            start = tuple(geom_object.extra_data['attributes']['start'])
+            end = tuple(geom_object.extra_data['attributes']['end'])
+            doc.modelspace().add_line(start, end, dxfattribs=attribs)
             
         elif geom_type == 'POLYLINE':
-            pass
+            points = geom_object.extra_data['points']
+            if geom_object.extra_data['attributes'].get('is_closed', False):
+                doc.modelspace().add_lwpolyline(points, dxfattribs=attribs, close=True)
+            else:
+                doc.modelspace().add_lwpolyline(points, dxfattribs=attribs)
 
         elif geom_type == 'LWPOLYLINE':
-            pass
-        
+            points = [tuple(point) for point in geom_object.extra_data['points']] 
+            if geom_object.extra_data['attributes'].get('is_closed', False):
+                doc.modelspace().add_lwpolyline(points, dxfattribs=attribs, close=True)
+            else:
+                doc.modelspace().add_lwpolyline(points, dxfattribs=attribs)
+
         elif geom_type == 'CIRCLE':
-            pass
+            center = tuple(geom_object.extra_data['attributes']['center'])
+            radius = geom_object.extra_data['attributes']['radius']
+            doc.modelspace().add_circle(center, radius, dxfattribs=attribs)
 
         elif geom_type == 'ARC':
-            pass
+            center = tuple(geom_object.extra_data['attributes']['center'])
+            radius = geom_object.extra_data['attributes']['radius']
+            start_angle = geom_object.extra_data['attributes']['start_angle']
+            end_angle = geom_object.extra_data['attributes']['end_angle']
+            doc.modelspace().add_arc(center, radius, start_angle, end_angle, dxfattribs=attribs)
 
         elif geom_type == 'MULTILEADER':
-            pass
+            base_point = geom_object.extra_data['attributes'].get('base_point', (0, 0, 0))
+            text = geom_object.extra_data.get('text', "")
+            doc.modelspace().add_mtext(text).set_location(base_point)
 
         elif geom_type == 'INSERT':
-            pass
+            insertion_point = tuple(geom_object.extra_data['attributes']['insert'])
+            block_name = geom_object.extra_data['block_name']
+            doc.modelspace().add_blockref(block_name, insertion_point, dxfattribs=attribs)
 
         elif geom_type == '3DSOLID':
-            pass
+            pass  # Для 3D SOLID потребуется экспортировать или обработать ACIS данные
 
         else:
             Logger.log_error(f'postgis to dxf. dxf type = "{geom_type}" not supported.')
-            # raise Exception(f'dxf type = "{geom_type}" not supported")
 
     # Добавление негеометрических объектов
     for non_geom_object in non_geom_objects:
@@ -109,7 +162,10 @@ def convert_postgis_to_dxf(
 
         # Пример добавления текстового объекта
         if geom_type == 'TEXT':
-            pass
+            text = non_geom_object.extra_data['attributes']['text']
+            location = tuple(non_geom_object.extra_data['attributes']['insert'])
+            doc.modelspace().add_text(text, dxfattribs={'layer': layer_name})
+            
 
     # Сохраняем DXF файл
     doc.saveas(path)

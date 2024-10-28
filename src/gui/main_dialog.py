@@ -12,7 +12,7 @@ from ..logger.logger import Logger
 from ..db.saved_connections_manager import get_all_connections, get_connection, edit_connection_via_dialog
 from ..dxf.dxf_handler import DXFHandler
 from ..tree_widget_handler import TreeWidgetHandler
-from ..db.database import get_all_files_from_db
+from ..db.database import get_all_files_from_db, import_dxf
 
 
 # Load UI file for PyQt
@@ -232,8 +232,12 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getSaveFileName(None, "Save file as", "", "Все файлы (*)", options=options)
         
+        conn = get_connection(conn_name) or {}
+        username = conn.get('username', 'N/A')
+        password = conn.get('password', 'N/A')
+
         if file_path:
-            QMessageBox.information(None, "Сохранение файла", f"Файл будет сохранен по пути: {file_path}")
+            import_dxf(username, password, host, port, dbname, file_id, file_path)
         else:
             QMessageBox.warning(None, "Error", "Please select the path to save the file.")
 

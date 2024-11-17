@@ -52,7 +52,6 @@ def convert_dxf_to_postgis(entity: DXFEntity) -> tuple[str, BaseGeometry, dict]:
 
     return geom_type, geometry, _verify_extra_data(extra_data)
 
-
 def convert_postgis_to_dxf(
     layers: list[models.Layer],
     geom_objects: list[models.GeometricObject],
@@ -64,88 +63,64 @@ def convert_postgis_to_dxf(
 
     # Добавляем слои и объекты в DXF
     for layer in layers:
-        doc.layers.new(name=layer.name)
+        if not doc.layers.has_entry(layer.name):  # Проверяем, существует ли слой
+            doc.layers.new(name=layer.name)
+
 
     # Добавление геометрических объектов
     for geom_object in geom_objects:
         layer_name = geom_object.layer_relationship.name
         geom_type = geom_object.geom_type
-        attributes = geom_object.extra_data.get('attributes', {})
-        attribs = {}
 
-        # Проверяем и добавляем атрибуты, если они имеют корректные значения
-        if "color" in attributes and attributes["color"] is not None:
-            attribs["color"] = attributes["color"]
-
-        if "layer" in attributes and attributes["layer"] is not None:
-            attribs["layer"] = attributes["layer"]
-
-        if "location" in attributes and isinstance(attributes["location"], list) and len(attributes["location"]) >= 3:
-            attribs["location"] = tuple(attributes["location"])  # Преобразуем список в кортеж
-
-        if "ltscale" in attributes and isinstance(attributes["ltscale"], list) and attributes["ltscale"]:
-            attribs["ltscale"] = attributes["ltscale"][0]  # Берем первый элемент, если это список
-
-        if "linetype" in attributes and isinstance(attributes["linetype"], list) and attributes["linetype"]:
-            attribs["linetype"] = attributes["linetype"][0]  # Берем первый элемент, если это список
-
-        if "invisible" in attributes and isinstance(attributes["invisible"], list) and attributes["invisible"]:
-            attribs["invisible"] = attributes["invisible"][0]  # Берем первый элемент, если это список
-
-        if "lineweight" in attributes and isinstance(attributes["lineweight"], list) and attributes["lineweight"]:
-            attribs["lineweight"] = attributes["lineweight"][0]  # Берем первый элемент, если это список
-
-        if "true_color" in attributes and isinstance(attributes["true_color"], list) and attributes["true_color"]:
-            attribs["true_color"] = attributes["true_color"][0]  # Берем первый элемент, если это список
-
-        if "transparency" in attributes and attributes["transparency"] is not None:
-            attribs["transparency"] = attributes["transparency"]
+        attribs = _verify_attributes(geom_object.extra_data.get('attributes', {}))
         
         if geom_type == 'POINT':
-            location = tuple(geom_object.extra_data['attributes']['location'])
+            location = tuple(attribs['location'])
             doc.modelspace().add_point(
                 location,
                 dxfattribs=attribs
             )
 
         elif geom_type == 'LINE':
-            start = tuple(geom_object.extra_data['attributes']['start'])
-            end = tuple(geom_object.extra_data['attributes']['end'])
+            start = tuple(attribs['start'])
+            end = tuple(attribs['end'])
             doc.modelspace().add_line(start, end, dxfattribs=attribs)
             
         elif geom_type == 'POLYLINE':
             points = geom_object.extra_data['points']
-            if geom_object.extra_data['attributes'].get('is_closed', False):
+            if attribs.get('is_closed', False):
                 doc.modelspace().add_lwpolyline(points, dxfattribs=attribs, close=True)
             else:
                 doc.modelspace().add_lwpolyline(points, dxfattribs=attribs)
 
         elif geom_type == 'LWPOLYLINE':
-            points = [tuple(point) for point in geom_object.extra_data['points']] 
-            if geom_object.extra_data['attributes'].get('is_closed', False):
+            points = [tuple(point) for point in geom_object.extra_data['points']]
+            if attribs.get('is_closed', False):
+                del attribs['is_closed'] # ezdxf почему то не нравится этот атрибут
                 doc.modelspace().add_lwpolyline(points, dxfattribs=attribs, close=True)
             else:
+                del attribs['is_closed'] # ezdxf почему то не нравится этот атрибут
                 doc.modelspace().add_lwpolyline(points, dxfattribs=attribs)
 
         elif geom_type == 'CIRCLE':
-            center = tuple(geom_object.extra_data['attributes']['center'])
-            radius = geom_object.extra_data['attributes']['radius']
+            center = tuple(attribs['center'])
+            radius = attribs['radius']
             doc.modelspace().add_circle(center, radius, dxfattribs=attribs)
 
         elif geom_type == 'ARC':
-            center = tuple(geom_object.extra_data['attributes']['center'])
-            radius = geom_object.extra_data['attributes']['radius']
-            start_angle = geom_object.extra_data['attributes']['start_angle']
-            end_angle = geom_object.extra_data['attributes']['end_angle']
+            center = tuple(attribs['center'])
+            radius = attribs['radius']
+            start_angle = attribs['start_angle']
+            end_angle = attribs['end_angle']
             doc.modelspace().add_arc(center, radius, start_angle, end_angle, dxfattribs=attribs)
 
         elif geom_type == 'MULTILEADER':
-            base_point = geom_object.extra_data['attributes'].get('base_point', (0, 0, 0))
+            base_point = attribs.get('base_point', (0, 0, 0))
             text = geom_object.extra_data.get('text', "")
             doc.modelspace().add_mtext(text).set_location(base_point)
 
         elif geom_type == 'INSERT':
-            insertion_point = tuple(geom_object.extra_data['attributes']['insert'])
+            insertion_point = tuple(attribs['insert'])
             block_name = geom_object.extra_data['block_name']
             doc.modelspace().add_blockref(block_name, insertion_point, dxfattribs=attribs)
 
@@ -159,16 +134,39 @@ def convert_postgis_to_dxf(
     for non_geom_object in non_geom_objects:
         layer_name = non_geom_object.layer.name
         geom_type = non_geom_object.geom_type
+        
+        attribs = _verify_attributes(non_geom_object.extra_data.get('attributes', {}))
 
         # Пример добавления текстового объекта
         if geom_type == 'TEXT':
-            text = non_geom_object.extra_data['attributes']['text']
-            location = tuple(non_geom_object.extra_data['attributes']['insert'])
-            doc.modelspace().add_text(text, dxfattribs={'layer': layer_name})
+            text = attribs['text']
+            location = tuple(attribs['insert'])
+            height=attribs['height'] if 'height' in attribs else 0
+            rotation=attribs['rotation'] if 'rotation' in attribs else 0
+            doc.modelspace().add_text(text, height=height, rotation=rotation, dxfattribs=attribs)
             
-
     # Сохраняем DXF файл
     doc.saveas(path)
+
+
+def _verify_attributes(attributes: dict) -> dict:
+    """
+    атрибуты из dict переводим в типы понятные ezdxf
+    """
+    attribs = {}
+
+    for key, value in attributes.items():
+        # Проверяем и добавляем атрибуты, если они имеют корректные значения
+        if key in ['location', 'insert']:
+            attribs[key] = tuple(value)  # Преобразуем список в кортеж
+
+        elif key in ['ltscale', 'linetype', 'invisible', 'lineweight', 'true_color'] and isinstance(value, list):
+            attribs[key] = value[0]  # Берем первый элемент, если это список
+
+        elif value is not None:
+            attribs[key] = value
+    
+    return attribs
 
 
 def _replace_vec3_to_list(data):
@@ -205,11 +203,9 @@ def _attributes_to_dict(entity: DXFEntity, data: dict = None) -> dict:
 
     return data
     
-
 def _convert_point_to_postgis(entity: DXFPoint) -> tuple[BaseGeometry, dict]:
     extra_data = _attributes_to_dict(entity)
     return Point(entity.dxf.location.x, entity.dxf.location.y, entity.dxf.location.z), extra_data
-
 
 def _convert_line_to_postgis(entity: Line) -> tuple[BaseGeometry, dict]:
     extra_data = _attributes_to_dict(entity)
@@ -217,7 +213,6 @@ def _convert_line_to_postgis(entity: Line) -> tuple[BaseGeometry, dict]:
     start = (entity.dxf.start.x, entity.dxf.start.y, entity.dxf.start.z)
     end = (entity.dxf.end.x, entity.dxf.end.y, entity.dxf.end.z)
     return LineString([start, end]), extra_data
-
 
 def _convert_polyline_to_postgis(entity: Polyline) -> tuple[BaseGeometry, dict]:
     points = [(v.x, v.y, v.z) for v in entity.points()]
@@ -231,7 +226,6 @@ def _convert_polyline_to_postgis(entity: Polyline) -> tuple[BaseGeometry, dict]:
     else:
         return LineString(points), extra_data
     
-
 def _convert_lwpolyline_to_postgis(entity: LWPolyline) -> tuple[BaseGeometry, dict]:
     points = [(v.x, v.y, v.z) for v in entity.vertices_in_ocs()]
     
@@ -244,11 +238,9 @@ def _convert_lwpolyline_to_postgis(entity: LWPolyline) -> tuple[BaseGeometry, di
     else:
         return LineString(points), extra_data
     
-
-def _convert_text_to_postgis(entity: LWPolyline) -> tuple[BaseGeometry, dict]:
+def _convert_text_to_postgis(entity: Text) -> tuple[BaseGeometry, dict]:
     extra_data = _attributes_to_dict(entity)
     return None, extra_data
-
 
 def _convert_circle_to_postgis(entity: Circle) -> tuple[BaseGeometry, dict]:
     center = (entity.dxf.center.x, entity.dxf.center.y, entity.dxf.center.z)
@@ -266,7 +258,6 @@ def _convert_circle_to_postgis(entity: Circle) -> tuple[BaseGeometry, dict]:
 
     extra_data = _attributes_to_dict(entity)
     return circle, extra_data
-
 
 def _convert_arc_to_postgis(entity: Arc) -> tuple[BaseGeometry, dict]:
     center = (entity.dxf.center.x, entity.dxf.center.y, entity.dxf.center.z)  # Убедитесь, что Z-координаты присутствуют

@@ -13,6 +13,7 @@ class File(Base):
 
     id = Column(Integer, primary_key=True)
     filename = Column(String, nullable=False)
+    file_metadata = Column(JSONB, nullable=False)
     upload_date = Column(DateTime)
     update_date = Column(DateTime)
 
@@ -29,6 +30,7 @@ class Layer(Base):
     name = Column(String, nullable=False)
     color = Column(String, nullable=True)
     description = Column(String, nullable=False)
+    layer_metadata = Column(JSONB, nullable=False)
 
     file = relationship('File', back_populates='layers')
     geometric_objects = relationship('GeometricObject', back_populates='layer_relationship', cascade='all, delete-orphan')

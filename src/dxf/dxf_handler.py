@@ -122,3 +122,127 @@ class DXFHandler(QObject):
             return self.msps[filename].groupby(dxfattrib="layer")
         else:
             return {} # file not found
+    
+    def get_file_metadata(self, filename: str) -> dict:
+        """
+        Извлекает все доступные метаданные из DXF файла.
+        """
+        if filename not in self.dxf:
+            Logger.log_error(f'DXF файл {filename} не загружен.')
+            return {}
+
+        drawing = self.dxf[filename]
+
+        # Задаем список известных валидных ключей для заголовка
+        valid_keys = [
+            "$ACADVER",  # Версия DXF
+            "$APERTURE",  # Апертуры
+            "$AUNITS",  # Единицы измерения
+            "$CMLIM",  # Границы комментариев
+            "$DIMASSOC",  # Ассоциации размеров
+            "$DIMBLK",  # Блоки для размеров
+            "$DIMLUNIT",  # Единица измерения для размеров
+            "$DIMSTYLE",  # Стиль размеров
+            "$DRAGMODE",  # Режим перетаскивания
+            "$LIMCHECK",  # Проверка ограничений
+            "$LUNITS",  # Единица измерения длины
+            "$TITLE",  # Заголовок
+            "$TDCREATE",  # Дата создания
+            "$TDUPDATE",  # Дата обновления
+            "$EXTMAX",  # Максимальные координаты
+            "$EXTMIN",  # Минимальные координаты
+        ]
+
+        # Заголовки файла (headers)
+        file_metadata = {
+            "headers": {key: drawing.header.get(key, None) for key in valid_keys if key in drawing.header},
+            "version": drawing.dxfversion,
+        }
+
+        # Составляем итоговую структуру
+        return {
+            "file_metadata": file_metadata
+        }
+
+
+
+
+    def get_layer_metadata(self, filename: str, layer_name: str) -> dict:
+        """
+        Извлекает все доступные метаданные слоя DXF-файла.
+        
+        :param filename: Имя DXF-файла.
+        :param layer_name: Имя слоя, для которого извлекаются метаданные.
+        :return: Словарь с метаданными слоя.
+        """
+        # Проверяем, загружен ли файл
+        dxf_file = self.dxf.get(filename)
+        if not dxf_file:
+            Logger.log_error(f"Файл {filename} не найден в DXFHandler.")
+            return {"error": f"Файл {filename} не найден."}
+        
+        # Проверяем существование слоя
+        layer = dxf_file.layers.get(layer_name)
+        if not layer:
+            Logger.log_error(f"Слой {layer_name} не найден в файле {filename}.")
+            return {"error": f"Слой {layer_name} не найден."}
+
+        # Основные свойства слоя
+        layer_metadata = {
+            "name": layer.dxf.name,
+            "color": layer.dxf.color,
+            "linetype": layer.dxf.linetype,
+            "is_off": layer.is_off(),
+            "is_frozen": layer.is_frozen(),
+            "is_locked": layer.is_locked(),
+            "plot": layer.dxf.plot,
+            "lineweight": layer.dxf.lineweight,
+        }
+
+
+        ''' это выдал гпт, но не работает
+        
+        # Сбор таблиц, связанных с этим слоем
+        tables_metadata = {
+            "linetypes": [],
+            "text_styles": [],
+            "dimstyles": [],
+            "blocks": []
+        }
+
+        # 1. Типы линий (Linetypes)
+        for linetype in dxf_file.linetypes:
+            tables_metadata["linetypes"].append({
+                "name": linetype.dxf.name,
+                "description": linetype.dxf.description,
+                "pattern": getattr(linetype.dxf, "pattern", None)
+            })
+
+        # 2. Стили текста (Text Styles)
+        for text_style in dxf_file.styles:
+            tables_metadata["text_styles"].append({
+                "name": text_style.dxf.name,
+                "font": text_style.dxf.font,
+                "bigfont": text_style.dxf.bigfont
+            })
+
+        # 3. Стили размеров (Dimstyles)
+        for dimstyle in dxf_file.dimstyles:
+            tables_metadata["dimstyles"].append({
+                "name": dimstyle.dxf.name,
+                "parameters": dimstyle.get_dxf_attrib()
+            })
+
+        # 4. Блоки (Blocks)
+        for block in dxf_file.blocks:
+            tables_metadata["blocks"].append({
+                "name": block.name,
+                "description": getattr(block, "description", None)
+            })
+
+        # Добавляем информацию о таблицах в метаданные слоя
+        layer_metadata["tables"] = tables_metadata
+        '''
+
+        return layer_metadata
+

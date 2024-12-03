@@ -115,6 +115,7 @@ def convert_dxf_to_postgis(entity: DXFEntity) -> tuple[str, BaseGeometry, dict]:
     return geom_type, geometry, _verify_extra_data(extra_data)
 
 def convert_postgis_to_dxf(
+    file_metadata: str,
     layers: list[models.Layer],
     geom_objects: list[models.GeometricObject],
     non_geom_objects: list[models.NonGeometricObject],
@@ -123,10 +124,52 @@ def convert_postgis_to_dxf(
     # Создаем новый документ DXF
     doc = ezdxf.new()
 
+    # Получаем заголовок документа
+    header = doc.header
+    
+    # Добавляем данные из file_metadata в заголовок
+    headers = file_metadata.get('file_metadata', {}).get('headers', {})
+    for key, value in headers.items():
+        if isinstance(value, list) and all(isinstance(v, (int, float)) for v in value):
+            # Если значение — это список чисел (например, координаты), оставляем его как есть
+            header[key] = value
+        else:
+            # Если значение обычное, просто добавляем его в заголовок
+            header[key] = str(value)  # Преобразуем в строку только если это не список чисел
+    
+    # Добавляем версию в заголовок
+    version = file_metadata.get('file_metadata', {}).get('version', '')
+    if version:
+        header['$ACADVER'] = version
+
     # Добавляем слои и объекты в DXF
     for layer in layers:
-        if not doc.layers.has_entry(layer.name):  # Проверяем, существует ли слой
-            doc.layers.new(name=layer.name)
+        # Извлекаем метаданные для текущего слоя
+        layer_metadata = layer.layer_metadata
+
+        # Проверяем, существует ли слой
+        if not doc.layers.has_entry(layer.name):  
+            # Создаем новый слой
+            new_layer = doc.layers.new(name=layer.name)
+
+            # Устанавливаем атрибуты для слоя из метаданных
+            if 'color' in layer_metadata:
+                new_layer.color = layer_metadata['color']  # Цвет слоя
+
+            if 'lineweight' in layer_metadata:
+                new_layer.lineweight = layer_metadata['lineweight']  # Вес линии
+
+            if 'is_frozen' in layer_metadata:
+                new_layer.is_frozen = layer_metadata['is_frozen']  # Замороженность слоя
+
+            if 'is_locked' in layer_metadata:
+                new_layer.is_locked = layer_metadata['is_locked']  # Заблокированность слоя
+
+            if 'linetype' in layer_metadata:
+                new_layer.linetype = layer_metadata['linetype']  # Тип линии слоя
+            
+            if 'is_off' in layer_metadata:
+                new_layer.is_off = layer_metadata['is_off']  # Выключен ли слой
 
 
     # Добавление геометрических объектов

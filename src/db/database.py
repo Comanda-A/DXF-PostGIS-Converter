@@ -161,6 +161,33 @@ def import_dxf(
     convert_postgis_to_dxf(file_metadata, layers, geom_objects, non_geom_objects, path)
 
 
+def delete_dxf(
+    username: str,                  # для коннекта к бд
+    password: str,                  # для коннекта к бд
+    address: str,                   # для коннекта к бд
+    port: str,                      # для коннекта к бд
+    dbname: str,                    # для коннекта к бд
+    file_id: int                    # file id
+):
+    db = _connect_to_database(username, password, address, port, dbname)
+    file = db.query(models.File).filter(models.File.id == file_id).first()
+    layers = db.query(models.Layer).filter(models.Layer.file_id == file_id).all()
+    geom_objects = db.query(models.GeometricObject).filter(models.GeometricObject.file_id == file_id).all()
+    non_geom_objects = db.query(models.NonGeometricObject).filter(models.NonGeometricObject.file_id == file_id).all()
+
+    for obj in non_geom_objects:
+        db.delete(obj)
+
+    for obj in geom_objects:
+        db.delete(obj)
+
+    for layer in layers:
+        db.delete(layer)
+
+    db.delete(file)
+    db.commit()
+
+
 def get_all_files_from_db(
     username: str,                  # для коннекта к бд
     password: str,                  # для коннекта к бд

@@ -259,7 +259,6 @@ def convert_postgis_to_dxf(
                 
                 # Устанавливаем ACIS данные в объект Solid3d
                 entity.sat = acis_data
-                Logger.log_message(f'success acis: {acis_data}')
             except Exception as e:
                 Logger.log_error("convert_postgis_to_dxf() geom_type == '3DSOLID' ERROR. e: " + str(e))
             

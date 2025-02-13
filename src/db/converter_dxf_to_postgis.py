@@ -141,10 +141,20 @@ def insert_blocks_to_new_file(doc, blocks_data):
 
             # Pass along all keys except 'type', 'handle', and 'layer'.
             dxfattribs = {k: v for k, v in entity.items() if k not in ("type", "handle", "layer")}
+
+
+            if entity_type == "LWPOLYLINE":
+                # Remove invalid attributes for LWPOLYLINE
+                closed = dxfattribs.pop("closed", False)
+                points = dxfattribs.pop("points", [])
+
             try:
                 # Create the entity using factory and add it to the block layout.
                 entity_obj = factory.create_db_entry(entity_type, dxfattribs, doc=doc)
-                new_block.add_entity(entity_obj)
+                if entity_type == "LWPOLYLINE":
+                    new_block.add_lwpolyline(points, dxfattribs=dxfattribs, close=closed)
+                else:
+                    new_block.add_entity(entity_obj)
             except Exception as e:
                 Logger.log_error(f"Error adding entity '{entity_type}' to block '{block_name}': {e}")
 

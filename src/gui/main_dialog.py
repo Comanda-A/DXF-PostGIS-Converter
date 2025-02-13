@@ -31,8 +31,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.setupUi(self)
         self.iface = iface
 
-        self.dxf_handler = DXFHandler(self.type_shape, self.type_selection)
         self.dxf_tree_widget_handler = TreeWidgetHandler(self.dxf_tree_widget)
+        self.dxf_handler = DXFHandler(self.type_shape, self.type_selection, self.dxf_tree_widget_handler)
         self.db_tree_widget_handler = TreeWidgetHandler(self.db_structure_treewidget)
 
         # нажатие по кнопке export_to_db_button

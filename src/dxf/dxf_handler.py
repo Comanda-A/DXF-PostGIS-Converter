@@ -21,6 +21,9 @@ def get_first_visible_group():
                 return dxf_name
     return None
 
+def get_selected_file(tree_widget_handler):
+    """Получает имя выбранного файла из TreeWidgetHandler"""
+    return tree_widget_handler.get_selected_file_name()
 
 def export_svg(doc, msp):
     backend = svg.SVGBackend()
@@ -33,7 +36,7 @@ def export_svg(doc, msp):
 class DXFHandler(QObject):
     progressChanged = pyqtSignal(int)
 
-    def __init__(self, type_shape, type_selection):
+    def __init__(self, type_shape, type_selection, tree_widget_handler):
         super().__init__()
         self.msps: dict[str, Modelspace] = {}
         self.paper_space: dict[str, Paperspace] = {}
@@ -41,6 +44,7 @@ class DXFHandler(QObject):
         self.file_is_open = False
         self.type_shape = type_shape
         self.type_selection = type_selection
+        self.tree_widget_handler = tree_widget_handler
 
     def read_dxf_file(self, file_name):
         """
@@ -78,9 +82,6 @@ class DXFHandler(QObject):
     def select_entities_in_area(self, *args):
         """
         Select entities within the specified area based on the selection type.
-
-        :param shape: Type of shape used for selection ('rect', 'circle', 'polygon').
-        :param selection_type: Type of selection ('inside', 'outside', 'overlap', 'chained').
         :param args: Parameters for the shape (coordinates, center point, radius, etc.).
         """
         # Map selection types to selection functions
@@ -108,12 +109,13 @@ class DXFHandler(QObject):
 
         # Get the appropriate selection function
         selection_func = selection_functions[self.type_selection.currentText()]
-
-        active_layer = get_first_visible_group()
+        Logger.log_message(self.tree_widget_handler)
+        active_layer = get_selected_file(self.tree_widget_handler)
         if active_layer:
-            Logger.log_message(f"Активный слой: {active_layer}")
+            Logger.log_message(f"Активный файл: {active_layer}")
         else:
-            Logger.log_warning("Активный слой не выбран.")
+            Logger.log_warning("Файл не выбран. Пожалуйста, выберите файл в дереве.")
+            return []
 
         entities = list(selection_func(shape_obj, self.msps[active_layer]))
 

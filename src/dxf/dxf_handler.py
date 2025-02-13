@@ -255,14 +255,21 @@ class DXFHandler(QObject):
                 if hasattr(entity, 'dxf'):  # Извлекаем основные атрибуты
                     entity_data.update({attr: getattr(entity.dxf, attr, None) for attr in entity.dxf.all_existing_dxf_attribs()})
 
-                 # Специальная обработка LWPOLYLINE
+                # Специальная обработка LWPOLYLINE
                 if entity.dxftype() == 'LWPOLYLINE':
                     points = list(entity.get_points(format='xy'))  # Сохраняем только x, y
                     entity_data["points"] = points
                     entity_data["closed"] = entity.is_closed
+                # Специальная обработка 3DSOLID
+                elif entity.dxftype() == '3DSOLID':
+                    try:
+                        acis_data = entity.acis_data
+                        entity_data["acis_data"] = acis_data  # raw ACIS data
+                    except Exception as e:
+                        entity_data["acis_error"] = str(e)
 
                 block_info["entities"].append(entity_data)
-                
+
             blocks_data.append(block_info)
 
         return blocks_data

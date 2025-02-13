@@ -1,8 +1,9 @@
 import ezdxf
 from ezdxf import select
-from ezdxf.layouts.layout import Modelspace
+from ezdxf.layouts.layout import Modelspace, Paperspace
 from ezdxf.document import Drawing
-
+from ezdxf.addons.drawing import Frontend, RenderContext
+from ezdxf.addons.drawing import layout, svg, pymupdf, config
 import os
 
 from ..logger.logger import Logger
@@ -20,12 +21,22 @@ def get_first_visible_group():
                 return dxf_name
     return None
 
+
+def export_svg(doc, msp):
+    backend = svg.SVGBackend()
+    Frontend(RenderContext(doc), backend).draw_layout(msp)
+
+    with open("C:/Users/nikita/AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins/DXF-PostGIS-Converter/dxf_examples/your.svg", "wt") as fp:
+        fp.write(backend.get_string(layout.Page(0, 0)))
+
+
 class DXFHandler(QObject):
     progressChanged = pyqtSignal(int)
 
     def __init__(self, type_shape, type_selection):
         super().__init__()
         self.msps: dict[str, Modelspace] = {}
+        self.paper_space: dict[str, Paperspace] = {}
         self.dxf: dict[str, Drawing] = {}
         self.file_is_open = False
         self.type_shape = type_shape
@@ -38,8 +49,12 @@ class DXFHandler(QObject):
         try:
             fn = os.path.basename(file_name)
             self.dxf[fn] = ezdxf.readfile(file_name)
+            #export_svg(self.dxf[fn], self.dxf[fn].modelspace())
+            #self.dxf[fn].audit()
             msp = self.dxf[fn].modelspace()
 
+           # block = self.dxf[fn].layouts_and_blocks()
+            #Logger.log_message(f'Заголовки: {self.dxf[fn].header.varnames()} ')
             self.msps[fn] = msp
 
             self.file_is_open = True
@@ -81,7 +96,7 @@ class DXFHandler(QObject):
         # Map shape types to shape creation functions
         shape_creators = {
             'rect': lambda x_min, x_max, y_min, y_max: select.Window((x_min, y_min), (x_max, y_max)),
-            'circle': lambda centerPoint, radius: select.Circle(centerPoint, radius),
+            'circle': lambda center_point, radius: select.Circle(center_point, radius),
             'polygon': lambda points: select.Polygon(points)
         }
 
@@ -113,7 +128,6 @@ class DXFHandler(QObject):
             progress = int((i + 1) / total_entities * 100)
             self.progressChanged.emit(progress)
 
-    # TODO: поправь как тебе удобно
     def get_layers(self, filename=None) -> dict:
         if filename is None:
             filename = next(iter(self.dxf))
@@ -121,7 +135,7 @@ class DXFHandler(QObject):
         if filename in self.msps:
             return self.msps[filename].groupby(dxfattrib="layer")
         else:
-            return {} # file not found
+            return {} 
     
     def get_file_metadata(self, filename: str) -> dict:
         """
@@ -132,30 +146,13 @@ class DXFHandler(QObject):
             return {}
 
         drawing = self.dxf[filename]
-
-        # Задаем список известных валидных ключей для заголовка
-        valid_keys = [
-            "$ACADVER",  # Версия DXF
-            "$APERTURE",  # Апертуры
-            "$AUNITS",  # Единицы измерения
-            "$CMLIM",  # Границы комментариев
-            "$DIMASSOC",  # Ассоциации размеров
-            "$DIMBLK",  # Блоки для размеров
-            "$DIMLUNIT",  # Единица измерения для размеров
-            "$DIMSTYLE",  # Стиль размеров
-            "$DRAGMODE",  # Режим перетаскивания
-            "$LIMCHECK",  # Проверка ограничений
-            "$LUNITS",  # Единица измерения длины
-            "$TITLE",  # Заголовок
-            "$TDCREATE",  # Дата создания
-            "$TDUPDATE",  # Дата обновления
-            "$EXTMAX",  # Максимальные координаты
-            "$EXTMIN",  # Минимальные координаты
-        ]
+        # Список заголовков файла
+        headers_list = list(drawing.header.varnames())
+        headers_dict = {h: drawing.header.get(h, None) for h in headers_list}
 
         # Заголовки файла (headers)
         file_metadata = {
-            "headers": {key: drawing.header.get(key, None) for key in valid_keys if key in drawing.header},
+            "headers": headers_dict,
             "version": drawing.dxfversion,
         }
 
@@ -163,9 +160,6 @@ class DXFHandler(QObject):
         return {
             "file_metadata": file_metadata
         }
-
-
-
 
     def get_layer_metadata(self, filename: str, layer_name: str) -> dict:
         """
@@ -200,49 +194,77 @@ class DXFHandler(QObject):
         }
 
 
-        ''' это выдал гпт, но не работает
-        
-        # Сбор таблиц, связанных с этим слоем
-        tables_metadata = {
-            "linetypes": [],
-            "text_styles": [],
-            "dimstyles": [],
-            "blocks": []
-        }
-
-        # 1. Типы линий (Linetypes)
-        for linetype in dxf_file.linetypes:
-            tables_metadata["linetypes"].append({
-                "name": linetype.dxf.name,
-                "description": linetype.dxf.description,
-                "pattern": getattr(linetype.dxf, "pattern", None)
-            })
-
-        # 2. Стили текста (Text Styles)
-        for text_style in dxf_file.styles:
-            tables_metadata["text_styles"].append({
-                "name": text_style.dxf.name,
-                "font": text_style.dxf.font,
-                "bigfont": text_style.dxf.bigfont
-            })
-
-        # 3. Стили размеров (Dimstyles)
-        for dimstyle in dxf_file.dimstyles:
-            tables_metadata["dimstyles"].append({
-                "name": dimstyle.dxf.name,
-                "parameters": dimstyle.get_dxf_attrib()
-            })
-
-        # 4. Блоки (Blocks)
-        for block in dxf_file.blocks:
-            tables_metadata["blocks"].append({
-                "name": block.name,
-                "description": getattr(block, "description", None)
-            })
-
-        # Добавляем информацию о таблицах в метаданные слоя
-        layer_metadata["tables"] = tables_metadata
-        '''
-
         return layer_metadata
+
+    def get_tables(self, filename: str) -> dict:
+        """
+        Извлекает таблицы из DXF файла с использованием ezdxf.
+        Возвращает словарь с именами таблиц и списком их записей.
+        """
+        if filename not in self.dxf:
+            Logger.log_error(f"DXF файл {filename} не загружен.")
+            return {"error": f"DXF файл {filename} не загружен."}
+
+        drawing = self.dxf[filename]
+        tables_info = {}
+        # Маппинг стандартных таблиц DXF к именам атрибутов в ezdxf
+        table_mapping = {
+            'APPID': 'appid',
+            'BLOCK_RECORD': 'block_record',
+            'DIMSTYLE': 'dimstyle',
+            'LAYER': 'layer',
+            'LTYPE': 'linetype',
+            'STYLE': 'style',
+            'UCS': 'ucs',
+            'VIEW': 'view',
+            'VPORT': 'vport'
+        }
+        for name, attr_name in table_mapping.items():
+            table = getattr(drawing.tables, attr_name, None)
+            if table is None:
+                continue
+            records = []
+            for record in table:
+                records.append(record.dxfattribs())
+            tables_info[name] = records
+
+        return {"tables": tables_info}
+
+    def extract_blocks_from_dxf(self, filename: str) -> list:
+        """
+        Извлекает блоки из DXF-файла и возвращает список блоков с их содержимым.
+        
+        """
+        doc = self.dxf[filename]
+
+        blocks_data = []
+
+        for block in doc.blocks:
+            block_info = {
+                "name": block.name,
+                "base_point": tuple(block.base_point),
+                "entities": []
+            }
+
+            for entity in block:
+                entity_data = {
+                    "type": entity.dxftype(),
+                    "handle": entity.dxf.handle,
+                    "layer": entity.dxf.layer,
+                }
+                if hasattr(entity, 'dxf'):  # Извлекаем основные атрибуты
+                    entity_data.update({attr: getattr(entity.dxf, attr, None) for attr in entity.dxf.all_existing_dxf_attribs()})
+
+                 # Специальная обработка LWPOLYLINE
+                if entity.dxftype() == 'LWPOLYLINE':
+                    points = list(entity.get_points(format='xy'))  # Сохраняем только x, y
+                    entity_data["points"] = points
+                    entity_data["closed"] = entity.is_closed
+
+                block_info["entities"].append(entity_data)
+                
+            blocks_data.append(block_info)
+
+        return blocks_data
+
 

@@ -3,8 +3,9 @@ from shapely.geometry.base import BaseGeometry
 from ezdxf.entities import DXFEntity, Point as DXFPoint, Line, Polyline, LWPolyline, Circle, Arc, MultiLeader, Insert, Solid3d, Spline, Ellipse
 from ezdxf.entities import MText, Solid, Face3d, Trace, Body, Region, Mesh, Hatch, Leader, Shape, Viewport, ImageDef, Image
 from ezdxf.entities import Dimension, Ray, XLine, SeqEnd, Helix
+from ezdxf.entities import factory  # Added factory import
 from ezdxf.entities.text import Text
-from ezdxf.math import Vec3
+from ezdxf.math import Vec3, Vec2  # Added Vec2 import
 from . import models
 import math
 import ezdxf
@@ -114,6 +115,42 @@ def convert_dxf_to_postgis(entity: DXFEntity) -> tuple[str, BaseGeometry, dict]:
 
     return geom_type, geometry, _verify_extra_data(extra_data)
 
+
+def insert_blocks_to_new_file(doc, blocks_data):
+    """
+    Вставка блоков в новый файл DXF из словаря блоков с помошью фабрики ezdxf.entities.factory 
+    (работает со всеми типами сущностей, кроме LWPOLYLINE)
+    """
+    Logger.log_message("Starting block insertion")  # Added log for start
+    msp = doc.modelspace()
+    for block in blocks_data:
+        block_name = block.get("name")
+        Logger.log_message(f"Processing block: {block_name}")  # Log processing block
+        base_point = block.get("base_point", (0, 0, 0))
+        try:
+            new_block = doc.blocks.new(name=block_name, base_point=base_point)
+            Logger.log_message(f"Created new block: {block_name}")  # Log block creation
+        except ezdxf.DXFValueError:
+            Logger.log_warning(f"Block '{block_name}' already exists. Skipping.")
+            continue
+
+        for entity in block.get("entities", []):
+            entity_type = entity.get("type")
+            if entity_type == "MULTILEADER" or entity_type == "LWPOLYLINE":
+                Logger.log_message(f"Adding entity of type '{entity_type}' to block '{block_name}'")  # Log entity addition
+
+            # Pass along all keys except 'type', 'handle', and 'layer'.
+            dxfattribs = {k: v for k, v in entity.items() if k not in ("type", "handle", "layer")}
+            try:
+                # Create the entity using factory and add it to the block layout.
+                entity_obj = factory.create_db_entry(entity_type, dxfattribs, doc=doc)
+                new_block.add_entity(entity_obj)
+            except Exception as e:
+                Logger.log_error(f"Error adding entity '{entity_type}' to block '{block_name}': {e}")
+
+        msp.add_blockref(block_name, insert=base_point)
+    Logger.log_message("Completed block insertion")  # Added log for end
+
 def convert_postgis_to_dxf(
     file_metadata: str,
     layers: list[models.Layer],
@@ -142,20 +179,29 @@ def convert_postgis_to_dxf(
     if version:
         header['$ACADVER'] = version
 
+    # Добавляем блоки
+    blocks_data = file_metadata.get('blocks', {})
+    insert_blocks_to_new_file(doc, blocks_data)
+
     # Добавляем слои и объекты в DXF
     for layer in layers:
+        #Logger.log_message(f'Layer: {layer.name}')
         # Извлекаем метаданные для текущего слоя
         layer_metadata = layer.layer_metadata
 
         # Проверяем, существует ли слой
         if not doc.layers.has_entry(layer.name):  
             # Создаем новый слой
+            #Logger.log_message(f'Creating new layer: {layer.name}')
             new_layer = doc.layers.new(name=layer.name)
 
             # Устанавливаем атрибуты для слоя из метаданных
             if 'color' in layer_metadata:
                 new_layer.color = layer_metadata['color']  # Цвет слоя
 
+            if 'plot' in layer_metadata:
+                new_layer.plot = layer_metadata['plot']  # Печать слоя
+                
             if 'lineweight' in layer_metadata:
                 new_layer.lineweight = layer_metadata['lineweight']  # Вес линии
 
@@ -173,6 +219,7 @@ def convert_postgis_to_dxf(
 
 
     # Добавление геометрических объектов
+    msp = doc.modelspace()
     for geom_object in geom_objects:
         layer_name = geom_object.layer_relationship.name
         geom_type = geom_object.geom_type
@@ -181,7 +228,7 @@ def convert_postgis_to_dxf(
         
         if geom_type == 'POINT':
             location = tuple(attribs['location'])
-            doc.modelspace().add_point(
+            msp.add_point(
                 location,
                 dxfattribs=attribs
             )
@@ -189,45 +236,79 @@ def convert_postgis_to_dxf(
         elif geom_type == 'LINE':
             start = tuple(attribs['start'])
             end = tuple(attribs['end'])
-            doc.modelspace().add_line(start, end, dxfattribs=attribs)
+            msp.add_line(start, end, dxfattribs=attribs)
             
         elif geom_type == 'POLYLINE':
             points = geom_object.extra_data['points']
             if attribs.get('is_closed', False):
-                doc.modelspace().add_lwpolyline(points, dxfattribs=attribs, close=True)
+                msp.add_lwpolyline(points, dxfattribs=attribs, close=True)
             else:
-                doc.modelspace().add_lwpolyline(points, dxfattribs=attribs)
+                msp.add_lwpolyline(points, dxfattribs=attribs)
 
         elif geom_type == 'LWPOLYLINE':
             points = [tuple(point) for point in geom_object.extra_data['points']]
             if attribs.get('is_closed', False):
-                del attribs['is_closed'] # ezdxf почему то не нравится этот атрибут
-                doc.modelspace().add_lwpolyline(points, dxfattribs=attribs, close=True)
+                del attribs['is_closed'] # ezdxf почему-то не нравится этот атрибут
+                msp.add_lwpolyline(points, dxfattribs=attribs, close=True)
             else:
-                del attribs['is_closed'] # ezdxf почему то не нравится этот атрибут
-                doc.modelspace().add_lwpolyline(points, dxfattribs=attribs)
+                del attribs['is_closed'] # ezdxf почему-то не нравится этот атрибут
+                msp.add_lwpolyline(points, dxfattribs=attribs)
 
         elif geom_type == 'CIRCLE':
             center = tuple(attribs['center'])
             radius = attribs['radius']
-            doc.modelspace().add_circle(center, radius, dxfattribs=attribs)
+            msp.add_circle(center, radius, dxfattribs=attribs)
 
         elif geom_type == 'ARC':
             center = tuple(attribs['center'])
             radius = attribs['radius']
             start_angle = attribs['start_angle']
             end_angle = attribs['end_angle']
-            doc.modelspace().add_arc(center, radius, start_angle, end_angle, dxfattribs=attribs)
+            msp.add_arc(center, radius, start_angle, end_angle, dxfattribs=attribs)
 
         elif geom_type == 'MULTILEADER':
-            base_point = attribs.get('base_point', (0, 0, 0))
+            Logger.log_message(layer_name)
+            #Logger.log_message(f'MULTILEADER: {geom_object.extra_data}')
+            attributes = geom_object.extra_data.get('attributes', {})
+            leader_lines = geom_object.extra_data.get('leader_lines', [])
             text = geom_object.extra_data.get('text', "")
-            doc.modelspace().add_mtext(text).set_location(base_point)
+            style = geom_object.extra_data.get('style', "Standard")
+            base_point = attributes.get('base_point', (0, 0, 0))
 
+            # Create MULTILEADER entity and apply all extra attributes if supported
+            if text:
+                ml_builder = msp.add_multileader_mtext(style)
+                ml_builder.set_content(text, style=style, alignment=attributes.get('text_attachment_point', 0))
+                for key, value in attributes.items():
+                    try:
+                        setattr(ml_builder.dxf, key, value)
+                    except Exception:
+                        pass
+                if leader_lines:
+                    ml_builder.add_leader_line(0, leader_lines)
+                
+                ml_builder.build(insert=Vec2(base_point[:2]))
+            elif 'block_attributes' in geom_object.extra_data:
+                ml_builder = msp.add_multileader_block(style)
+                block_attrs = geom_object.extra_data.get('block_attributes', {})
+                block_name = block_attrs.get('name', "Unknown")
+                ml_builder.set_content(name=block_name, alignment=attributes.get('text_attachment_point', 0))
+                for key, value in attributes.items():
+                    try:
+                        setattr(ml_builder.dxf, key, value)
+                    except Exception:
+                        pass
+                if leader_lines:
+                    ml_builder.add_leader_line(0, leader_lines)
+                
+                ml_builder.build(insert=Vec2(base_point[:2]))
+            else:
+                Logger.log_error('MULTILEADER entity missing text or block attributes')
+            
         elif geom_type == 'INSERT':
             insertion_point = tuple(attribs['insert'])
             block_name = geom_object.extra_data['block_name']
-            doc.modelspace().add_blockref(block_name, insertion_point, dxfattribs=attribs)
+            msp.add_blockref(block_name, insertion_point, dxfattribs=attribs)
 
         else:
             Logger.log_error(f'postgis to dxf. dxf type = "{geom_type}" not supported.')
@@ -236,7 +317,6 @@ def convert_postgis_to_dxf(
     for non_geom_object in non_geom_objects:
         layer_name = non_geom_object.layer.name
         geom_type = non_geom_object.geom_type
-        
         attribs = _verify_attributes(non_geom_object.extra_data.get('attributes', {}))
 
         # Пример добавления текстового объекта
@@ -245,7 +325,7 @@ def convert_postgis_to_dxf(
             location = tuple(attribs['insert'])
             height=attribs['height'] if 'height' in attribs else 0
             rotation=attribs['rotation'] if 'rotation' in attribs else 0
-            doc.modelspace().add_text(text, height=height, rotation=rotation, dxfattribs=attribs)
+            msp.add_text(text, height=height, rotation=rotation, dxfattribs=attribs)
 
         elif geom_type == '3DSOLID':
             try:
@@ -255,13 +335,14 @@ def convert_postgis_to_dxf(
                     raise ValueError("ACIS data is missing")
                 
                 # Создаем объект Solid3d
-                entity = doc.modelspace().add_3dsolid(attribs)
+                entity = msp.add_3dsolid(attribs)
                 
                 # Устанавливаем ACIS данные в объект Solid3d
                 entity.sat = acis_data
             except Exception as e:
                 Logger.log_error("convert_postgis_to_dxf() geom_type == '3DSOLID' ERROR. e: " + str(e))
-            
+
+    #doc.audit()
     # Сохраняем DXF файл
     doc.saveas(path)
 
@@ -396,27 +477,19 @@ def _convert_arc_to_postgis(entity: Arc) -> tuple[BaseGeometry, dict]:
     return arc, extra_data
 
 def _convert_multileader_to_postgis(entity: MultiLeader) -> tuple[Polygon | Point, dict]:
-    geometry = None
     extra_data = _attributes_to_dict(entity)
-    
-    if entity.dxf.content_type == 2 and entity.context.mtext:
-        # MULTILEADER с контентом MTEXT
-        mtext_content = entity.context.mtext.default_content
-        extra_data['text'] = mtext_content
-
-        # Получаем точку вставки текста
-        base_point = entity.context.base_point
-        geometry = Point(base_point.x, base_point.y, base_point.z)
-
-    elif entity.dxf.content_type == 1 and entity.context.block:
-        # MULTILEADER с контентом BLOCK
-        block_attributes = entity.get_block_content()
-        extra_data['block_attributes'] = block_attributes
-
-        # Получаем точку вставки блока
-        base_point = entity.context.base_point
-        geometry = Point(base_point.x, base_point.y, base_point.z)
-
+    if entity.has_mtext_content:
+        extra_data['text'] = entity.get_mtext_content()  # MTEXT content
+    elif entity.has_block_content:
+        extra_data['block_attributes'] = entity.get_block_content()  # BLOCK content
+    # New: extract leader lines if available
+    if hasattr(entity, 'leader_lines'):
+        extra_data['leader_lines'] = [(pt.x, pt.y) for pt in entity.leader_lines]
+    else:
+        extra_data['leader_lines'] = []
+        extra_data['base_point'] = entity.context.base_point if hasattr(entity.context, 'base_point') else (0, 0, 0)
+    base_point = entity.context.base_point if hasattr(entity.context, 'base_point') else None
+    geometry = Point(base_point.x, base_point.y, base_point.z) if base_point else None
     return geometry, extra_data
 
 def _convert_insert_to_postgis(entity: Insert) -> tuple[BaseGeometry, dict]:
@@ -446,14 +519,14 @@ def _convert_3dsolid_to_postgis(entity: Solid3d) -> tuple[Point, dict]:
     return None, extra_data
 
 def _convert_spline_to_postgis(entity: Spline) -> tuple[BaseGeometry, dict]:
-    '''SPLINE в DXF представляет собой кривую Безье или Б-сплайн. В Shapely нет прямого эквивалента, но можно аппроксимировать кривую точками.'''
+    """SPLINE в DXF представляет собой кривую Безье или Б-сплайн. В Shapely нет прямого эквивалента, но можно аппроксимировать кривую точками."""
     points = [tuple(v) for v in entity.flattening(0.01)]
     extra_data = _attributes_to_dict(entity)
     extra_data['points'] = points
     return LineString(points), extra_data
 
 def _convert_ellipse_to_postgis(entity: Ellipse) -> tuple[BaseGeometry, dict]:
-    '''ELLIPSE в DXF представляет собой эллипс. В Shapely можно аппроксимировать эллипс точками.'''
+    """ELLIPSE в DXF представляет собой эллипс. В Shapely можно аппроксимировать эллипс точками."""
     center = (entity.dxf.center.x, entity.dxf.center.y, entity.dxf.center.z)
     major_axis = (entity.dxf.major_axis.x, entity.dxf.major_axis.y, entity.dxf.major_axis.z)
     ratio = entity.dxf.axis_ratio
@@ -475,13 +548,13 @@ def _convert_ellipse_to_postgis(entity: Ellipse) -> tuple[BaseGeometry, dict]:
     return LineString(ellipse_points), extra_data
 
 def _convert_mtext_to_postgis(entity: MText) -> tuple[BaseGeometry, dict]:
-    '''MTEXT в DXF представляет собой многострочный текст. В Shapely нет прямого эквивалента, но можно сохранить текст и его позицию.'''
+    """MTEXT в DXF представляет собой многострочный текст. В Shapely нет прямого эквивалента, но можно сохранить текст и его позицию."""
     extra_data = _attributes_to_dict(entity)
     extra_data['text'] = entity.text
     return None, extra_data
 
 def _convert_solid_to_postgis(entity: Solid) -> tuple[BaseGeometry, dict]:
-    '''`SOLID` в DXF представляет собой четырехугольник. В Shapely можно представить его как `Polygon`.'''
+    """`SOLID` в DXF представляет собой четырехугольник. В Shapely можно представить его как `Polygon`."""
     points = [
         (entity.dxf.vtx0.x, entity.dxf.vtx0.y, entity.dxf.vtx0.z),
         (entity.dxf.vtx1.x, entity.dxf.vtx1.y, entity.dxf.vtx1.z),
@@ -493,7 +566,7 @@ def _convert_solid_to_postgis(entity: Solid) -> tuple[BaseGeometry, dict]:
     return Polygon(points), extra_data
 
 def _convert_trace_to_postgis(entity: Trace) -> tuple[BaseGeometry, dict]:
-    '''`TRACE` в DXF также представляет собой четырехугольник. Обработка аналогична `SOLID`.'''
+    """`TRACE` в DXF также представляет собой четырехугольник. Обработка аналогична `SOLID`."""
     points = [
         (entity.dxf.vtx0.x, entity.dxf.vtx0.y, entity.dxf.vtx0.z),
         (entity.dxf.vtx1.x, entity.dxf.vtx1.y, entity.dxf.vtx1.z),

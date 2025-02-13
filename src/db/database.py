@@ -1,4 +1,3 @@
-
 from sqlalchemy.orm import declarative_base
 Base = declarative_base()
 
@@ -8,7 +7,7 @@ from geoalchemy2.shape import from_shape
 from ..logger.logger import Logger
 from datetime import datetime, timezone
 from . import models
-from .converter_dxf_to_postgis import convert_dxf_to_postgis, convert_postgis_to_dxf
+from .converter_dxf_to_postgis import convert_dxf_to_postgis, convert_postgis_to_dxf, _replace_vec3_to_list
 from ..dxf.dxf_handler import DXFHandler
 from ..tree_widget_handler import TreeWidgetHandler
 
@@ -60,11 +59,21 @@ def _create_file(db: Session, file_name: str, dxf_handler: DXFHandler) -> models
     if db_file is not None:
         return db_file
     else:
+        meta = dxf_handler.get_file_metadata(file_name)
+        tables_meta = dxf_handler.get_tables(file_name)
+        blocks_meta = dxf_handler.extract_blocks_from_dxf(file_name)
+        # save in txt file
+        with open("C:/Users/nikita/AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins/DXF-PostGIS-Converter/dxf_examples/blocks.txt", "w") as f:
+            f.write(str(blocks_meta))
+        meta["tables"] = tables_meta.get("tables", {})
+        meta["blocks"] = blocks_meta
+        # Convert Vec3 objects to lists so the metadata is JSON serializable.
+        meta = _replace_vec3_to_list(meta)
         db_file = models.File(
             filename=file_name,
-            file_metadata=dxf_handler.get_file_metadata(file_name),
-            upload_date = datetime.now(timezone.utc),
-            update_date = datetime.now(timezone.utc)
+            file_metadata=meta,
+            upload_date=datetime.now(timezone.utc),
+            update_date=datetime.now(timezone.utc)
         )
         db.add(db_file)
         db.commit()

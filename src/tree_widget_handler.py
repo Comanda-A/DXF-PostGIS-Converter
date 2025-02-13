@@ -45,14 +45,46 @@ class TreeWidgetHandler:
         self.tree_items = {}  # Dictionary for quick access to QTreeWidgetItem elements
         self.selectable = False
         self.tree_widget.itemChanged.connect(self.handle_item_changed)
+        self.layer_count = 0
+        self.selected_layers_count = 0
+        self.layer_stats = {}  # Cache for layer statistics
+        self.update_timer = None
+        self.batch_update = False
+        self.total_entities = 0  # Общее количество объектов во всех слоях
+        self.selected_total_entities = 0  # Общее количество выбранных объектов
 
         # Set the stretch factors for the columns
         self.tree_widget.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tree_widget.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
 
     def handle_item_changed(self, item, column):
-        if (item.checkState(column) == Qt.Checked or item.checkState(column) == Qt.Unchecked) and not self.selectable:
-            self.update_child_check_states(item, item.checkState(column))
+        if self.batch_update or self.selectable:
+            return
+
+        if item.checkState(column) in [Qt.Checked, Qt.Unchecked]:
+            self.batch_update = True
+            
+            # Если это корневой элемент файла
+            if not item.parent():
+                self.update_child_check_states(item, item.checkState(column))
+                # Обновляем статистику для всех слоев
+                for layer_name in self.tree_items.keys():
+                    self.update_layer_statistics(layer_name)
+            else:
+                # Находим корневой элемент слоя
+                layer_item = item
+                while layer_item.parent() and layer_item.parent().parent():
+                    layer_item = layer_item.parent()
+
+                # Получаем имя слоя
+                layer_name = layer_item.text(0).split('|')[0].replace('Layer:', '').strip()
+                
+                self.update_child_check_states(item, item.checkState(column))
+                self.update_parent_check_states(item)
+                self.update_layer_statistics(layer_name)
+            
+            self.batch_update = False
+            self.update_selection_count()
 
     def update_child_check_states(self, parent_item, check_state):
         for i in range(parent_item.childCount()):
@@ -60,31 +92,80 @@ class TreeWidgetHandler:
             child_item.setCheckState(0, check_state)
             self.update_child_check_states(child_item, check_state)
 
+    def update_parent_check_states(self, item):
+        parent = item.parent()
+        if not parent:
+            return
+
+        child_count = parent.childCount()
+        checked_count = 0
+        partial_count = 0
+
+        for i in range(child_count):
+            child = parent.child(i)
+            if child.checkState(0) == Qt.Checked:
+                checked_count += 1
+            elif child.checkState(0) == Qt.PartiallyChecked:
+                partial_count += 1
+
+        if checked_count == child_count:
+            parent.setCheckState(0, Qt.Checked)
+        elif checked_count > 0 or partial_count > 0:
+            parent.setCheckState(0, Qt.PartiallyChecked)
+        else:
+            parent.setCheckState(0, Qt.Unchecked)
+
+        self.update_parent_check_states(parent)
+
     def populate_tree_widget(self, layers):
 
         layers, file_name = layers[0], layers[1]
+        self.layer_count = len(layers)
+        
+        # Подсчет общего количества объектов
+        self.total_entities = sum(len(entities) for entities in layers.values())
+        self.selected_total_entities = 0
+
+        # Initialize statistics
+        for layer, entities in layers.items():
+            self.layer_stats[layer] = {
+                'total': len(entities),
+                'selected': 0
+            }
 
         # Создаем элемент для file_name на вершине дерева
-        file_item = QTreeWidgetItem([f'Файл: {file_name}'])
+        file_item = QTreeWidgetItem([f'Файл: {file_name} | ({self.layer_count} слоев, {self.total_entities} объектов)'])
         file_item.setCheckState(0, Qt.Unchecked)
         self.tree_widget.addTopLevelItem(file_item)
 
         add_remove_button_to_item(file_item, self.tree_widget)
 
+        # Отключаем обновления UI во время заполнения
+        self.tree_widget.setUpdatesEnabled(False)
+
         for layer, entities in layers.items():
-            layer_item = QTreeWidgetItem([f'Layer: {layer}'])
+            entity_count = len(entities)
+            layer_item = QTreeWidgetItem([f'Layer: {layer} | ({entity_count} объектов | выбрано: 0)'])
             layer_item.setCheckState(0, Qt.Unchecked)
             file_item.addChild(layer_item)
             self.tree_items[layer] = {'item': layer_item, 'entities': {}}
 
+            # Batch add entities
+            entity_items = []
             for entity in entities:
                 entity_description = f"{entity}"
                 entity_item = QTreeWidgetItem([entity_description])
                 entity_item.setCheckState(0, Qt.Unchecked)
-                layer_item.addChild(entity_item)
+                entity_items.append(entity_item)
                 self.tree_items[layer]['entities'][entity_description] = entity_item
 
+            layer_item.addChildren(entity_items)
+
+            # Отложенное добавление атрибутов
+            for entity, entity_item in zip(entities, entity_items):
                 self.add_entity_attributes_and_geometry(entity_item, entity)
+
+        self.tree_widget.setUpdatesEnabled(True)
 
     def add_entity_attributes_and_geometry(self, entity_item, entity):
         attributes = [
@@ -141,38 +222,55 @@ class TreeWidgetHandler:
             geometry_header.addChild(geom_item)
 
     def select_area(self, entities):
+        self.batch_update = True
+        self.tree_widget.setUpdatesEnabled(False)
+        
         self.clear_all_checks()
         self.selectable = True
-        #self.print_tree_items()        
-        layers_to_check = set()
+        layers_to_check = {}
         
-        # Создаем диалог прогресса
-        progress_dialog = QProgressDialog("Проверка объектов...", "Отмена", 0, len(entities))
-        progress_dialog.setWindowTitle("Прогресс")
+        # Группируем entities по слоям для оптимизации
+        for entity in entities:
+            layer_name = entity.dxf.layer
+            if layer_name not in layers_to_check:
+                layers_to_check[layer_name] = []
+            layers_to_check[layer_name].append(entity)
+
+        # Обрабатываем каждый слой
+        total_steps = len(entities)
+        progress_dialog = QProgressDialog("Проверка объектов...", "Отмена", 0, total_steps)
         progress_dialog.setWindowModality(Qt.WindowModal)
         progress_dialog.show()
 
-        for i, entity in enumerate(entities):
-            # Проверка, была ли нажата кнопка отмены
-            if progress_dialog.wasCanceled():
-                break
-            
-            self.check_entity_in_tree(entity, layers_to_check)
-            
-            # Обновление прогресса
-            progress_dialog.setValue(i)
-            
-            # Обновление интерфейса
-            QgsApplication.processEvents()
+        processed = 0
+        for layer_name, layer_entities in layers_to_check.items():
+            if layer_name in self.tree_items:
+                layer_data = self.tree_items[layer_name]
+                
+                # Массовое обновление элементов слоя
+                for entity in layer_entities:
+                    entity_description = f"{entity}"
+                    if entity_description in layer_data['entities']:
+                        entity_item = layer_data['entities'][entity_description]
+                        entity_item.setCheckState(0, Qt.Checked)
+                        self.update_parent_check_states(entity_item)
+                
+                # Обновляем статистику слоя
+                self.update_layer_statistics(layer_name)
+                
+                processed += len(layer_entities)
+                progress_dialog.setValue(processed)
+                QgsApplication.processEvents()
+
+                if progress_dialog.wasCanceled():
+                    break
 
         progress_dialog.close()
-
-        for layer in layers_to_check:
-            self.tree_items[layer]['item'].setCheckState(0, Qt.Checked)
-            parent = self.tree_items[layer]['item'].parent()
-            parent.setCheckState(0, Qt.Checked)
-
+        
         self.selectable = False
+        self.batch_update = False
+        self.tree_widget.setUpdatesEnabled(True)
+        self.update_selection_count()
 
     def check_entity_in_tree(self, entity, layers_to_check):
         layer_name = entity.dxf.layer
@@ -233,8 +331,57 @@ class TreeWidgetHandler:
         return checked_entities
 
     def clear_all_checks(self):
+        self.batch_update = True
         for i in range(self.tree_widget.topLevelItemCount()):
             item = self.tree_widget.topLevelItem(i)
             item.setCheckState(0, Qt.Unchecked)
             self.update_child_check_states(item, Qt.Unchecked)
+        self.batch_update = False
+        self.update_selection_count()
 
+    def update_selection_count(self):
+        """Обновляет информацию о выбранных слоях и объектах"""
+        self.selected_layers_count = 0
+        self.selected_total_entities = 0
+
+        # Подсчитываем выбранные слои и объекты
+        for layer_name, layer_data in self.tree_items.items():
+            if layer_data['item'].checkState(0) in [Qt.Checked, Qt.PartiallyChecked]:
+                self.selected_layers_count += 1
+            self.selected_total_entities += self.layer_stats[layer_name]['selected']
+        
+        # Обновляем текст корневого элемента
+        root_item = self.tree_widget.topLevelItem(0)
+        if root_item:
+            file_name = root_item.text(0).split('(')[0].strip()
+            if self.selected_layers_count > 0:
+                root_item.setText(0, (
+                    f'{file_name} ({self.layer_count} слоев | '
+                    f'выбрано {self.selected_layers_count}/{self.layer_count} | '
+                    f'объектов {self.selected_total_entities}/{self.total_entities})'
+                ))
+            else:
+                root_item.setText(0, f'{file_name} ({self.layer_count} слоев, {self.total_entities} объектов)')
+
+    def update_layer_statistics(self, layer_name):
+        """Обновляет статистику выбранных объектов для слоя"""
+        if layer_name in self.tree_items:
+            layer_data = self.tree_items[layer_name]
+            layer_item = layer_data['item']
+            
+            # Подсчет только прямых дочерних элементов (объектов) слоя
+            total_entities = 0
+            selected_entities = 0
+            
+            for i in range(layer_item.childCount()):
+                entity_item = layer_item.child(i)
+                if not entity_item.text(0) in ['Attributes', 'Geometry']:
+                    total_entities += 1
+                    if entity_item.checkState(0) == Qt.Checked:
+                        selected_entities += 1
+            
+            self.layer_stats[layer_name]['total'] = total_entities
+            self.layer_stats[layer_name]['selected'] = selected_entities
+            
+            # Обновляем текст элемента слоя
+            layer_item.setText(0, f'Layer: {layer_name} | ({total_entities} объектов | выбрано: {selected_entities}/{total_entities})')

@@ -131,6 +131,9 @@ class DXFHandler(QObject):
             self.progressChanged.emit(progress)
 
     def get_layers(self, filename=None) -> dict:
+        """
+        Возвращает словарь с именами слоёв и списком сущностей на каждом слое.
+        """
         if filename is None:
             filename = next(iter(self.dxf))
 

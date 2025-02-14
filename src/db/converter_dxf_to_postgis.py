@@ -118,18 +118,23 @@ def convert_dxf_to_postgis(entity: DXFEntity) -> tuple[str, BaseGeometry, dict]:
 
 def insert_blocks_to_new_file(doc, blocks_data):
     """
-    Вставка блоков в новый файл DXF из словаря блоков с помошью фабрики ezdxf.entities.factory 
-    (работает со всеми типами сущностей, кроме LWPOLYLINE)
+    Вставка блоков в новый файл DXF из словаря блоков.
     """
-    Logger.log_message("Starting block insertion")  # Added log for start
+    _list_to_vec3(blocks_data)  # Convert all lists to Vec3
+    Logger.log_message("Starting block insertion")
     msp = doc.modelspace()
+    
     for block in blocks_data:
         block_name = block.get("name")
-        Logger.log_message(f"Processing block: {block_name}")  # Log processing block
-        base_point = block.get("base_point", (0, 0, 0))
+        Logger.log_message(f"Processing block: {block_name}")
+        
+        # Получаем базовую точку блока и преобразуем её в Vec3
+        base_point = Vec3(block.get("base_point", (0, 0, 0)))
+        
         try:
+            # Создаем новый блок с правильной базовой точкой
             new_block = doc.blocks.new(name=block_name, base_point=base_point)
-            Logger.log_message(f"Created new block: {block_name}")  # Log block creation
+            Logger.log_message(f"Created new block: {block_name} at {base_point}")
         except ezdxf.DXFValueError:
             Logger.log_warning(f"Block '{block_name}' already exists. Skipping.")
             continue
@@ -167,7 +172,7 @@ def insert_blocks_to_new_file(doc, blocks_data):
             except Exception as e:
                 Logger.log_error(f"Error adding entity '{entity_type}' to block '{block_name}': {e}")
 
-        msp.add_blockref(block_name, insert=base_point)
+        #msp.add_blockref(block_name, insert=base_point)
     Logger.log_message("Completed block insertion")  # Added log for end
 
 def convert_postgis_to_dxf(
@@ -198,9 +203,7 @@ def convert_postgis_to_dxf(
     if version:
         header['$ACADVER'] = version
 
-    # Добавляем блоки
-    blocks_data = file_metadata.get('blocks', {})
-    insert_blocks_to_new_file(doc, blocks_data)
+   
 
     # Добавляем слои и объекты в DXF
     for layer in layers:
@@ -236,6 +239,9 @@ def convert_postgis_to_dxf(
             if 'is_off' in layer_metadata:
                 new_layer.is_off = layer_metadata['is_off']  # Выключен ли слой
 
+    # Добавляем блоки
+    blocks_data = file_metadata.get('blocks', {})
+    insert_blocks_to_new_file(doc, blocks_data)
 
     # Добавление геометрических объектов
     msp = doc.modelspace()
@@ -286,25 +292,69 @@ def convert_postgis_to_dxf(
             msp.add_arc(center, radius, start_angle, end_angle, dxfattribs=attribs)
 
         elif geom_type == 'MULTILEADER':
-            Logger.log_message(layer_name)
+            #Logger.log_message(layer_name)
             #Logger.log_message(f'MULTILEADER: {geom_object.extra_data}')
             attributes = geom_object.extra_data.get('attributes', {})
             leader_lines = geom_object.extra_data.get('leader_lines', [])
             text = geom_object.extra_data.get('text', "")
-            style = geom_object.extra_data.get('style', "Standard")
-            base_point = attributes.get('base_point', (0, 0, 0))
+            style = attributes.get('text_style_handle', "Standard")
+            Logger.log_message(f'MULTILEADER: {style}')
+            base_point = geom_object.extra_data.get('base_point', (0, 0, 0))
+            Logger.log_message(f'MULTILEADER: {base_point}')
+            Logger.log_message(f'MULTILEADER: {geom_object.extra_data}')
 
             # Create MULTILEADER entity and apply all extra attributes if supported
             if text:
                 ml_builder = msp.add_multileader_mtext(style)
                 ml_builder.set_content(text, style=style, alignment=attributes.get('text_attachment_point', 0))
-                for key, value in attributes.items():
-                    try:
-                        setattr(ml_builder.dxf, key, value)
-                    except Exception:
-                        pass
+
+                # Установка свойств стрелки
+                arrow_head_size = attributes.get('arrow_head_size', 0.5)
+                ml_builder.set_arrow_properties(size=arrow_head_size)
+
+                # Установка свойств соединения
+                landing_gap = attributes.get('landing_gap', 0.0)
+                dogleg_length = attributes.get('dogleg_length', 8.0)
+                ml_builder.set_connection_properties(
+                    landing_gap=landing_gap, dogleg_length=dogleg_length
+                )
+
+                # Установка свойств линии-указателя
+                leader_line_color = attributes.get('leader_line_color', None)
+                leader_linetype = attributes.get('linetype', 'BYLAYER')
+                leader_lineweight = attributes.get('leader_lineweight', -1)
+                leader_type = attributes.get('leader_type', 1)
+                ml_builder.set_leader_properties(
+                    color=leader_line_color,
+                    linetype=leader_linetype,
+                    lineweight=leader_lineweight,
+                    leader_type=leader_type
+                )
+
+                # Применение остальных атрибутов
+                ml_builder.mleader.dxf.update({
+                    'color': attributes.get('color', 7),
+                    'layer': attributes.get('layer', '_Осветленная вода_Точки'),
+                    'lineweight': attributes.get('lineweight', 20),
+                    'transparency': attributes.get('transparency', 0),
+                    'is_annotative': attributes.get('is_annotative', 0),
+                    'block_rotation': attributes.get('block_rotation', 0.0),
+                    'has_text_frame': attributes.get('has_text_frame', 0),
+                    'text_angle_type': attributes.get('text_angle_type', 1),
+                    'text_alignment_type': attributes.get('text_alignment_type', 0),
+                    'block_connection_type': attributes.get('block_connection_type', 0),
+                    'text_attachment_point': attributes.get('text_attachment_point', 3),
+                    'property_override_flags': attributes.get('property_override_flags', 347808),
+                    'text_top_attachment_type': attributes.get('text_top_attachment_type', 9),
+                    'text_attachment_direction': attributes.get('text_attachment_direction', 0),
+                    'text_left_attachment_type': attributes.get('text_left_attachment_type', 1),
+                    'is_text_direction_negative': attributes.get('is_text_direction_negative', 0),
+                    'text_right_attachment_type': attributes.get('text_right_attachment_type', 1),
+                    'text_bottom_attachment_type': attributes.get('text_bottom_attachment_type', 9),
+                })
+
                 if leader_lines:
-                    ml_builder.add_leader_line(0, leader_lines)
+                        ml_builder.add_leader_line(0, leader_lines)
                 
                 ml_builder.build(insert=Vec2(base_point[:2]))
             elif 'block_attributes' in geom_object.extra_data:
@@ -312,10 +362,19 @@ def convert_postgis_to_dxf(
                 block_attrs = geom_object.extra_data.get('block_attributes', {})
                 block_name = block_attrs.get('name', "Unknown")
                 ml_builder.set_content(name=block_name, alignment=attributes.get('text_attachment_point', 0))
+                # Установка свойств стрелки
+                arrow_head_size = attributes.get('arrow_head_size', 0.5)
+                ml_builder.set_arrow_properties(size=arrow_head_size)
+
+                # Установка цвета линии-указателя
+                leader_line_color = attributes.get('leader_line_color', None)
+                if leader_line_color is not None:
+                    ml_builder.mleader.dxf.leader_line_color = leader_line_color
+
                 for key, value in attributes.items():
                     try:
                         setattr(ml_builder.dxf, key, value)
-                    except Exception:
+                    except AttributeError:
                         pass
                 if leader_lines:
                     ml_builder.add_leader_line(0, leader_lines)
@@ -361,6 +420,7 @@ def convert_postgis_to_dxf(
             except Exception as e:
                 Logger.log_error("convert_postgis_to_dxf() geom_type == '3DSOLID' ERROR. e: " + str(e))
 
+   
     #doc.audit()
     # Сохраняем DXF файл
     doc.saveas(path)
@@ -393,6 +453,25 @@ def _replace_vec3_to_list(data):
         return [_replace_vec3_to_list(item) for item in data]
     elif isinstance(data, Vec3):
         return [data.x, data.y, data.z]
+    else:
+        return data
+
+def _list_to_vec3(data):
+    """
+    Рекурсивно преобразует списки координат в Vec3.
+    Обрабатывает вложенные словари и списки.
+    Для координат: если z координата отсутствует, использует 0.
+    """
+    if isinstance(data, dict):
+        return {key: _list_to_vec3(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        # Если это список из 2-3 чисел, преобразуем в Vec3
+        if 2 <= len(data) <= 3 and all(isinstance(x, (int, float)) for x in data):
+            if len(data) == 2:
+                return Vec3(data[0], data[1], 0)
+            return Vec3(data[0], data[1], data[2])
+        # Иначе рекурсивно обрабатываем каждый элемент
+        return [_list_to_vec3(item) for item in data]
     else:
         return data
 
@@ -497,18 +576,26 @@ def _convert_arc_to_postgis(entity: Arc) -> tuple[BaseGeometry, dict]:
 
 def _convert_multileader_to_postgis(entity: MultiLeader) -> tuple[Polygon | Point, dict]:
     extra_data = _attributes_to_dict(entity)
+   # Извлекаем текстовое содержимое, если есть
     if entity.has_mtext_content:
-        extra_data['text'] = entity.get_mtext_content()  # MTEXT content
+        extra_data['text'] = entity.get_mtext_content()
     elif entity.has_block_content:
-        extra_data['block_attributes'] = entity.get_block_content()  # BLOCK content
-    # New: extract leader lines if available
-    if hasattr(entity, 'leader_lines'):
-        extra_data['leader_lines'] = [(pt.x, pt.y) for pt in entity.leader_lines]
+        extra_data['block_attributes'] = entity.get_block_content()
+
+    # Извлекаем линии-указатели
+    extra_data['leader_lines'] = [(pt.x, pt.y) for pt in getattr(entity, 'leader_lines', [])]
+
+    # Попытка получить координаты из dxf.insert, если есть
+    base_point = entity.context.base_point
+    if base_point is None:
+        base_point = (0, 0, 0)
     else:
-        extra_data['leader_lines'] = []
-        extra_data['base_point'] = entity.context.base_point if hasattr(entity.context, 'base_point') else (0, 0, 0)
-    base_point = entity.context.base_point if hasattr(entity.context, 'base_point') else None
-    geometry = Point(base_point.x, base_point.y, base_point.z) if base_point else None
+        base_point = (base_point.x, base_point.y, base_point.z)
+        Logger.log_message(f'MULTILEADER base_point: {base_point}')
+
+    extra_data['base_point'] = base_point
+    
+    geometry = Point(*base_point) if base_point else None
     return geometry, extra_data
 
 def _convert_insert_to_postgis(entity: Insert) -> tuple[BaseGeometry, dict]:

@@ -6,11 +6,14 @@ class Logger:
         if not isinstance(message, str):
             message = str(message)
         QgsMessageLog.logMessage(message, tag, Qgis.Info)
+        print(message)
 
     @staticmethod
     def log_warning(message, tag='QGIS'):
         QgsMessageLog.logMessage(message, tag, Qgis.Warning)
+        print(message)
 
     @staticmethod
     def log_error(message, tag='QGIS'):
         QgsMessageLog.logMessage(message, tag, Qgis.Critical)
+        print(message)

@@ -65,6 +65,9 @@ def _create_file(db: Session, file_name: str, dxf_handler: DXFHandler) -> models
         # save in txt file
         with open("C:/Users/nikita/AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins/DXF-PostGIS-Converter/dxf_examples/blocks.txt", "w") as f:
             f.write(str(blocks_meta))
+        xrecord_data = dxf_handler.extract_all_xrecords(file_name)
+        with open("C:/Users/nikita/AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins/DXF-PostGIS-Converter/dxf_examples/xrecord.txt", "w") as f:
+            f.write(str(xrecord_data))
         meta["tables"] = tables_meta.get("tables", {})
         meta["blocks"] = blocks_meta
         # Convert Vec3 objects to lists so the metadata is JSON serializable.

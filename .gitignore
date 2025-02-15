@@ -6,3 +6,6 @@ dxf_examples/example.gpkg
 dxf_examples/example.gpkg-shm
 dxf_examples/example.gpkg-wal
 /.idea
+dxf_examples/blocks.txt
+dxf_examples/output/integrity_test_result.dxf
+dxf_examples/xrecord.txt

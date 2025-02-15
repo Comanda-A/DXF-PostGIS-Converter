@@ -2,7 +2,7 @@ from shapely.geometry import Point, LineString, Polygon, MultiPoint, MultiLineSt
 from shapely.geometry.base import BaseGeometry
 from ezdxf.entities import DXFEntity, Point as DXFPoint, Line, Polyline, LWPolyline, Circle, Arc, MultiLeader, Insert, Solid3d, Spline, Ellipse
 from ezdxf.entities import MText, Solid, Face3d, Trace, Body, Region, Mesh, Hatch, Leader, Shape, Viewport, ImageDef, Image
-from ezdxf.entities import Dimension, Ray, XLine, SeqEnd, Helix
+from ezdxf.entities import Dimension, Ray, XLine, SeqEnd, Helix, XRecord
 from ezdxf.entities import factory  # Added factory import
 from ezdxf.entities.text import Text
 from ezdxf.math import Vec3, Vec2  # Added Vec2 import
@@ -141,7 +141,8 @@ def insert_blocks_to_new_file(doc, blocks_data):
 
         for entity in block.get("entities", []):
             entity_type = entity.get("type")
-
+            if entity_type == "MULTILEADER":
+                Logger.log_message(entity_type)
             # Pass along all keys except 'type', 'handle', and 'layer'.
             dxfattribs = {k: v for k, v in entity.items() if k not in ("type", "handle", "layer")}
 
@@ -155,25 +156,24 @@ def insert_blocks_to_new_file(doc, blocks_data):
                 else:
                     acis_data = None            
             try:
-                # Create the entity using factory and add it to the block layout.
-                entity_obj = factory.create_db_entry(entity_type, dxfattribs, doc=doc)
                 if entity_type == "LWPOLYLINE":
                     new_block.add_lwpolyline(points, dxfattribs=dxfattribs, close=closed)
                 #TODO: вроде как вставка работает, но не видно в Blocks Section
                 elif entity_type == "3DSOLID":
                     try:
-                        new_entity = new_block.add_3dsolid(dxfattribs)  # Create new 3DSOLID
+                        new_entity = new_block.add_3dsolid(dxfattribs)
+                        Logger.log_message(acis_data)
                         new_entity.sat = acis_data
                         Logger.log_message(f"Inserted 3DSOLID in block: {block_name}")
                     except Exception as e:
                         Logger.log_error(f"Error inserting 3DSOLID in block {block_name}: {e}")
                 else:
+                    entity_obj = factory.create_db_entry(entity_type, dxfattribs, doc=doc)
                     new_block.add_entity(entity_obj)
             except Exception as e:
                 Logger.log_error(f"Error adding entity '{entity_type}' to block '{block_name}': {e}")
 
-        #msp.add_blockref(block_name, insert=base_point)
-    Logger.log_message("Completed block insertion")  # Added log for end
+    Logger.log_message("Completed block insertion")
 
 def convert_postgis_to_dxf(
     file_metadata: str,
@@ -297,7 +297,7 @@ def convert_postgis_to_dxf(
             attributes = geom_object.extra_data.get('attributes', {})
             leader_lines = geom_object.extra_data.get('leader_lines', [])
             text = geom_object.extra_data.get('text', "")
-            style = attributes.get('text_style_handle', "Standard")
+            style = attributes.get('style', "Standard")
             Logger.log_message(f'MULTILEADER: {style}')
             base_point = geom_object.extra_data.get('base_point', (0, 0, 0))
             Logger.log_message(f'MULTILEADER: {base_point}')
@@ -320,8 +320,8 @@ def convert_postgis_to_dxf(
                 )
 
                 # Установка свойств линии-указателя
-                leader_line_color = attributes.get('leader_line_color', None)
-                leader_linetype = attributes.get('linetype', 'BYLAYER')
+                leader_line_color = 1#attributes.get('leader_line_color', None)
+                leader_linetype = attributes.get('linetype', 'BYLAYER')[0]
                 leader_lineweight = attributes.get('leader_lineweight', -1)
                 leader_type = attributes.get('leader_type', 1)
                 ml_builder.set_leader_properties(
@@ -330,28 +330,12 @@ def convert_postgis_to_dxf(
                     lineweight=leader_lineweight,
                     leader_type=leader_type
                 )
-
-                # Применение остальных атрибутов
-                ml_builder.mleader.dxf.update({
-                    'color': attributes.get('color', 7),
-                    'layer': attributes.get('layer', '_Осветленная вода_Точки'),
-                    'lineweight': attributes.get('lineweight', 20),
-                    'transparency': attributes.get('transparency', 0),
-                    'is_annotative': attributes.get('is_annotative', 0),
-                    'block_rotation': attributes.get('block_rotation', 0.0),
-                    'has_text_frame': attributes.get('has_text_frame', 0),
-                    'text_angle_type': attributes.get('text_angle_type', 1),
-                    'text_alignment_type': attributes.get('text_alignment_type', 0),
-                    'block_connection_type': attributes.get('block_connection_type', 0),
-                    'text_attachment_point': attributes.get('text_attachment_point', 3),
-                    'property_override_flags': attributes.get('property_override_flags', 347808),
-                    'text_top_attachment_type': attributes.get('text_top_attachment_type', 9),
-                    'text_attachment_direction': attributes.get('text_attachment_direction', 0),
-                    'text_left_attachment_type': attributes.get('text_left_attachment_type', 1),
-                    'is_text_direction_negative': attributes.get('is_text_direction_negative', 0),
-                    'text_right_attachment_type': attributes.get('text_right_attachment_type', 1),
-                    'text_bottom_attachment_type': attributes.get('text_bottom_attachment_type', 9),
-                })
+                for key, value in attributes.items():
+                    try:
+                        setattr(ml_builder.dxf, key, value)
+                    except AttributeError:
+                        #Logger.log_message(f'Error: {key} {value}')
+                        pass
 
                 if leader_lines:
                         ml_builder.add_leader_line(0, leader_lines)

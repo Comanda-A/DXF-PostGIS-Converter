@@ -278,5 +278,34 @@ class DXFHandler(QObject):
             blocks_data.append(block_info)
 
         return blocks_data
+    def extract_all_xrecords(self, filename):
+        """
+        Извлекает все XRECORD объекты из DXF файла.
 
+        Функция ищет XRECORD объекты в секции OBJECTS и в extension dictionaries графических объектов.
+        """
+        doc = self.dxf[filename]
+        xrecords = {
+            "objects": [],
+            "entity": {}
+        }
+
+
+        # Ищем XRECORD объекты в секции OBJECTS
+        for obj in doc.objects:
+            if obj.dxftype() == "XRECORD":
+                xrecords["objects"].append(obj)
+        
+        # Ищем XRECORD объекты в extension dictionaries графических объектов (например, в Modelspace)
+        msp = doc.modelspace()
+        for entity in msp:
+            if entity.has_extension_dict:
+                xdict = entity.get_extension_dict()
+                for key, obj in xdict.items():
+                    if obj.dxftype() == "XRECORD":
+                        if entity.dxf.handle not in xrecords["entity"]:
+                            xrecords["entity"][entity.dxf.handle] = []
+                        xrecords["entity"][entity.dxf.handle].append(obj)
+        
+        return xrecords
 

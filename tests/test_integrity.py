@@ -101,5 +101,5 @@ def test_dxf_integrity(input_dxf_path: str, output_dxf_path: str = None):
         print(f"Ошибка при проверке целостности: {str(e)}")
 
 if __name__ == "__main__":
-    input_file = r"C:\Users\nikita\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins\DXF-PostGIS-Converter\dxf_examples\example.dxf"
+    input_file = r"../dxf_examples/example.dxf"
     test_dxf_integrity(input_file)

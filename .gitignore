@@ -9,3 +9,7 @@ dxf_examples/example.gpkg-wal
 dxf_examples/blocks.txt
 dxf_examples/output/integrity_test_result.dxf
 dxf_examples/xrecord.txt
+dxf_examples/dict_var_default.txt
+dxf_examples/dictionary.txt
+/tests/dxf_examples/output
+/dxf_examples/output

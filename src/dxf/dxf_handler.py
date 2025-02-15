@@ -29,7 +29,7 @@ def export_svg(doc, msp):
     backend = svg.SVGBackend()
     Frontend(RenderContext(doc), backend).draw_layout(msp)
 
-    with open("C:/Users/nikita/AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins/DXF-PostGIS-Converter/dxf_examples/your.svg", "wt") as fp:
+    with open("../dxf_examples/your.svg", "wt") as fp:
         fp.write(backend.get_string(layout.Page(0, 0)))
 
 
@@ -308,4 +308,77 @@ class DXFHandler(QObject):
                         xrecords["entity"][entity.dxf.handle].append(obj)
         
         return xrecords
+
+    # Новый метод для извлечения объектов Dictionary из DXF файла
+    def extract_dictionary(self, filename: str) -> dict:
+        """
+        Извлекает все Dictionary объекты из DXF файла.
+        
+        Возвращает:
+            dict с ключами в виде handle словаря, значениями - информация об объекте Dictionary и его записях.
+        """
+        if filename not in self.dxf:
+            Logger.log_error(f"DXF файл {filename} не загружен.")
+            return {}
+        
+        doc = self.dxf[filename]
+        dictionaries = {}
+        for obj in doc.objects:
+            if obj.dxftype() in ("DICTIONARY", "ACDBDICTIONARYWDFLT"):
+                # Собираем базовую информацию о словаре
+                dictionary_info = {
+                    "type": obj.dxftype(),
+                    "hard_owned": getattr(obj.dxf, "hard_owned", None),
+                    "cloning": getattr(obj.dxf, "cloning", None),
+                    "entries": {}
+                }
+                # Итерируем по записям словаря
+                try:
+                    for key, value in obj.items():
+                        dictionary_info["entries"][key] = value  # значение может быть handle строкой или DXFEntity
+                except Exception as e:
+                    Logger.log_error(f"Ошибка при извлечении записей словаря с handle {obj.dxf.handle}: {e}")
+                dictionaries[obj.dxf.handle] = dictionary_info
+
+        return dictionaries
+
+    # Новый метод для извлечения объектов DictionaryVar и DictionaryWithDefault из DXF файла
+    def extract_dictionary_vars_and_with_default(self, filename: str) -> dict:
+        """
+        Извлекает объекты DictionaryVar и DictionaryWithDefault из DXF файла.
+
+        Возвращает:
+            dict с ключами:
+                "dictionary_vars" - список словарных переменных,
+                "dictionary_with_default" - список объектов DictionaryWithDefault.
+        """
+        if filename not in self.dxf:
+            Logger.log_error(f"DXF файл {filename} не загружен.")
+            return {}
+        
+        doc = self.dxf[filename]
+        dictionary_vars = []
+        dictionary_with_default = []
+        
+        for obj in doc.objects:
+            if obj.dxftype() == "DICTIONARYVAR":
+                var_info = {
+                    "handle": obj.dxf.handle,
+                    "schema": getattr(obj.dxf, "schema", None),
+                    "value": getattr(obj.dxf, "value", None),
+                    "propertyvalue": obj.propertyvalue if hasattr(obj, "propertyvalue") else None
+                }
+                dictionary_vars.append(var_info)
+            elif obj.dxftype() == "ACDBDICTIONARYWDFLT":
+                # Собираем default, если он существует
+                dwd_info = {
+                    "handle": obj.dxf.handle,
+                    "default": getattr(obj.dxf, "default", None)
+                }
+                dictionary_with_default.append(dwd_info)
+        
+        return {
+            "dictionary_vars": dictionary_vars,
+            "dictionary_with_default": dictionary_with_default
+        }
 

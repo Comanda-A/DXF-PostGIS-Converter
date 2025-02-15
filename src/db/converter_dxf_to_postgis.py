@@ -1,3 +1,4 @@
+from ezdxf.render import ConnectionSide
 from shapely.geometry import Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection
 from shapely.geometry.base import BaseGeometry
 from ezdxf.entities import DXFEntity, Point as DXFPoint, Line, Polyline, LWPolyline, Circle, Arc, MultiLeader, Insert, Solid3d, Spline, Ellipse
@@ -16,105 +17,47 @@ from ..logger.logger import Logger
 
 def convert_dxf_to_postgis(entity: DXFEntity) -> tuple[str, BaseGeometry, dict]:
     geom_type = entity.dxftype()
-    geometry = None
-    extra_data = {}
+    geometry, extra_data = None, {}
 
-    if geom_type == 'POINT':
-        geometry, extra_data = _convert_point_to_postgis(entity)
+    conversion_functions = {
+        'POINT': _convert_point_to_postgis,
+        'LINE': _convert_line_to_postgis,
+        'POLYLINE': _convert_polyline_to_postgis,
+        'LWPOLYLINE': _convert_lwpolyline_to_postgis,
+        'TEXT': _convert_text_to_postgis,
+        'CIRCLE': _convert_circle_to_postgis,
+        'ARC': _convert_arc_to_postgis,
+        'MULTILEADER': _convert_multileader_to_postgis,
+        'INSERT': _convert_insert_to_postgis,
+        '3DSOLID': _convert_3dsolid_to_postgis,
+        'SPLINE': _convert_spline_to_postgis,
+        'ELLIPSE': _convert_ellipse_to_postgis,
+        'MTEXT': _convert_mtext_to_postgis,
+        'SOLID': _convert_solid_to_postgis,
+        'TRACE': _convert_trace_to_postgis,
+        '3DFACE': _convert_3dface_to_postgis,
+        'REGION': _convert_region_to_postgis,
+        'BODY': _convert_body_to_postgis,
+        'MESH': _convert_mesh_to_postgis,
+        'HATCH': _convert_hatch_to_postgis,
+        'LEADER': _convert_leader_to_postgis,
+        'SHAPE': _convert_shape_to_postgis,
+        'VIEWPORT': _convert_viewport_to_postgis,
+        'IMAGE': _convert_image_to_postgis,
+        'IMAGEDEF': _convert_imagedef_to_postgis,
+        'DIMENSION': _convert_dimension_to_postgis,
+        'RAY': _convert_ray_to_postgis,
+        'XLINE': _convert_xline_to_postgis,
+        'SEQEND': _convert_seqend_to_postgis,
+        'HELIX': _convert_helix_to_postgis,
+    }
 
-    elif geom_type == 'LINE':
-        geometry, extra_data = _convert_line_to_postgis(entity)
-        
-    elif geom_type == 'POLYLINE':
-        geometry, extra_data = _convert_polyline_to_postgis(entity)
-
-    elif geom_type == 'LWPOLYLINE':
-        geometry, extra_data = _convert_lwpolyline_to_postgis(entity)
-
-    elif geom_type == 'TEXT':
-        geometry, extra_data = _convert_text_to_postgis(entity)
-    
-    elif geom_type == 'CIRCLE':
-        geometry, extra_data = _convert_circle_to_postgis(entity)
-
-    elif geom_type == 'ARC':
-        geometry, extra_data = _convert_arc_to_postgis(entity)
-
-    elif geom_type == 'MULTILEADER':
-        geometry, extra_data = _convert_multileader_to_postgis(entity)
-
-    elif geom_type == 'INSERT':
-        geometry, extra_data = _convert_insert_to_postgis(entity)
-
-    elif geom_type == '3DSOLID':
-        geometry, extra_data = _convert_3dsolid_to_postgis(entity)
-    
-    elif geom_type == 'SPLINE':
-        geometry, extra_data = _convert_spline_to_postgis(entity)
-
-    elif geom_type == 'ELLIPSE':
-        geometry, extra_data = _convert_ellipse_to_postgis(entity)
-
-    elif geom_type == 'MTEXT':
-        geometry, extra_data = _convert_mtext_to_postgis(entity)
-
-    elif geom_type == 'SOLID':
-        geometry, extra_data = _convert_solid_to_postgis(entity)
-
-    elif geom_type == 'TRACE':
-        geometry, extra_data = _convert_trace_to_postgis(entity)
-
-    elif geom_type == '3DFACE':
-        geometry, extra_data = _convert_3dface_to_postgis(entity)
-
-    elif geom_type == 'REGION':
-        geometry, extra_data = _convert_region_to_postgis(entity)
-
-    elif geom_type == 'BODY':
-        geometry, extra_data = _convert_body_to_postgis(entity)
-
-    elif geom_type == 'MESH':
-        geometry, extra_data = _convert_mesh_to_postgis(entity)
-
-    elif geom_type == 'HATCH':
-        geometry, extra_data = _convert_hatch_to_postgis(entity)
-
-    elif geom_type == 'LEADER':
-        geometry, extra_data = _convert_leader_to_postgis(entity)
-
-    elif geom_type == 'SHAPE':
-        geometry, extra_data = _convert_shape_to_postgis(entity)
-
-    elif geom_type == 'VIEWPORT':
-        geometry, extra_data = _convert_viewport_to_postgis(entity)
-
-    elif geom_type == 'IMAGE':
-        geometry, extra_data = _convert_image_to_postgis(entity)
-
-    elif geom_type == 'IMAGEDEF':
-        geometry, extra_data = _convert_imagedef_to_postgis(entity)
-
-    elif geom_type == 'DIMENSION':
-        geometry, extra_data = _convert_dimension_to_postgis(entity)
-
-    elif geom_type == 'RAY':
-        geometry, extra_data = _convert_ray_to_postgis(entity)
-
-    elif geom_type == 'XLINE':
-        geometry, extra_data = _convert_xline_to_postgis(entity)
-
-    elif geom_type == 'SEQEND':
-        geometry, extra_data = _convert_seqend_to_postgis(entity)
-
-    elif geom_type == 'HELIX':
-        geometry, extra_data = _convert_helix_to_postgis(entity)
-
+    if geom_type in conversion_functions:
+        geometry, extra_data = conversion_functions[geom_type](entity)
     else:
         Logger.log_error(f'dxf type = "{geom_type}" not supported')
-        # raise Exception(f'dxf type = "{geom_type}" not supported")
 
     return geom_type, geometry, _verify_extra_data(extra_data)
-
 
 def insert_blocks_to_new_file(doc, blocks_data):
     """
@@ -300,14 +243,18 @@ def convert_postgis_to_dxf(
             style = attributes.get('style', "Standard")
             Logger.log_message(f'MULTILEADER: {style}')
             base_point = geom_object.extra_data.get('base_point', (0, 0, 0))
-            Logger.log_message(f'MULTILEADER: {base_point}')
-            Logger.log_message(f'MULTILEADER: {geom_object.extra_data}')
+            #Logger.log_message(f'MULTILEADER: {base_point}')
+            Logger.log_message(f'MULTILEADER: {leader_lines[0][0]}')
 
             # Create MULTILEADER entity and apply all extra attributes if supported
             if text:
                 ml_builder = msp.add_multileader_mtext(style)
                 ml_builder.set_content(text, style=style, alignment=attributes.get('text_attachment_point', 0))
 
+                if leader_lines:
+                    ml_builder.add_leader_line(side=ConnectionSide.left, vertices=leader_lines[0])
+
+                #ml_builder.add_leader_line()
                 # Установка свойств стрелки
                 arrow_head_size = attributes.get('arrow_head_size', 0.5)
                 ml_builder.set_arrow_properties(size=arrow_head_size)
@@ -337,9 +284,7 @@ def convert_postgis_to_dxf(
                         #Logger.log_message(f'Error: {key} {value}')
                         pass
 
-                if leader_lines:
-                        ml_builder.add_leader_line(0, leader_lines)
-                
+
                 ml_builder.build(insert=Vec2(base_point[:2]))
             elif 'block_attributes' in geom_object.extra_data:
                 ml_builder = msp.add_multileader_block(style)
@@ -361,7 +306,7 @@ def convert_postgis_to_dxf(
                     except AttributeError:
                         pass
                 if leader_lines:
-                    ml_builder.add_leader_line(0, leader_lines)
+                    ml_builder.add_leader_line(0, leader_lines[0])
                 
                 ml_builder.build(insert=Vec2(base_point[:2]))
             else:
@@ -567,7 +512,12 @@ def _convert_multileader_to_postgis(entity: MultiLeader) -> tuple[Polygon | Poin
         extra_data['block_attributes'] = entity.get_block_content()
 
     # Извлекаем линии-указатели
-    extra_data['leader_lines'] = [(pt.x, pt.y) for pt in getattr(entity, 'leader_lines', [])]
+    leader_lines = []
+    for leader in entity.context.leaders:
+        for line in leader.lines:
+            leader_lines.append(line.vertices)
+            Logger.log_message(f'Линия лидера с вершинами: {leader_lines}')
+    extra_data['leader_lines'] = leader_lines
 
     # Попытка получить координаты из dxf.insert, если есть
     base_point = entity.context.base_point

@@ -60,6 +60,7 @@ def _create_file(db: Session, file_name: str, dxf_handler: DXFHandler) -> models
         return db_file
     else:
         meta = dxf_handler.get_file_metadata(file_name)
+        styles_meta = dxf_handler.extract_styles(file_name)
         tables_meta = dxf_handler.get_tables(file_name)
         blocks_meta = dxf_handler.extract_blocks_from_dxf(file_name)
         # save in txt file
@@ -76,6 +77,7 @@ def _create_file(db: Session, file_name: str, dxf_handler: DXFHandler) -> models
             f.write(str(dict_var_default_meta))
         meta["tables"] = tables_meta.get("tables", {})
         meta["blocks"] = blocks_meta
+        meta["styles"] = styles_meta
         # Convert Vec3 objects to lists so the metadata is JSON serializable.
         meta = _replace_vec3_to_list(meta)
         db_file = models.File(
@@ -124,7 +126,7 @@ def export_dxf(
         for layer_name, layer_entities in dxf_handler.get_layers(filename).items():
             db_layer = _create_layer(db, db_file.id, filename, layer_name, dxf_handler)
             for entity in layer_entities:
-                geom_type, geometry, extra_data = convert_dxf_to_postgis(entity)
+                geom_type, geometry, extra_data = convert_dxf_to_postgis(entity, dxf_handler)
                 if geometry is None:
                     object = models.NonGeometricObject(
                         file_id=db_file.id,

@@ -445,3 +445,21 @@ class DXFHandler(QObject):
             "dictionary_with_default": dictionary_with_default
         }
 
+    def extract_styles(self, filename: str) -> dict:
+        """
+        Извлекает стили из DXF файла.
+        """
+        self.filename = filename
+        doc = self.dxf[filename]
+        styles = {}
+        for style in doc.styles:
+            styles[style.dxf.name] = style.dxfattribs()
+        Logger.log_message(f"Извлечены стили: {styles}")
+        return styles
+    def get_entity_db(self, handle):
+        """
+        Возвращает сущность из базы данных.
+        """
+        doc = self.dxf[self.filename]
+        mleader_style = doc.entitydb.get(handle)
+        return mleader_style

@@ -15,10 +15,11 @@ import math
 import ezdxf
 import numpy as np
 
+from ..dxf.dxf_handler import DXFHandler
 from ..logger.logger import Logger
 
 
-def convert_dxf_to_postgis(entity: DXFEntity) -> tuple[str, BaseGeometry, dict]:
+def convert_dxf_to_postgis(entity: DXFEntity, dxf_handler) -> tuple[str, BaseGeometry, dict]:
     geom_type = entity.dxftype()
     geometry, extra_data = None, {}
 
@@ -56,7 +57,10 @@ def convert_dxf_to_postgis(entity: DXFEntity) -> tuple[str, BaseGeometry, dict]:
     }
 
     if geom_type in conversion_functions:
-        geometry, extra_data = conversion_functions[geom_type](entity)
+        if geom_type == 'MULTILEADER':
+            geometry, extra_data = conversion_functions[geom_type](entity, dxf_handler)
+        else:
+            geometry, extra_data = conversion_functions[geom_type](entity)
     else:
         Logger.log_error(f'dxf type = "{geom_type}" not supported')
 
@@ -167,6 +171,22 @@ def insert_blocks_to_new_file(doc, blocks_data):
 
     Logger.log_message("Completed block insertion")
 
+def insert_styles_to_new_file(doc, styles: dict):
+    """
+    Внедряет стили в новый документ DXF.
+    """
+    for style_name, style_data in styles.items():
+        if not doc.styles.has_entry(style_name):
+            try:
+                # Создаем стиль с заданными атрибутами
+                doc.styles.add(style_name,font=style_data.pop("font") , dxfattribs=style_data.get("dxfattribs", {}))
+
+                Logger.log_message(f"Стиль '{style_name}' внедрен.")
+            except Exception as e:
+                Logger.log_error(f"Ошибка при внедрении стиля '{style_name}': {e}")
+        else:
+            Logger.log_message(f"Стиль '{style_name}' уже существует.")
+
 def convert_postgis_to_dxf(
     file_metadata: str,
     layers: list[models.Layer],
@@ -195,7 +215,9 @@ def convert_postgis_to_dxf(
     if version:
         header['$ACADVER'] = version
 
-   
+    #Добавление стилей
+    styles = file_metadata.get('styles', {})
+    insert_styles_to_new_file(doc, styles)  # New call at ~199
 
     # Добавляем слои и объекты в DXF
     for layer in layers:
@@ -210,26 +232,10 @@ def convert_postgis_to_dxf(
             new_layer = doc.layers.new(name=layer.name)
 
             # Устанавливаем атрибуты для слоя из метаданных
-            if 'color' in layer_metadata:
-                new_layer.color = layer_metadata['color']  # Цвет слоя
-
-            if 'plot' in layer_metadata:
-                new_layer.plot = layer_metadata['plot']  # Печать слоя
-                
-            if 'lineweight' in layer_metadata:
-                new_layer.lineweight = layer_metadata['lineweight']  # Вес линии
-
-            if 'is_frozen' in layer_metadata:
-                new_layer.is_frozen = layer_metadata['is_frozen']  # Замороженность слоя
-
-            if 'is_locked' in layer_metadata:
-                new_layer.is_locked = layer_metadata['is_locked']  # Заблокированность слоя
-
-            if 'linetype' in layer_metadata:
-                new_layer.linetype = layer_metadata['linetype']  # Тип линии слоя
-            
-            if 'is_off' in layer_metadata:
-                new_layer.is_off = layer_metadata['is_off']  # Выключен ли слой
+            allowed_keys = ['color', 'plot', 'lineweight', 'is_frozen', 'is_locked', 'linetype', 'is_off']
+            for key in allowed_keys:
+                if key in layer_metadata:
+                    setattr(new_layer, key, layer_metadata[key])
 
     # Добавляем блоки
     blocks_data = file_metadata.get('blocks', {})
@@ -284,26 +290,22 @@ def convert_postgis_to_dxf(
             msp.add_arc(center, radius, start_angle, end_angle, dxfattribs=attribs)
 
         elif geom_type == 'MULTILEADER':
-            #Logger.log_message(layer_name)
-            #Logger.log_message(f'MULTILEADER: {geom_object.extra_data}')
             attributes = geom_object.extra_data.get('attributes', {})
             leader_lines = geom_object.extra_data.get('leader_lines', [])
             text = geom_object.extra_data.get('text', "")
-            style = attributes.get('style', "Standard")
-            Logger.log_message(f'MULTILEADER: {style}')
-            base_point = geom_object.extra_data.get('base_point', (0, 0, 0))
-            #Logger.log_message(f'MULTILEADER: {base_point}')
-            Logger.log_message(f'MULTILEADER: {leader_lines[0][0]}')
+            style = geom_object.extra_data.get('style', "Standard")
 
+            base_point = geom_object.extra_data.get('base_point', (0, 0, 0))
+            Logger.log_message(f'MULTILEADER: {style}')
+            Logger.log_message(f'MULTILEADER: {attributes}')
             # Create MULTILEADER entity and apply all extra attributes if supported
             if text:
                 ml_builder = msp.add_multileader_mtext(style)
-                ml_builder.set_content(text, style=style, alignment=attributes.get('text_attachment_point', 0))
+                ml_builder.set_content(content=text, alignment=attributes.get('text_attachment_point', 0), style=style)
 
                 if leader_lines:
                     ml_builder.add_leader_line(side=ConnectionSide.left, vertices=leader_lines[0])
 
-                #ml_builder.add_leader_line()
                 # Установка свойств стрелки
                 arrow_head_size = attributes.get('arrow_head_size', 0.5)
                 ml_builder.set_arrow_properties(size=arrow_head_size)
@@ -311,13 +313,11 @@ def convert_postgis_to_dxf(
                 # Установка свойств соединения
                 landing_gap = attributes.get('landing_gap', 0.0)
                 dogleg_length = attributes.get('dogleg_length', 8.0)
-                ml_builder.set_connection_properties(
-                    landing_gap=landing_gap, dogleg_length=dogleg_length
-                )
+                ml_builder.set_connection_properties(landing_gap=landing_gap, dogleg_length=dogleg_length)
 
                 # Установка свойств линии-указателя
                 leader_line_color = 1#attributes.get('leader_line_color', None)
-                leader_linetype = attributes.get('linetype', 'BYLAYER')[0]
+                leader_linetype = attributes.get('linetype', 'BYBLOCK')[0]
                 leader_lineweight = attributes.get('leader_lineweight', -1)
                 leader_type = attributes.get('leader_type', 1)
                 ml_builder.set_leader_properties(
@@ -515,6 +515,7 @@ def _convert_lwpolyline_to_postgis(entity: LWPolyline) -> tuple[BaseGeometry, di
     
 def _convert_text_to_postgis(entity: Text) -> tuple[BaseGeometry, dict]:
     extra_data = _attributes_to_dict(entity)
+    #Logger.log_message(F"TEXT: {extra_data}")
     return None, extra_data
 
 def _convert_circle_to_postgis(entity: Circle) -> tuple[BaseGeometry, dict]:
@@ -553,8 +554,14 @@ def _convert_arc_to_postgis(entity: Arc) -> tuple[BaseGeometry, dict]:
     extra_data = _attributes_to_dict(entity)
     return arc, extra_data
 
-def _convert_multileader_to_postgis(entity: MultiLeader) -> tuple[Polygon | Point, dict]:
+def _convert_multileader_to_postgis(entity: MultiLeader, dxf_handler : DXFHandler) -> tuple[Polygon | Point, dict]:
     extra_data = _attributes_to_dict(entity)
+    Logger.log_message(f'MULTILEADER: {extra_data}')
+    style_entity = dxf_handler.get_entity_db(extra_data['attributes']['text_style_handle'])
+
+
+    extra_data['style'] = style_entity.dxf.name
+    Logger.log_message(f'MULTILEADER style: {extra_data["style"]}')
    # Извлекаем текстовое содержимое, если есть
     if entity.has_mtext_content:
         extra_data['text'] = entity.get_mtext_content()
@@ -566,7 +573,7 @@ def _convert_multileader_to_postgis(entity: MultiLeader) -> tuple[Polygon | Poin
     for leader in entity.context.leaders:
         for line in leader.lines:
             leader_lines.append(line.vertices)
-            Logger.log_message(f'Линия лидера с вершинами: {leader_lines}')
+            #Logger.log_message(f'Линия лидера с вершинами: {leader_lines}')
     extra_data['leader_lines'] = leader_lines
 
     # Попытка получить координаты из dxf.insert, если есть
@@ -575,7 +582,7 @@ def _convert_multileader_to_postgis(entity: MultiLeader) -> tuple[Polygon | Poin
         base_point = (0, 0, 0)
     else:
         base_point = (base_point.x, base_point.y, base_point.z)
-        Logger.log_message(f'MULTILEADER base_point: {base_point}')
+        #Logger.log_message(f'MULTILEADER base_point: {base_point}')
 
     extra_data['base_point'] = base_point
     
@@ -641,6 +648,7 @@ def _convert_mtext_to_postgis(entity: MText) -> tuple[BaseGeometry, dict]:
     """MTEXT в DXF представляет собой многострочный текст. В Shapely нет прямого эквивалента, но можно сохранить текст и его позицию."""
     extra_data = _attributes_to_dict(entity)
     extra_data['text'] = entity.text
+    Logger.log_message(extra_data)
     return None, extra_data
 
 def _convert_solid_to_postgis(entity: Solid) -> tuple[BaseGeometry, dict]:
@@ -866,3 +874,4 @@ def _convert_helix_to_postgis(entity: Helix) -> tuple[BaseGeometry, dict]:
 
     extra_data = _attributes_to_dict(entity)
     return LineString(helix_points), extra_data
+

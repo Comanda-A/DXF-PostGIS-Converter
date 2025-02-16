@@ -1,3 +1,4 @@
+from ezdxf.lldxf.const import boundary_path_flag_names
 from ezdxf.render import ConnectionSide
 from shapely.geometry import Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection
 from shapely.geometry.base import BaseGeometry
@@ -6,6 +7,8 @@ from ezdxf.entities import MText, Solid, Face3d, Trace, Body, Region, Mesh, Hatc
 from ezdxf.entities import Dimension, Ray, XLine, SeqEnd, Helix, XRecord
 from ezdxf.entities import factory  # Added factory import
 from ezdxf.entities.text import Text
+from ezdxf import path
+
 from ezdxf.math import Vec3, Vec2  # Added Vec2 import
 from . import models
 import math
@@ -64,6 +67,8 @@ def insert_blocks_to_new_file(doc, blocks_data):
     Вставка блоков в новый файл DXF из словаря блоков.
     """
     _list_to_vec3(blocks_data)  # Convert all lists to Vec3
+    with open("../dxf_examples/output/blocks_after.txt", "w") as f:
+        f.write(str(blocks_data))
     Logger.log_message("Starting block insertion")
     msp = doc.modelspace()
     
@@ -87,29 +92,73 @@ def insert_blocks_to_new_file(doc, blocks_data):
             if entity_type == "MULTILEADER":
                 Logger.log_message(entity_type)
             # Pass along all keys except 'type', 'handle', and 'layer'.
-            dxfattribs = {k: v for k, v in entity.items() if k not in ("type", "handle", "layer")}
+            dxfattribs = {k: v for k, v in entity.items() if k not in ("type", "handle", "layer", "boundary_paths")}
 
-            if entity_type == "LWPOLYLINE":
-                # Remove invalid attributes for LWPOLYLINE
-                closed = dxfattribs.pop("closed", False)
-                points = dxfattribs.pop("points", [])
-            elif entity_type == "3DSOLID":
-                if "acis_data" in entity:
-                    acis_data = dxfattribs.pop("acis_data", None)
-                else:
-                    acis_data = None            
             try:
                 if entity_type == "LWPOLYLINE":
+                    closed = dxfattribs.pop("closed", False)
+                    points = dxfattribs.pop("points", [])
                     new_block.add_lwpolyline(points, dxfattribs=dxfattribs, close=closed)
                 #TODO: вроде как вставка работает, но не видно в Blocks Section
                 elif entity_type == "3DSOLID":
                     try:
+                        acis_data = dxfattribs.pop("acis_data", None)
                         new_entity = new_block.add_3dsolid(dxfattribs)
-                        Logger.log_message(acis_data)
                         new_entity.sat = acis_data
                         Logger.log_message(f"Inserted 3DSOLID in block: {block_name}")
                     except Exception as e:
                         Logger.log_error(f"Error inserting 3DSOLID in block {block_name}: {e}")
+                elif entity_type == "HATCH" and "boundary_paths" in entity:
+                    hatch = new_block.add_hatch(color=dxfattribs.pop("color", 7), dxfattribs=dxfattribs)
+                    for bpath in entity["boundary_paths"]:
+                        flag = bpath.get("path_type_flags", 0)
+                        edges = bpath.get("edges", [])
+                        if edges and "vertices" in edges[0]:
+                            pts_list = edges[0]["vertices"]
+                            pts = [tuple(pt) for pt in pts_list]
+                            Logger.log_message(f"Adding polyline path to hatch: {pts}")
+                            is_closed = edges[0].get("is_closed", True)
+                            hatch.paths.add_polyline_path(pts, is_closed=is_closed)
+                        else:
+                            edge_path = hatch.paths.add_edge_path()
+                            for edge in edges:
+                                etype = edge.get("type")
+                                if etype == "LINE":
+                                    edge_path.add_line(tuple(edge["start"]), tuple(edge["end"]))
+                                elif etype == "ARC":
+                                    edge_path.add_arc(
+                                        center=tuple(edge["center"]),
+                                        radius=edge["radius"],
+                                        start_angle=edge["start_angle"],
+                                        end_angle=edge["end_angle"],
+                                        ccw=edge.get("ccw", False),
+                                    )
+                                elif etype == "ELLIPSE":
+                                    edge_path.add_ellipse(
+                                        center=edge["center"],
+                                        major_axis=edge["major_axis"],
+                                        ratio=edge["ratio"],
+                                        start_param=edge["start_param"],
+                                        end_param=edge["end_param"],
+                                        ccw=edge.get("ccw", True),
+                                    )
+                                elif etype == "SPLINE":
+                                    edge_path.add_spline(
+                                        degree=edge["degree"],
+                                        control_points=edge["control_points"],
+                                        fit_points=edge["fit_points"],
+                                        knot_values=edge["knot_values"],
+                                        weights=edge["weights"],
+                                        periodic=edge.get("periodic", 0),
+                                        start_tangent=edge.get("start_tangent", (0, 0)),
+                                        end_tangent=edge.get("end_tangent", (0, 0)),
+                                    )
+                elif entity_type == "HATCH" and "hatch_data" in entity:
+                    # Создание нового HATCH-объекта
+                    new_hatch = new_block.add_hatch(dxfattribs=dxfattribs)
+                    # Использование render_hatches для добавления границ
+                    path.render_hatches(new_block, entity['paths'], dxfattribs=dxfattribs)
+
                 else:
                     entity_obj = factory.create_db_entry(entity_type, dxfattribs, doc=doc)
                     new_block.add_entity(entity_obj)
@@ -315,6 +364,7 @@ def convert_postgis_to_dxf(
         elif geom_type == 'INSERT':
             insertion_point = tuple(attribs['insert'])
             block_name = geom_object.extra_data['block_name']
+            #Logger.log_message(geom_object.extra_data)
             msp.add_blockref(block_name, insertion_point, dxfattribs=attribs)
 
         else:
@@ -669,6 +719,7 @@ def _convert_mesh_to_postgis(entity: Mesh) -> tuple[BaseGeometry, dict]:
 
 def _convert_hatch_to_postgis(entity: Hatch) -> tuple[BaseGeometry, dict]:
     '''`HATCH` в DXF представляет собой заливку. В Shapely можно представить его как `Polygon`.'''
+    Logger.log_message(f'HATCH: {entity.dxf.pattern_name}')
     polygons = []
     for boundary in entity.paths:
         points = [tuple(v) for v in boundary.vertices()]

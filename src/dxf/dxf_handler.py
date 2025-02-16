@@ -1,13 +1,15 @@
 import ezdxf
 from ezdxf import select
+from ezdxf.entities import EdgeType, BoundaryPaths, BoundaryPathType, EdgePath
 from ezdxf.layouts.layout import Modelspace, Paperspace
 from ezdxf.document import Drawing
 from ezdxf.addons.drawing import Frontend, RenderContext
-from ezdxf.addons.drawing import layout, svg, pymupdf, config
+from ezdxf.addons.drawing import layout, svg
+
 import os
 
 from ..logger.logger import Logger
-from PyQt5.QtCore import QThread, pyqtSignal, QObject, QTimer, QVariant
+from PyQt5.QtCore import  pyqtSignal, QObject
 from qgis.core import QgsProject, QgsLayerTreeGroup
 
 def get_first_visible_group():
@@ -262,19 +264,80 @@ class DXFHandler(QObject):
 
                 # Специальная обработка LWPOLYLINE
                 if entity.dxftype() == 'LWPOLYLINE':
+                    entity : ezdxf.entities.LWPolyline
                     points = list(entity.get_points(format='xy'))  # Сохраняем только x, y
                     entity_data["points"] = points
                     entity_data["closed"] = entity.is_closed
                 # Специальная обработка 3DSOLID
                 elif entity.dxftype() == '3DSOLID':
+                    entity : ezdxf.entities.Solid3d
                     try:
                         acis_data = entity.acis_data
                         entity_data["acis_data"] = acis_data  # raw ACIS data
                     except Exception as e:
                         entity_data["acis_error"] = str(e)
+                # Специальная обработка HATCH
+                elif entity.dxftype() == 'HATCH':
+                    try:
+                        boundary_paths = []
+                        entity : ezdxf.entities.Hatch
 
+                        for path in entity.paths:
+                            path_data = {
+                                "path_type": path.path_type_flags,
+                                "edges": []
+                            }
+                            if entity.paths.has_edge_paths:
+                                for edge in path.edges:
+                                    if edge.type == EdgeType.LINE:
+                                        path_data["edges"].append({
+                                            "type": "LINE",
+                                            "start": (edge.start[0], edge.start[1]),
+                                            "end": (edge.end[0], edge.end[1])                                        })
+                                    elif edge.type == EdgeType.ARC:
+                                        path_data["edges"].append({
+                                            "type": "ARC",
+                                            "center": (edge.center[0], edge.center[1]),
+                                            "radius": edge.radius,
+                                            "start_angle": edge.start_angle,
+                                            "end_angle": edge.end_angle,
+                                            "ccw": edge.ccw
+                                        })
+                                    elif edge.type == EdgeType.ELLIPSE:
+                                        path_data["edges"].append({
+                                            "type": "ELLIPSE",
+                                            "center": (edge.center[0], edge.center[1]),
+                                            "major_axis": (edge.major_axis[0], edge.major_axis[1]),
+                                            "ratio": edge.ratio,
+                                            "start_param": edge.start_param,
+                                            "end_param": edge.end_param,
+                                            "ccw": edge.ccw
+                                        })
+                                    elif edge.type == EdgeType.SPLINE:
+                                        control_points = [(p[0], p[1]) for p in edge.control_points]
+                                        path_data["edges"].append({
+                                            "type": "SPLINE",
+                                            "degree": edge.degree,
+                                            "control_points": control_points,
+                                            "fit_points": [(p[0], p[1]) for p in edge.fit_points],
+                                            "knot_values": edge.knot_values,
+                                            "weights": edge.weights,
+                                            "periodic": edge.periodic,
+                                            "start_tangent": (edge.start_tangent[0], edge.start_tangent[1]),
+                                            "end_tangent": (edge.end_tangent[0], edge.end_tangent[1]),
+                                        })
+                            else:# entity.paths.type == BoundaryPathType.POLYLINE:
+                                vertices = [(v[0], v[1], v[2]) for v in path.vertices]
+                                path_data["edges"].append({
+                                    "type": "POLYLINE",
+                                    "vertices": vertices,
+                                    "is_closed": path.is_closed
+                                })
+                            boundary_paths.append(path_data)
+                        entity_data["boundary_paths"] = boundary_paths
+                    except Exception as e:
+                        Logger.log_error(f"HATCH processing error: {e}")
                 block_info["entities"].append(entity_data)
-
             blocks_data.append(block_info)
 
         return blocks_data

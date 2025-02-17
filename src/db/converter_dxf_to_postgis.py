@@ -298,9 +298,10 @@ def convert_postgis_to_dxf(
             base_point = geom_object.extra_data.get('base_point', (0, 0, 0))
             Logger.log_message(f'MULTILEADER: {style}')
             Logger.log_message(f'MULTILEADER: {attributes}')
+            Logger.log_message(f'MULTILEADER: {leader_lines}')
             # Create MULTILEADER entity and apply all extra attributes if supported
             if text:
-                ml_builder = msp.add_multileader_mtext(style)
+                ml_builder = msp.add_multileader_mtext()
                 ml_builder.set_content(content=text, alignment=attributes.get('text_attachment_point', 0), style=style)
 
                 if leader_lines:

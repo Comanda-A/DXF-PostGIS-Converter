@@ -293,16 +293,15 @@ def convert_postgis_to_dxf(
             attributes = geom_object.extra_data.get('attributes', {})
             leader_lines = geom_object.extra_data.get('leader_lines', [])
             text = geom_object.extra_data.get('text', "")
-            style = geom_object.extra_data.get('style', "Standard")
-
+            style = geom_object.extra_data.get('text_style', "Standard")
+            char_height = geom_object.extra_data.get('char_height', 1.0)
             base_point = geom_object.extra_data.get('base_point', (0, 0, 0))
-            Logger.log_message(f'MULTILEADER: {style}')
+            
             Logger.log_message(f'MULTILEADER: {attributes}')
-            Logger.log_message(f'MULTILEADER: {leader_lines}')
             # Create MULTILEADER entity and apply all extra attributes if supported
             if text:
                 ml_builder = msp.add_multileader_mtext()
-                ml_builder.set_content(content=text, alignment=attributes.get('text_attachment_point', 0), style=style)
+                ml_builder.set_content(content=text, alignment=attributes.get('text_attachment_point', 0), style=style, char_height=char_height)
 
                 if leader_lines:
                     ml_builder.add_leader_line(side=ConnectionSide.left, vertices=leader_lines[0])
@@ -558,11 +557,11 @@ def _convert_arc_to_postgis(entity: Arc) -> tuple[BaseGeometry, dict]:
 def _convert_multileader_to_postgis(entity: MultiLeader, dxf_handler : DXFHandler) -> tuple[Polygon | Point, dict]:
     extra_data = _attributes_to_dict(entity)
     Logger.log_message(f'MULTILEADER: {extra_data}')
-    style_entity = dxf_handler.get_entity_db(extra_data['attributes']['text_style_handle'])
+    text_style_entity = dxf_handler.get_entity_db(extra_data['attributes']['text_style_handle'])
 
+    extra_data['text_style'] = text_style_entity.dxf.name
+    extra_data['char_height'] = entity.context.char_height
 
-    extra_data['style'] = style_entity.dxf.name
-    Logger.log_message(f'MULTILEADER style: {extra_data["style"]}')
    # Извлекаем текстовое содержимое, если есть
     if entity.has_mtext_content:
         extra_data['text'] = entity.get_mtext_content()

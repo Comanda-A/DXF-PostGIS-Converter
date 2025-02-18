@@ -60,8 +60,25 @@ def test_dxf_integrity(input_dxf_path: str, output_dxf_path: str = None):
         layers_entities, filename = dxf_handler.read_dxf_file(input_dxf_path)
         print(f"Файл {filename} успешно загружен")
 
+        file_name = os.path.basename(input_dxf_path)
+
+        blocks_meta = dxf_handler.extract_blocks_from_dxf(file_name)
+        # save in txt file
+        with open("../dxf_examples/output/blocks.txt", "w") as f:
+            f.write(str(blocks_meta))
+        xrecord_data = dxf_handler.extract_all_xrecords(file_name)
+        with open("../dxf_examples/output/xrecord.txt", "w") as f:
+            f.write(str(xrecord_data))
+        dict_meta = dxf_handler.extract_dictionary(file_name)
+        with open("../dxf_examples/output/dictionary.txt", "w") as f:
+            f.write(str(dict_meta))
+        dict_var_default_meta = dxf_handler.extract_dictionary_vars_and_with_default(file_name)
+        with open("../dxf_examples/output/dict_var_default.txt", "w") as f:
+            f.write(str(dict_var_default_meta))
+
         # Экспортируем в БД
         export_dxf(**test_params, dxf_handler=dxf_handler)
+
         print("Данные успешно экспортированы в БД")
 
         # Импортируем обратно в DXF

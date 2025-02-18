@@ -2,7 +2,6 @@ from qgis.PyQt.QtWidgets import QTreeWidgetItem, QProgressDialog, QTreeWidgetIte
 from qgis.PyQt.QtCore import Qt
 
 from qgis.core import QgsApplication
-from shapely.geometry import Point
 from .logger.logger import Logger
 
 

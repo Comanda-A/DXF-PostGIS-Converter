@@ -63,18 +63,7 @@ def _create_file(db: Session, file_name: str, dxf_handler: DXFHandler) -> models
         styles_meta = dxf_handler.extract_styles(file_name)
         tables_meta = dxf_handler.get_tables(file_name)
         blocks_meta = dxf_handler.extract_blocks_from_dxf(file_name)
-        # save in txt file
-        with open("../dxf_examples/output/blocks.txt", "w") as f:
-            f.write(str(blocks_meta))
-        xrecord_data = dxf_handler.extract_all_xrecords(file_name)
-        with open("../dxf_examples/output/xrecord.txt", "w") as f:
-            f.write(str(xrecord_data))
-        dict_meta = dxf_handler.extract_dictionary(file_name)
-        with open("../dxf_examples/output/dictionary.txt", "w") as f:
-            f.write(str(dict_meta))
-        dict_var_default_meta = dxf_handler.extract_dictionary_vars_and_with_default(file_name)
-        with open("../dxf_examples/output/dict_var_default.txt", "w") as f:
-            f.write(str(dict_var_default_meta))
+
         meta["tables"] = tables_meta.get("tables", {})
         meta["blocks"] = blocks_meta
         meta["styles"] = styles_meta

@@ -4,10 +4,11 @@ import asyncio
 from qgis.PyQt import uic, QtWidgets, QtCore
 from qgis.PyQt.QtWidgets import QMessageBox, QProgressDialog, QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView, QFileDialog
 from qgis.PyQt.QtCore import Qt
+
 from qgis.core import QgsProviderRegistry, QgsDataSourceUri
 from functools import partial
 
-
+from .preview_components import PreviewDialog, PreviewWidgetFactory
 from ..logger.logger import Logger
 from ..db.saved_connections_manager import get_all_connections, get_connection, edit_connection_via_dialog
 from ..dxf.dxf_handler import DXFHandler
@@ -34,6 +35,9 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.dxf_tree_widget_handler = TreeWidgetHandler(self.dxf_tree_widget)
         self.dxf_handler = DXFHandler(self.type_shape, self.type_selection, self.dxf_tree_widget_handler)
         self.db_tree_widget_handler = TreeWidgetHandler(self.db_structure_treewidget)
+        self.preview_cache = {}  # Cache for preview widgets
+        self.preview_factory = PreviewWidgetFactory()
+        self.plugin_root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
         # нажатие по кнопке export_to_db_button
         self.export_to_db_button.clicked.connect(self.export_to_db_button_click)
@@ -141,6 +145,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
 
     def refresh_db_structure_treewidget(self):
+        # Очищаем кеш предпросмотров перед обновлением
+        self.preview_factory.clear_cache()
         self.db_structure_treewidget.clear()
         # Получаем список всех зарегистрированных подключений PostGIS
         settings = QgsProviderRegistry.instance().providerMetadata('postgres').connections()
@@ -178,15 +184,28 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                     entity_item = QTreeWidgetItem([entity_description])
                     conn_item.addChild(entity_item)
 
-                    # Создаем кнопки "Импорт", "Удалить", "Информация"
+                    # Create buttons container
+                    buttons_widget = QWidget()
+                    buttons_layout = QHBoxLayout(buttons_widget)
+                    buttons_layout.setContentsMargins(20, 0, 0, 0)
+
+                    # Create preview widget
+                    preview_widget = self.preview_factory.create_preview_widget(
+                        file['filename'],
+                        self.plugin_root_dir,
+                        self.show_full_preview
+                    )
+                    if preview_widget:
+                        buttons_layout.addWidget(preview_widget)
+
+                    # Add existing buttons
                     import_button = QPushButton('import')
                     delete_button = QPushButton('delete')
                     info_button = QPushButton('info')
 
-                    # Задаем размер кнопок
-                    import_button.setFixedSize(80, 20)
-                    delete_button.setFixedSize(80, 20)
-                    info_button.setFixedSize(80, 20)
+                    for btn in (import_button, delete_button, info_button):
+                        btn.setFixedSize(80, 20)
+                        buttons_layout.addWidget(btn)
 
                     # Привязываем обработчики событий
                     import_button.clicked.connect(
@@ -198,18 +217,14 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                     info_button.clicked.connect(
                         partial(self.open_file_info_dialog, file['id'], file['filename'], file['upload_date']))
 
-                    # Создаем контейнер для кнопок
-                    widget = QWidget()
-                    layout = QHBoxLayout(widget)
-                    layout.addWidget(import_button)
-                    layout.addWidget(delete_button)
-                    layout.addWidget(info_button)
-                    layout.setAlignment(Qt.AlignLeft)
-                    layout.setContentsMargins(20, 0, 0, 0)
-                    widget.setLayout(layout)
+                    buttons_layout.setAlignment(Qt.AlignLeft)
+                    buttons_widget.setLayout(buttons_layout)
 
-                    # Добавляем контейнер в соответствующую колонку узла дерева
-                    self.db_structure_treewidget.setItemWidget(entity_item, 1, widget)
+                    self.db_structure_treewidget.setItemWidget(entity_item, 1, buttons_widget)
+
+        # Adjust column widths
+        self.db_structure_treewidget.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.db_structure_treewidget.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
 
     def delete_file_from_db(self, conn_name, database, host, port, file_id, file_name):
         # Создаем диалоговое окно
@@ -231,6 +246,11 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             conn = get_connection(conn_name) or {}
             username = conn.get('username', 'N/A')
             password = conn.get('password', 'N/A')
+            
+            # Очищаем кеш перед удалением файла
+            preview_path = os.path.join(self.plugin_root_dir, 'previews', f"{os.path.splitext(file_name)[0]}.svg")
+            self.preview_factory.remove_from_cache(preview_path)
+            
             delete_dxf(username, password, host, port, database, file_id)
             self.refresh_db_structure_treewidget()
             
@@ -298,3 +318,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             import_dxf(username, password, host, port, dbname, file_id, file_path)
         else:
             QMessageBox.warning(None, "Error", "Please select the path to save the file.")
+
+    def show_full_preview(self, svg_path):
+        """Shows full-size preview dialog"""
+        dialog = PreviewDialog(svg_path, self)
+        dialog.exec_()

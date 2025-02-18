@@ -159,7 +159,7 @@ class PreviewWidgetFactory:
         """Удаляет конкретный виджет из кеша."""
         if preview_path in self.preview_cache:
             widget = self.preview_cache.pop(preview_path)
-            if widget and not widget.isDestroyed():
+            if widget and not widget.destroyed:
                 widget.deleteLater()
 
     def create_preview_widget(self, file_name, plugin_root_dir, on_preview_click):
@@ -176,7 +176,7 @@ class PreviewWidgetFactory:
         # Если виджет уже есть в кеше и не был удален, используем его
         if preview_path in self.preview_cache:
             cached_widget = self.preview_cache[preview_path]
-            if cached_widget and not cached_widget.isDestroyed():
+            if cached_widget and not cached_widget.destroyed:
                 return cached_widget
             else:
                 # Если виджет был удален, удаляем его из кеша

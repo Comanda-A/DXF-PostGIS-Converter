@@ -23,10 +23,10 @@ def test_dxf_integrity(input_dxf_path: str, output_dxf_path: str = None):
     # Параметры подключения к тестовой БД
     test_params = {
         "username": "postgres",
-        "password": "123",
+        "password": "12345",
         "address": "localhost",
         "port": "5432",
-        "dbname": "test"
+        "dbname": "converter"
     }
 
     if output_dxf_path is None:

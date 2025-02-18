@@ -151,7 +151,7 @@ class PreviewWidgetFactory:
     def clear_cache(self):
         """Очищает кеш виджетов предпросмотра."""
         for widget in self.preview_cache.values():
-            if widget and not widget.isDestroyed():
+            if widget and not widget.destroyed:
                 widget.deleteLater()
         self.preview_cache.clear()
 

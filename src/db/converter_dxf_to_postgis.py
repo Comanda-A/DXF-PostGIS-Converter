@@ -71,8 +71,6 @@ def insert_blocks_to_new_file(doc, blocks_data):
     Вставка блоков в новый файл DXF из словаря блоков.
     """
     _list_to_vec3(blocks_data)  # Convert all lists to Vec3
-    with open("../dxf_examples/output/blocks_after.txt", "w") as f:
-        f.write(str(blocks_data))
     Logger.log_message("Starting block insertion")
     msp = doc.modelspace()
     
@@ -221,7 +219,7 @@ def convert_postgis_to_dxf(
 
     # Добавляем слои и объекты в DXF
     for layer in layers:
-        #Logger.log_message(f'Layer: {layer.name}')
+        Logger.log_message(f'Layer: {layer.name}')
         # Извлекаем метаданные для текущего слоя
         layer_metadata = layer.layer_metadata
 
@@ -300,7 +298,7 @@ def convert_postgis_to_dxf(
             Logger.log_message(f'MULTILEADER: {attributes}')
             # Create MULTILEADER entity and apply all extra attributes if supported
             if text:
-                ml_builder = msp.add_multileader_mtext()
+                ml_builder = msp.add_multileader_mtext(dxfattribs=attribs)
                 ml_builder.set_content(content=text, alignment=attributes.get('text_attachment_point', 0), style=style, char_height=char_height)
 
                 if leader_lines:
@@ -336,7 +334,7 @@ def convert_postgis_to_dxf(
 
                 ml_builder.build(insert=Vec2(base_point[:2]))
             elif 'block_attributes' in geom_object.extra_data:
-                ml_builder = msp.add_multileader_block(style)
+                ml_builder = msp.add_multileader_block(style, dxfattribs=attribs)
                 block_attrs = geom_object.extra_data.get('block_attributes', {})
                 block_name = block_attrs.get('name', "Unknown")
                 ml_builder.set_content(name=block_name, alignment=attributes.get('text_attachment_point', 0))

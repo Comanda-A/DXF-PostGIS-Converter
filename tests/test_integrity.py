@@ -76,8 +76,13 @@ def test_dxf_integrity(input_dxf_path: str, output_dxf_path: str = None):
         with open("../dxf_examples/output/dict_var_default.txt", "w") as f:
             f.write(str(dict_var_default_meta))
 
+        table_info = {
+            'is_new_file': True,
+            'import_mode': 'kek',
+
+        }
         # Экспортируем в БД
-        export_dxf(**test_params, dxf_handler=dxf_handler)
+        export_dxf(**test_params, dxf_handler=dxf_handler, table_info=table_info)
 
         print("Данные успешно экспортированы в БД")
 

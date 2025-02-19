@@ -12,6 +12,8 @@ from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler
 from ..db.database import export_dxf
 from ..db.database import (get_layer_objects, get_layers_for_file, get_table_fields)
+from .info_dialog import InfoDialog
+from ..config.help_content import EXPORT_DIALOG_HELP
 
 
 class ExportDialog(QDialog):
@@ -45,12 +47,38 @@ class ExportDialog(QDialog):
     def setup_ui(self):
         """Создание и настройка элементов пользовательского интерфейса"""
         self.setWindowTitle("Export to Database")
-        self.setMinimumWidth(1200)  # Увеличим минимальную ширину
+        self.setMinimumWidth(1200)
         self.setMinimumHeight(800)
 
-        # Основной макет будет горизонтальным
-        layout = QHBoxLayout(self)
-        layout.setSpacing(20)  # Добавляем отступ между колонками
+        # Главный макет с отступами и промежутками
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(10)
+
+        # Верхняя панель с кнопкой информации
+        top_bar = QHBoxLayout()
+        top_bar.addStretch()  
+        
+        # Кнопка информации
+        self.info_button = QPushButton("?")
+        self.info_button.setFixedSize(30, 30)
+        self.info_button.setStyleSheet("""
+            QPushButton {
+                border-radius: 15px;
+                background-color: #007bff;
+                color: white;
+                font-weight: bold;
+                font-size: 16px;
+            }
+            QPushButton:hover {
+                background-color: #0056b3;
+            }
+        """)
+        top_bar.addWidget(self.info_button)
+        main_layout.addLayout(top_bar)
+
+        # Контент панели может быть растянут 
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(20)
 
         # Левая колонка – для DXF объектов и подключения к базе данных
         left_column = QVBoxLayout()
@@ -123,7 +151,7 @@ class ExportDialog(QDialog):
         # Добавляем левую колонку в основной макет с растяжением
         left_widget = QWidget()
         left_widget.setLayout(left_column)
-        layout.addWidget(left_widget)
+        content_layout.addWidget(left_widget)
 
         # Правая колонка – для выбора файла и сопоставления
         right_column = QVBoxLayout()
@@ -211,7 +239,10 @@ class ExportDialog(QDialog):
         right_column.addStretch()
         
         # Добавляем правый виджет в основной макет
-        layout.addWidget(right_widget)
+        content_layout.addWidget(right_widget)
+
+        # Добавляем основной макет в окно
+        main_layout.addLayout(content_layout)
 
         # Начальная видимость
         self.mapping_group.hide()
@@ -230,6 +261,7 @@ class ExportDialog(QDialog):
     def _connect_signals(self):
         """Подключение всех сигналов пользовательского интерфейса"""
         self.select_db_button.clicked.connect(self.on_select_db_button_clicked)
+        self.info_button.clicked.connect(self.show_info_dialog)
         self.port_lineedit.textChanged.connect(self.on_port_changed)
         self.password_lineedit.textChanged.connect(self.on_password_changed)
         self.file_combo.currentIndexChanged.connect(self.on_file_selection_changed)
@@ -237,6 +269,11 @@ class ExportDialog(QDialog):
         self.layer_combo.currentIndexChanged.connect(self.on_layer_changed)
         self.buttonBox.accepted.connect(self.on_ok_clicked)
         self.buttonBox.rejected.connect(self.on_cancel_clicked)
+
+    def show_info_dialog(self):
+        """Показать диалог с описанием интерфейса"""
+        dialog = InfoDialog("Export Dialog Help", EXPORT_DIALOG_HELP, self)
+        dialog.exec_()
 
     def load_last_connection(self):
         """Загрузка последнего использованного подключения к базе данных из настроек QGIS"""
@@ -271,12 +308,7 @@ class ExportDialog(QDialog):
 
 
     def copy_checked_items(self, parent_item, new_parent_item):
-        '''
-        Рекурсивная функция для копирования всех отмеченных (Checked) дочерних элементов из дерева.
-
-        parent_item: исходный элемент (например, файл или слой) из первого дерева.
-        new_parent_item: соответствующий элемент в новом дереве, куда копируются отмеченные элементы.
-        '''
+        """Рекурсивная функция для копирования всех отмеченных (Checked) дочерних элементов из дерева"""
         # Проходим по всем дочерним элементам
         for i in range(parent_item.childCount()):
             child_item = parent_item.child(i)
@@ -312,7 +344,6 @@ class ExportDialog(QDialog):
 
 
     def refresh_data_dialog(self):
-        self.populate_tree_widget()
         self.address_label.setText(self.address)
         self.port_lineedit.setText(self.port)
         self.dbname_label.setText(self.dbname)
@@ -320,6 +351,8 @@ class ExportDialog(QDialog):
         self.username_label.setText(self.username)
         self.password_lineedit.setText(self.password)
         self.show_window()
+        self.populate_tree_widget()
+
 
 
     def show_window(self):
@@ -412,7 +445,7 @@ class ExportDialog(QDialog):
             else:
                 self.new_table_radio.setChecked(True)
         except Exception as e:
-            Logger.log_error(f"Error in file selection: {str(e)}")
+            Logger.log_error(f"Ошибка при выборе файла: {str(e)}")
 
     def load_file_tables(self):
         """Загрузка таблиц, связанных с выбранным файлом"""
@@ -506,7 +539,7 @@ class ExportDialog(QDialog):
                 )
 
         except Exception as e:
-            Logger.log_error(f"Failed to load field mapping: {str(e)}")
+            Logger.log_error(f"Не удалось загрузить сопоставление полей: {str(e)}")
 
     def on_mapping_changed(self, dxf_field, table_field):
         """Обновление сопоставления полей при изменении выбора"""
@@ -601,7 +634,7 @@ class ExportDialog(QDialog):
             self.layer_combo.clear()
             
             if not self.selected_file_id:
-                Logger.log_error("No file selected")
+                Logger.log_error("Файл не выбран")
                 return
                 
             # Получаем слои через новую функцию
@@ -649,13 +682,13 @@ class ExportDialog(QDialog):
                 self.mapping_tabs.hide()
                 
         except Exception as e:
-            Logger.log_error(f"Failed to load file layers: {str(e)}")
+            Logger.log_error(f"Не удалось загрузить слои файла: {str(e)}")
             self.mapping_group.hide()
             self.mapping_tabs.hide()
             QtWidgets.QMessageBox.warning(
                 self,
-                "Error",
-                f"Failed to load layers: {str(e)}"
+                "Ошибка",
+                f"Не удалось загрузить слои: {str(e)}"
             )
 
     def on_layer_changed(self, index):
@@ -818,7 +851,7 @@ class ExportDialog(QDialog):
             table.resizeColumnsToContents()
                 
         except Exception as e:
-            Logger.log_error(f"Error setting up mapping table: {str(e)}")
+            Logger.log_error(f"Ошибка при настройке таблицы сопоставлений: {str(e)}")
 
     def _create_table_row(self, table, row_idx, dxf_entity, db_handle_map, db_entities, mappings):
         """Создание одной строки в таблице сопоставлений"""

@@ -9,7 +9,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.db.database import PATTERN_DATABASE_URL, Base, export_dxf, import_dxf, get_all_files_from_db
 from src.dxf.dxf_handler import DXFHandler
-from src.tree_widget_handler import TreeWidgetHandler
 
 
 def test_dxf_integrity(input_dxf_path: str, output_dxf_path: str = None):
@@ -118,6 +117,9 @@ def test_dxf_integrity(input_dxf_path: str, output_dxf_path: str = None):
                 print(f"Отсутствующие слои: {missing_layers}")
 
         print("Проверка целостности завершена")
+
+        os.system("ezdxf view " + input_dxf_path)
+        os.system("ezdxf browse " + output_dxf_path)
 
     except Exception as e:
         print(f"Ошибка при проверке целостности: {str(e)}")

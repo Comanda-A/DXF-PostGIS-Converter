@@ -314,7 +314,7 @@ class ExportDialog(QDialog):
             child_item = parent_item.child(i)
 
             # Если элемент отмечен
-            if child_item.checkState(0) == Qt.Checked:
+            if child_item.checkState(0) in [Qt.Checked, Qt.PartiallyChecked]:
                 # Копируем элемент в новое дерево
                 new_child_item = QTreeWidgetItem([child_item.text(0)])
                 new_parent_item.addChild(new_child_item)
@@ -335,7 +335,7 @@ class ExportDialog(QDialog):
             file_item = self.dxf_tree_widget_handler.tree_widget.topLevelItem(i)
 
             # Проверяем, отмечен ли файл
-            if file_item.checkState(0) == Qt.Checked:
+            if file_item.checkState(0) in [Qt.Checked, Qt.PartiallyChecked]:
                 # Копируем файл в новое дерево
                 new_file_item = QTreeWidgetItem([file_item.text(0)])
                 self.tree_widget.addTopLevelItem(new_file_item)
@@ -729,7 +729,7 @@ class ExportDialog(QDialog):
             geom_dxf = []
             nongeom_dxf = []
             
-            # Получаем сущности DXF для слоя с считыванием всех файлов
+            # Получаем сущности DXF для слоя со считыванием всех файлов
             for filename in self.dxf_handler.dxf:
                 layer_entities = self.dxf_handler.get_layers(filename).get(layer_name, [])
                 for entity in layer_entities:

@@ -388,6 +388,10 @@ class TreeWidgetHandler:
         if not current_file:
             return
 
+        # Обновляем статистику для файла перед обработкой
+        if current_file in self.files_data:
+            self._clear_file_statistics(current_file)
+
         for layer_name, layer_entities in layers_to_check.items():
             layer_data = self._get_layer_data(current_file, layer_name)
             if layer_data:
@@ -414,7 +418,11 @@ class TreeWidgetHandler:
         self.selectable = False
         self.batch_update = False
         self.tree_widget.setUpdatesEnabled(True)
-        self.update_selection_count()
+        
+        # Обновляем общую статистику и текст файла
+        self.update_selection_count(current_file)
+        if self.selected_file:
+            self._update_file_text(current_file)
 
     def check_entity_in_tree(self, entity, layers_to_check, file_name):
         """Проверяет наличие entity в дереве с учетом контекста файла"""
@@ -539,7 +547,7 @@ class TreeWidgetHandler:
             ))
         else:
             self.selected_file.setText(0, 
-                f'Файл: {file_name} | ({file_data["layer_count"]} {layers_word}, {file_data["total_entities"]} {entities_word})'
+                f'Файл: {file_name} | ({file_name} {layers_word}, {file_data["total_entities"]} {entities_word})'
             )
 
     def update_layer_statistics(self, layer_name, file_name):

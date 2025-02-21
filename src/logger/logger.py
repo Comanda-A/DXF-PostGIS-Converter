@@ -4,7 +4,7 @@ from qgis.core import QgsMessageLog, Qgis
 
 class Logger:
     @staticmethod
-    def log_message(message, tag='QGIS'):
+    def log_message(message, tag='DXF-PostGIS-Converter'):
         if not isinstance(message, str):
             message = str(message)
         QgsMessageLog.logMessage(message, tag, Qgis.Info)
@@ -15,7 +15,7 @@ class Logger:
         print(message)
 
     @staticmethod
-    def log_warning(message, tag='QGIS'):
+    def log_warning(message, tag='DXF-PostGIS-Converter'):
         QgsMessageLog.logMessage(message, tag, Qgis.Warning)
         caller = inspect.stack()[1]
         filename = os.path.basename(caller.filename)
@@ -24,7 +24,7 @@ class Logger:
         print(message)
 
     @staticmethod
-    def log_error(message, tag='QGIS'):
+    def log_error(message, tag='DXF-PostGIS-Converter'):
         QgsMessageLog.logMessage(message, tag, Qgis.Critical)
         caller = inspect.stack()[1]
         filename = os.path.basename(caller.filename)

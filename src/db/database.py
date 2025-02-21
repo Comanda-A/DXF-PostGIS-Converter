@@ -94,7 +94,74 @@ def _create_layer(db: Session, file_id: int, file_name: str, layer_name: str, dx
         db.refresh(db_layer)
         return db_layer
 
-def export_dxf(username, password, address, port, dbname, dxf_handler, table_info):
+def _handle_existing_file(db: Session, table_info: dict, username: str, password: str, address: str, port: str, dbname: str) -> Session:
+    """Обработка существующего файла в зависимости от режима импорта"""
+    if table_info['import_mode'] == 'overwrite':
+        file_id = table_info['file_id']
+        delete_dxf(username, password, address, port, dbname, file_id)
+        return _connect_to_database(username, password, address, port, dbname)
+    elif table_info['import_mode'] == 'mapping':
+        _update_mappings(db, table_info)
+        return db
+    return db
+
+def _update_mappings(db: Session, table_info: dict) -> None:
+    """Обновление геометрических и негеометрических сопоставлений"""
+    geom_mappings = table_info.get('geom_mappings', {})
+    nongeom_mappings = table_info.get('nongeom_mappings', {})
+    
+    for mappings, model_class in [(geom_mappings, models.GeometricObject), 
+                                 (nongeom_mappings, models.NonGeometricObject)]:
+        for _, mapping in mappings.items():
+            if 'entity_id' in mapping and 'attributes' in mapping:
+                obj = db.query(model_class).filter(model_class.id == mapping['entity_id']).first()
+                if obj and mapping['attributes']:
+                    extra_data = obj.extra_data
+                    if 'attributes' not in extra_data:
+                        extra_data['attributes'] = {}
+                    extra_data['attributes'].update(mapping['attributes'])
+                    obj.extra_data = extra_data
+    
+    db.commit()
+
+def _process_layer_entities(db: Session, db_file: models.File, filename: str, layer_name: str, 
+                          layer_entities: list, dxf_handler: DXFHandler) -> None:
+    """Обработка объектов для определенного слоя"""
+    db_layer = _create_layer(db, db_file.id, filename, layer_name, dxf_handler)
+    for entity in layer_entities:
+        geom_type, geometry, extra_data = convert_dxf_to_postgis(entity, dxf_handler)
+        object_class = models.NonGeometricObject if geometry is None else models.GeometricObject
+        object_data = {
+            'file_id': db_file.id,
+            'layer_id': db_layer.id,
+            'geom_type': geom_type,
+            'extra_data': extra_data
+        }
+        if geometry is not None:
+            object_data['geometry'] = from_shape(geometry, srid=4326)
+        
+        db.add(object_class(**object_data))
+
+def _create_output_dxf(db: Session, db_file: models.File, filename: str, dxf_handler: DXFHandler) -> None:
+    """Создание выходного DXF файла и SVG предпросмотра"""
+    file_metadata = db_file.file_metadata
+    layers = db.query(models.Layer).filter(models.Layer.file_id == db_file.id).all()
+    geom_objects = db.query(models.GeometricObject).filter(models.GeometricObject.file_id == db_file.id).all()
+    non_geom_objects = db.query(models.NonGeometricObject).filter(models.NonGeometricObject.file_id == db_file.id).all()
+
+    original_path = dxf_handler.get_file_path(filename)
+    output_path = original_path.replace('.dxf', '_exported.dxf')
+
+    convert_postgis_to_dxf(file_metadata, layers, geom_objects, non_geom_objects, output_path)
+    doc = dxf_handler.simle_read_dxf_file(output_path)
+    dxf_handler.save_svg_preview(doc, doc.modelspace(), filename)
+
+    import os
+    if os.path.exists(output_path):
+        os.remove(output_path)
+
+def export_dxf(username: str, password: str, address: str, port: str, dbname: str, 
+               dxf_handler: DXFHandler, table_info: dict) -> None:
     """Экспорт данных DXF в базу данных с поддержкой сопоставления"""
     db = _connect_to_database(username, password, address, port, dbname)
     if not db:
@@ -102,81 +169,33 @@ def export_dxf(username, password, address, port, dbname, dxf_handler, table_inf
         return
     
     try:
-        # Обработка существующих файлов
         if not table_info['is_new_file']:
-            if table_info['import_mode'] == 'overwrite':
-                # Удаление существующего файла и всех связанных объектов
-                file_id = table_info['file_id']
-                delete_dxf(username, password, address, port, dbname, file_id)
-                db = _connect_to_database(username, password, address, port, dbname)
-            
-            elif table_info['import_mode'] == 'mapping':
-                # Обработка режима сопоставления
-                geom_mappings = table_info.get('geom_mappings', {})
-                nongeom_mappings = table_info.get('nongeom_mappings', {})
-                
-                # Обновление геометрических объектов на основе сопоставлений
-                for dxf_handle, mapping in geom_mappings.items():
-                    entity_id = mapping['entity_id']
-                    mapped_attrs = mapping.get('attributes', {})
-                    
-                    if mapped_attrs:
-                        # Получение существующего объекта
-                        obj = db.query(models.GeometricObject).filter(models.GeometricObject.id == entity_id).first()
-                        if obj:
-                            # Обновление атрибутов в extra_data
-                            extra_data = obj.extra_data
-                            if 'attributes' not in extra_data:
-                                extra_data['attributes'] = {}
-                            extra_data['attributes'].update(mapped_attrs)
-                            obj.extra_data = extra_data
-                
-                # Обновление негеометрических объектов на основе сопоставлений
-                for dxf_handle, mapping in nongeom_mappings.items():
-                    entity_id = mapping['entity_id']
-                    mapped_attrs = mapping.get('attributes', {})
-                    
-                    if mapped_attrs:
-                        # Получение существующего объекта
-                        obj = db.query(models.NonGeometricObject).filter(models.NonGeometricObject.id == entity_id).first()
-                        if obj:
-                            # Обновление атрибутов в extra_data
-                            extra_data = obj.extra_data
-                            if 'attributes' not in extra_data:
-                                extra_data['attributes'] = {}
-                            extra_data['attributes'].update(mapped_attrs)
-                            obj.extra_data = extra_data
-                
-                db.commit()
+            db = _handle_existing_file(db, table_info, username, password, address, port, dbname)
+            if table_info['import_mode'] == 'mapping':
                 Logger.log_message("Успешно экспортированы данные DXF в базу данных")
+                return
 
-                return  # Выход, так как мы просто обновляем сопоставления
-
-        # Обработка нового файла или режима перезаписи
         for filename, dxf_drawing in dxf_handler.dxf.items():
             db_file = _create_file(db, filename, dxf_handler)
-            for layer_name, layer_entities in dxf_handler.get_layers(filename).items():
-                db_layer = _create_layer(db, db_file.id, filename, layer_name, dxf_handler)
-                for entity in layer_entities:
-                    geom_type, geometry, extra_data = convert_dxf_to_postgis(entity, dxf_handler)
-                    if geometry is None:
-                        object = models.NonGeometricObject(
-                            file_id=db_file.id,
-                            layer_id=db_layer.id,
-                            geom_type=geom_type,
-                            extra_data=extra_data
-                        )
-                    else:
-                        object = models.GeometricObject(
-                            file_id=db_file.id,
-                            layer_id=db_layer.id,
-                            geom_type=geom_type,
-                            geometry=from_shape(geometry, srid=4326),
-                            extra_data=extra_data
-                        )
-                    db.add(object)
+            entities_to_export = dxf_handler.get_entities_for_export(filename)
 
-        db.commit()
+            if dxf_handler.selected_entities:
+
+                # Группировка объектов по слоям
+                layers_entities = {}
+                for entity in entities_to_export:
+                    layer_name = entity.dxf.layer
+                    if layer_name not in layers_entities:
+                        layers_entities[layer_name] = []
+                    layers_entities[layer_name].append(entity)
+                entities_to_export = layers_entities
+
+            for layer_name, layer_entities in entities_to_export.items():
+                _process_layer_entities(db, db_file, filename, layer_name, layer_entities, dxf_handler)
+            
+            db.commit()
+            _create_output_dxf(db, db_file, filename, dxf_handler)
+
         Logger.log_message("Успешно экспортированы данные DXF в базу данных")
         
     except Exception as e:

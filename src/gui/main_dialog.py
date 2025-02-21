@@ -124,29 +124,33 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         if result is not None:
             if task_id == "read_dxf_file":
                 self.dxf_tree_widget_handler.populate_tree_widget(result)
-            elif task_id == "select_entities_in_area":
+            elif task_id == "select_entities_in_area" and result != []:
                 self.dxf_tree_widget_handler.select_area(result)
+                # создать функцию в dxf_handler для сохранения выбранных объектов, чтобы ими манипулировать при конвертации в бд
 
         self.export_to_db_button.setEnabled(self.dxf_handler.file_is_open)
         self.select_area_button.setEnabled(self.dxf_handler.file_is_open)
         self.progress_dialog.close()
 
-    def refresh_dfx_tree_widget(self):
-        """
-        Обновление древовидного виджета DXF
-        """
-        if self.dxf_handler.file_is_open:
-            self.dxf_tree_widget_handler.populate_tree_widget(self.dxf_handler.get_layers())
-        else:
-            self.dxf_tree_widget_handler.populate_tree_widget({})
-
-        self.select_area_button.setEnabled(self.dxf_handler.file_is_open)
-        self.export_to_db_button.setEnabled(self.dxf_handler.file_is_open)
-
-
     def export_to_db_button_click(self):
         from .export_dialog import ExportDialog
 
+        has_selection = any(self.dxf_handler.selected_entities.values())
+        
+        if has_selection:
+            msg_box = QMessageBox()
+            msg_box.setIcon(QMessageBox.Question)
+            msg_box.setWindowTitle("Export Selection")
+            msg_box.setText("Вы хотите экспортировать только выбранные объекты?")
+            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
+            
+            result = msg_box.exec_()
+            
+            if result == QMessageBox.Cancel:
+                return
+            elif result == QMessageBox.No:
+                self.dxf_handler.clear_selection()
+        
         dlg = ExportDialog(self.dxf_tree_widget_handler, self.dxf_handler)
         dlg.show()
         result = dlg.exec_()         
@@ -154,6 +158,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         # See if OK was pressed
         if result:
             pass
+            #TODO: Clear selection after successful export
+            #self.dxf_handler.clear_selection()
         
         self.show_window()
 
@@ -339,6 +345,9 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
 
     def import_from_db_button_click(self, conn_name, dbname, host, port, file_name, file_id):
+        """
+        Обработка нажатия кнопки импорта из базы данных
+        """
         # Открываем диалоговое окно для выбора пути сохранения файла
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getSaveFileName(None, "Save file as", "", "Все файлы (*)", options=options)
@@ -350,7 +359,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         if file_path:
             import_dxf(username, password, host, port, dbname, file_id, file_path)
         else:
-            QMessageBox.warning(None, "Error", "Please select the path to save the file.")
+            QMessageBox.warning(None, "Ошибка", "Пожалуйста, выберите путь для сохранения файла.")
 
     def show_full_preview(self, svg_path):
         """Показывает диалог предпросмотра в полном размере"""

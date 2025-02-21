@@ -1,17 +1,15 @@
-from ezdxf.lldxf.const import boundary_path_flag_names
 from ezdxf.render import ConnectionSide
 from shapely.geometry import Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection
 from shapely.geometry.base import BaseGeometry
 from ezdxf.entities import DXFEntity, Point as DXFPoint, Line, Polyline, LWPolyline, Circle, Arc, MultiLeader, Insert, Solid3d, Spline, Ellipse
 from ezdxf.entities import MText, Solid, Face3d, Trace, Body, Region, Mesh, Hatch, Leader, Shape, Viewport, ImageDef, Image
 from ezdxf.entities import Dimension, Ray, XLine, SeqEnd, Helix, XRecord
-from ezdxf.entities import factory  # Added factory import
+from ezdxf.entities import factory
 from ezdxf.entities.text import Text
 from ezdxf import path
 
-from ezdxf.math import Vec3, Vec2  # Added Vec2 import
+from ezdxf.math import Vec3, Vec2
 from . import models
-import math
 import ezdxf
 import numpy as np
 
@@ -261,19 +259,15 @@ def convert_postgis_to_dxf(
             
         elif geom_type == 'POLYLINE':
             points = geom_object.extra_data['points']
-            if attribs.get('is_closed', False):
-                msp.add_lwpolyline(points, dxfattribs=attribs, close=True)
-            else:
-                msp.add_lwpolyline(points, dxfattribs=attribs)
+            closed = attribs.pop("is_closed", False)
+            msp.add_lwpolyline(points, dxfattribs=attribs, close=closed)
+
 
         elif geom_type == 'LWPOLYLINE':
             points = [tuple(point) for point in geom_object.extra_data['points']]
-            if attribs.get('is_closed', False):
-                del attribs['is_closed'] # ezdxf почему-то не нравится этот атрибут
-                msp.add_lwpolyline(points, dxfattribs=attribs, close=True)
-            else:
-                del attribs['is_closed'] # ezdxf почему-то не нравится этот атрибут
-                msp.add_lwpolyline(points, dxfattribs=attribs)
+            closed = attribs.pop("is_closed", False)
+            msp.add_lwpolyline(points, dxfattribs=attribs, close=closed)
+
 
         elif geom_type == 'CIRCLE':
             center = tuple(attribs['center'])
@@ -300,7 +294,8 @@ def convert_postgis_to_dxf(
             if text:
                 ml_builder = msp.add_multileader_mtext(dxfattribs=attribs)
                 ml_builder.set_content(content=text, alignment=attributes.get('text_attachment_point', 0), style=style, char_height=char_height)
-
+                Logger.log_message(geom_object.extra_data.get('rotation', 0))
+                ml_builder.context.mtext.rotation = geom_object.extra_data.get('rotation', 0)
                 if leader_lines:
                     ml_builder.add_leader_line(side=ConnectionSide.left, vertices=leader_lines[0])
 
@@ -312,6 +307,8 @@ def convert_postgis_to_dxf(
                 landing_gap = attributes.get('landing_gap', 0.0)
                 dogleg_length = attributes.get('dogleg_length', 8.0)
                 ml_builder.set_connection_properties(landing_gap=landing_gap, dogleg_length=dogleg_length)
+
+                ml_builder.set_connection_types(left=attribs.get('text_left_attachment_type', 0), right=attribs.get('text_right_attachment_type', 0), bottom=attribs.get('text_bottom_attachment_type', 0), top=attribs.get('text_top_attachment_type', 0))
 
                 # Установка свойств линии-указателя
                 leader_line_color = 1#attributes.get('leader_line_color', None)
@@ -503,7 +500,7 @@ def _convert_lwpolyline_to_postgis(entity: LWPolyline) -> tuple[BaseGeometry, di
     points = [(v.x, v.y, v.z) for v in entity.vertices_in_ocs()]
     
     extra_data = _attributes_to_dict(entity)
-    extra_data['points'] = points
+    extra_data['points'] = list(entity.get_points(format='xy'))
     extra_data['attributes']['is_closed'] = entity.is_closed
     
     if entity.is_closed:
@@ -559,6 +556,7 @@ def _convert_multileader_to_postgis(entity: MultiLeader, dxf_handler : DXFHandle
 
     extra_data['text_style'] = text_style_entity.dxf.name
     extra_data['char_height'] = entity.context.char_height
+    extra_data['rotation'] = entity.context.mtext.rotation
 
    # Извлекаем текстовое содержимое, если есть
     if entity.has_mtext_content:
@@ -566,6 +564,8 @@ def _convert_multileader_to_postgis(entity: MultiLeader, dxf_handler : DXFHandle
     elif entity.has_block_content:
         extra_data['block_attributes'] = entity.get_block_content()
 
+    if entity.has_block_content:
+        Logger.log_message(entity.get_block_content())
     # Извлекаем линии-указатели
     leader_lines = []
     for leader in entity.context.leaders:

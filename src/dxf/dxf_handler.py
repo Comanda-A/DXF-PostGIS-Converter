@@ -1,6 +1,6 @@
 import ezdxf
 from ezdxf import select
-from ezdxf.entities import EdgeType, BoundaryPaths, BoundaryPathType, EdgePath
+from ezdxf.entities import EdgeType
 from ezdxf.layouts.layout import Modelspace, Paperspace
 from ezdxf.document import Drawing
 from ezdxf.addons.drawing import Frontend, RenderContext
@@ -12,27 +12,11 @@ from ..logger.logger import Logger
 from PyQt5.QtCore import  pyqtSignal, QObject
 from qgis.core import QgsProject, QgsLayerTreeGroup
 
-def get_first_visible_group():
-    """
-    Получает первую видимую группу из дерева слоев QGIS.
-    Возвращает имя DXF файла, если группа содержит '.dxf' в названии.
-    """
-    layer_tree = QgsProject.instance().layerTreeRoot()
-    for child in layer_tree.children():
-        if isinstance(child, QgsLayerTreeGroup) and child.isVisible():
-            group_name = child.name()
-            if ".dxf" in group_name:
-                # Отрезаем всё, что идёт после ".dxf"
-                dxf_name = group_name.split(".dxf")[0] + ".dxf"
-                return dxf_name
-    return None
-
 def get_selected_file(tree_widget_handler):
     """
     Получает имя выбранного файла из TreeWidgetHandler.
     """
     return tree_widget_handler.get_selected_file_name()
-
 
 class DXFHandler(QObject):
     """
@@ -49,6 +33,14 @@ class DXFHandler(QObject):
         self.type_shape = type_shape
         self.type_selection = type_selection
         self.tree_widget_handler = tree_widget_handler
+        self.selected_entities = {}
+
+    #получить полный путь по имени файла
+    def get_file_path(self, filename):
+        """
+        Возвращает полный путь к файлу.
+        """
+        return os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dxf', filename)
 
     @staticmethod
     def save_svg_preview(doc, msp, filename):
@@ -65,7 +57,7 @@ class DXFHandler(QObject):
             preview_filename = f"{os.path.splitext(os.path.basename(filename))[0]}.svg"
             preview_path = os.path.join(preview_dir, preview_filename)
 
-            Logger.log_message(f"Saving preview to: {preview_path}")
+            Logger.log_message(f"Сохранение превью в: {preview_path}")
 
             backend = svg.SVGBackend()
             Frontend(RenderContext(doc), backend).draw_layout(msp)
@@ -73,11 +65,11 @@ class DXFHandler(QObject):
             with open(preview_path, "wt") as fp:
                 fp.write(backend.get_string(layout.Page(0, 0)))
 
-            Logger.log_message(f"Preview saved successfully at: {preview_path}")
+            Logger.log_message(f"Превью успешно сохранено в: {preview_path}")
             return preview_path
 
         except Exception as e:
-            Logger.log_error(f"Error saving SVG preview: {str(e)}")
+            Logger.log_error(f"Ошибка сохранения SVG превью: {str(e)}")
             return None
 
     def read_dxf_file(self, file_name):
@@ -88,27 +80,21 @@ class DXFHandler(QObject):
             fn = os.path.basename(file_name)
             self.dxf[fn] = ezdxf.readfile(file_name)
             msp = self.dxf[fn].modelspace()
-            
-            # Сохраняем SVG превью при чтении файла
-            self.save_svg_preview(self.dxf[fn], msp, file_name)
-            
             self.msps[fn] = msp
-
             self.file_is_open = True
 
             self.process_entities(msp)
-            Logger.log_message(f"File {fn} successfully read.")
+            Logger.log_message(f"Файл {fn} успешно прочитан.")
             # Получаем все сущности, сгруппированные по слоям
             layers_entities = msp.groupby(dxfattrib="layer")
 
             return layers_entities, fn
 
-
         except IOError:
-            Logger.log_message(f"File {file_name} not found or could not be read.")
+            Logger.log_message(f"Файл {file_name} не найден или не может быть прочитан.")
             self.file_is_open = False
         except ezdxf.DXFStructureError:
-            Logger.log_message(f"Invalid DXF file format: {file_name}")
+            Logger.log_message(f"Неверный формат DXF файла: {file_name}")
             self.file_is_open = False
         return None
 
@@ -151,9 +137,30 @@ class DXFHandler(QObject):
             return []
 
         entities = list(selection_func(shape_obj, self.msps[active_layer]))
+        
+        # Store selected entities for the active file
+        self.selected_entities[active_layer] = entities
 
         self.process_entities(entities)
         return entities
+
+    def get_entities_for_export(self, filename):
+        """
+        Возвращает список сущностей для экспорта в базу данных.
+        Если есть выбранные сущности - возвращает их, иначе все сущности файла.
+        """
+        if filename in self.selected_entities and self.selected_entities[filename]:
+            return self.selected_entities[filename]
+        return self.msps[filename].groupby(dxfattrib="layer") if filename in self.msps else []
+
+    def clear_selection(self, filename=None):
+        """
+        Очищает выбранные сущности для указанного файла или для всех файлов.
+        """
+        if filename:
+            self.selected_entities.pop(filename, None)
+        else:
+            self.selected_entities.clear()
 
     def process_entities(self, entities):
         """
@@ -270,18 +277,44 @@ class DXFHandler(QObject):
             tables_info[name] = records
 
         return {"tables": tables_info}
-
+    def simle_read_dxf_file(self, file_name):
+        """
+        Читает DXF файл и возвращает объект Drawing.
+        """
+        doc = ezdxf.readfile(file_name)
+        return doc
     def extract_blocks_from_dxf(self, filename: str) -> list:
         """
         Извлекает блоки из DXF-файла и возвращает список блоков с их содержимым.
-        
+        Если есть выбранные сущности, извлекает только блоки, связанные с этими сущностями.
         """
         try:
             doc = self.dxf[filename]
 
             blocks_data = []
+            
+            # Определяем, есть ли выбранные сущности
+            selected_entities = self.selected_entities.get(filename, [])
+            
+            # Если есть выбранные сущности, собираем список используемых блоков
+            used_block_names = set()
+            if selected_entities:
+                for entity in selected_entities:
+                    # Проверяем, является ли сущность вставкой блока
+                    if entity.dxftype() == 'INSERT':
+                        used_block_names.add(entity.dxf.name)
+                    # Проверяем наличие вложенных блоков
+                    if hasattr(entity, 'virtual_entities'):
+                        for virtual_entity in entity.virtual_entities():
+                            if virtual_entity.dxftype() == 'INSERT':
+                                used_block_names.add(virtual_entity.dxf.name)
 
+            # Обрабатываем блоки
             for block in doc.blocks:
+                # Пропускаем блок, если есть выбранные сущности и блок не используется
+                if selected_entities and block.name not in used_block_names:
+                    continue
+
                 block_info = {
                     "name": block.name,
                     "base_point": tuple(block.base_point),
@@ -294,29 +327,22 @@ class DXFHandler(QObject):
                         "handle": entity.dxf.handle,
                         "layer": entity.dxf.layer,
                     }
-                    if hasattr(entity, 'dxf'):  # Извлекаем основные атрибуты
-                        entity_data.update({attr: getattr(entity.dxf, attr, None) for attr in entity.dxf.all_existing_dxf_attribs()})
+                    if hasattr(entity, 'dxf'):
+                        entity_data.update({attr: getattr(entity.dxf, attr, None) 
+                                        for attr in entity.dxf.all_existing_dxf_attribs()})
 
-                    # Специальная обработка LWPOLYLINE
+                    # Специальная обработка различных типов сущностей
                     if entity.dxftype() == 'LWPOLYLINE':
-                        entity : ezdxf.entities.LWPolyline
-                        points = list(entity.get_points(format='xy'))  # Сохраняем только x, y
-                        entity_data["points"] = points
+                        entity_data["points"] = list(entity.get_points(format='xy'))
                         entity_data["closed"] = entity.is_closed
-                    # Специальная обработка 3DSOLID
                     elif entity.dxftype() == '3DSOLID':
-                        entity : ezdxf.entities.Solid3d
                         try:
-                            acis_data = entity.acis_data
-                            entity_data["acis_data"] = acis_data  # raw ACIS data
+                            entity_data["acis_data"] = entity.acis_data
                         except Exception as e:
                             entity_data["acis_error"] = str(e)
-                    # Специальная обработка HATCH
                     elif entity.dxftype() == 'HATCH':
                         try:
                             boundary_paths = []
-                            entity : ezdxf.entities.Hatch
-
                             for path in entity.paths:
                                 path_data = {
                                     "path_type": path.path_type_flags,
@@ -324,44 +350,10 @@ class DXFHandler(QObject):
                                 }
                                 if entity.paths.has_edge_paths:
                                     for edge in path.edges:
-                                        if edge.type == EdgeType.LINE:
-                                            path_data["edges"].append({
-                                                "type": "LINE",
-                                                "start": (edge.start[0], edge.start[1]),
-                                                "end": (edge.end[0], edge.end[1])                                        })
-                                        elif edge.type == EdgeType.ARC:
-                                            path_data["edges"].append({
-                                                "type": "ARC",
-                                                "center": (edge.center[0], edge.center[1]),
-                                                "radius": edge.radius,
-                                                "start_angle": edge.start_angle,
-                                                "end_angle": edge.end_angle,
-                                                "ccw": edge.ccw
-                                            })
-                                        elif edge.type == EdgeType.ELLIPSE:
-                                            path_data["edges"].append({
-                                                "type": "ELLIPSE",
-                                                "center": (edge.center[0], edge.center[1]),
-                                                "major_axis": (edge.major_axis[0], edge.major_axis[1]),
-                                                "ratio": edge.ratio,
-                                                "start_param": edge.start_param,
-                                                "end_param": edge.end_param,
-                                                "ccw": edge.ccw
-                                            })
-                                        elif edge.type == EdgeType.SPLINE:
-                                            control_points = [(p[0], p[1]) for p in edge.control_points]
-                                            path_data["edges"].append({
-                                                "type": "SPLINE",
-                                                "degree": edge.degree,
-                                                "control_points": control_points,
-                                                "fit_points": [(p[0], p[1]) for p in edge.fit_points],
-                                                "knot_values": edge.knot_values,
-                                                "weights": edge.weights,
-                                                "periodic": edge.periodic,
-                                                "start_tangent": (edge.start_tangent[0], edge.start_tangent[1]),
-                                                "end_tangent": (edge.end_tangent[0], edge.end_tangent[1]),
-                                            })
-                                else:# entity.paths.type == BoundaryPathType.POLYLINE:
+                                        edge_data = self._process_hatch_edge(edge)
+                                        if edge_data:
+                                            path_data["edges"].append(edge_data)
+                                else:
                                     vertices = [(v[0], v[1], v[2]) for v in path.vertices]
                                     path_data["edges"].append({
                                         "type": "POLYLINE",
@@ -372,12 +364,59 @@ class DXFHandler(QObject):
                             entity_data["boundary_paths"] = boundary_paths
                         except Exception as e:
                             Logger.log_error(f"HATCH processing error: {e}")
+
                     block_info["entities"].append(entity_data)
                 blocks_data.append(block_info)
+
+            return blocks_data
+
         except Exception as e:
             Logger.log_error(f"Ошибка при извлечении блоков из DXF файла: {e}")
+            return []
 
-        return blocks_data
+    def _process_hatch_edge(self, edge):
+        """
+        Вспомогательный метод для обработки рёбер штриховки.
+        """
+        if edge.type == EdgeType.LINE:
+            return {
+                "type": "LINE",
+                "start": (edge.start[0], edge.start[1]),
+                "end": (edge.end[0], edge.end[1])
+            }
+        elif edge.type == EdgeType.ARC:
+            return {
+                "type": "ARC",
+                "center": (edge.center[0], edge.center[1]),
+                "radius": edge.radius,
+                "start_angle": edge.start_angle,
+                "end_angle": edge.end_angle,
+                "ccw": edge.ccw
+            }
+        elif edge.type == EdgeType.ELLIPSE:
+            return {
+                "type": "ELLIPSE",
+                "center": (edge.center[0], edge.center[1]),
+                "major_axis": (edge.major_axis[0], edge.major_axis[1]),
+                "ratio": edge.ratio,
+                "start_param": edge.start_param,
+                "end_param": edge.end_param,
+                "ccw": edge.ccw
+            }
+        elif edge.type == EdgeType.SPLINE:
+            return {
+                "type": "SPLINE",
+                "degree": edge.degree,
+                "control_points": [(p[0], p[1]) for p in edge.control_points],
+                "fit_points": [(p[0], p[1]) for p in edge.fit_points],
+                "knot_values": edge.knot_values,
+                "weights": edge.weights,
+                "periodic": edge.periodic,
+                "start_tangent": (edge.start_tangent[0], edge.start_tangent[1]),
+                "end_tangent": (edge.end_tangent[0], edge.end_tangent[1])
+            }
+        return None
+
     def extract_all_xrecords(self, filename):
         """
         Извлекает все XRECORD объекты из DXF файла.

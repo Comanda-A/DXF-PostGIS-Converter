@@ -77,7 +77,7 @@ def test_dxf_integrity(input_dxf_path: str, output_dxf_path: str = None):
 
         table_info = {
             'is_new_file': True,
-            'import_mode': 'kek',
+            'new_file_name': file_name,
 
         }
         # Экспортируем в БД

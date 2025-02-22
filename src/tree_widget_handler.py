@@ -1,5 +1,5 @@
 from qgis.PyQt.QtWidgets import QTreeWidgetItem, QProgressDialog, QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView, QMessageBox
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, pyqtSignal, QObject
 
 from qgis.core import QgsApplication
 from .logger.logger import Logger
@@ -53,9 +53,12 @@ def get_word_form(number: int, forms: tuple) -> str:
     return forms[2]
 
 
-class TreeWidgetHandler:
+class TreeWidgetHandler(QObject):
+    # Добавляем сигнал для оповещения об изменении выбора
+    selection_changed = pyqtSignal(str)
 
     def __init__(self, tree_widget, selectable: bool = True):
+        super().__init__()  # Initialize QObject
         self.tree_widget = tree_widget
         self.tree_items = {}  # Structure: {file_name: {layer_name: {'item': item, 'entities': {}}}}
         self.selectable = False
@@ -70,6 +73,7 @@ class TreeWidgetHandler:
         self.selected_file = None
         self.files_data = {}  # Tracking statistics per file
         self.current_file_name = None  # Добавляем отслеживание текущего файла
+        self.updating_selection = False  # Флаг для отслеживания программного обновления выбора
         # Set the stretch factors for the columns
         self.tree_widget.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tree_widget.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
@@ -100,9 +104,16 @@ class TreeWidgetHandler:
 
         current_file_name = self._get_file_name_from_item(root_item)
         
+        # Добавляем emit сигнала после обновления выбора
         if item.checkState(column) in [Qt.Checked, Qt.PartiallyChecked, Qt.Unchecked]:
+            # Если файл еще не выбран, и мы выбираем слой или его элементы
+            if not self.selected_file and item.parent():
+                self.selected_file = root_item
+                self.current_file_name = current_file_name
+                root_item.setCheckState(0, Qt.PartiallyChecked)
+                
             # Проверяем выбор в другом файле
-            if self.selected_file and root_item != self.selected_file and item.checkState(column) in [Qt.Checked, Qt.PartiallyChecked]:
+            elif self.selected_file and root_item != self.selected_file and item.checkState(column) in [Qt.Checked, Qt.PartiallyChecked]:
                 reply = QMessageBox.question(
                     None,
                     'Подтверждение',
@@ -159,9 +170,12 @@ class TreeWidgetHandler:
                     self.update_child_check_states(item, item.checkState(column))
                     self.update_parent_check_states(item)
                     self.update_layer_statistics(layer_name, current_file_name)
-            
+
             self.batch_update = False
             self.update_selection_count(current_file_name)
+            # Оповещаем об изменении выбора
+            if not self.updating_selection:
+                self.selection_changed.emit(current_file_name)
 
     def _clear_file_statistics(self, file_name):
         """Очищает статистику для указанного файла"""
@@ -363,6 +377,8 @@ class TreeWidgetHandler:
             geometry_header.addChild(geom_item)
 
     def select_area(self, entities):
+        """Выбирает сущности в дереве и обновляет selected_entities"""
+        self.updating_selection = True  # Устанавливаем флаг программного обновления
         self.batch_update = True
         self.tree_widget.setUpdatesEnabled(False)
         
@@ -418,11 +434,13 @@ class TreeWidgetHandler:
         self.selectable = False
         self.batch_update = False
         self.tree_widget.setUpdatesEnabled(True)
-        
+
         # Обновляем общую статистику и текст файла
         self.update_selection_count(current_file)
         if self.selected_file:
             self._update_file_text(current_file)
+            # После завершения всех обновлений эмитим сигнал один раз
+            self.updating_selection = False  # Сбрасываем флаг
 
     def check_entity_in_tree(self, entity, layers_to_check, file_name):
         """Проверяет наличие entity в дереве с учетом контекста файла"""
@@ -547,7 +565,7 @@ class TreeWidgetHandler:
             ))
         else:
             self.selected_file.setText(0, 
-                f'Файл: {file_name} | ({file_name} {layers_word}, {file_data["total_entities"]} {entities_word})'
+                f'Файл: {file_name} | ({file_data["layer_count"]} {layers_word}, {file_data["total_entities"]} {entities_word})'
             )
 
     def update_layer_statistics(self, layer_name, file_name):

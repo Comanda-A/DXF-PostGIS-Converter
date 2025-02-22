@@ -170,7 +170,7 @@ class ExportDialog(QDialog):
         # Выбор существующего файла и ввод имени
         self.file_combo = QComboBox()
         self.new_file_name = QLineEdit()
-        self.new_file_name.setPlaceholderText("Enter new file name")
+        self.new_file_name.setPlaceholderText("Введите имя файла")
         
         # Выбор режима импорта
         self.import_mode_group = QGroupBox("Import Mode")
@@ -548,37 +548,6 @@ class ExportDialog(QDialog):
         else:
             self.field_mappings.pop(dxf_field, None)
 
-    def on_ok_clicked(self):
-        """Обработка нажатия кнопки OK"""
-        add_connection(self.dbname, self.username, self.password)
-        
-        file_name = self.new_file_name.text().strip() if self.is_new_file else None
-        if self.is_new_file and not file_name:
-            QtWidgets.QMessageBox.warning(
-                self, 
-                "Warning", 
-                "Please enter a file name"
-            )
-            return
-                
-        table_info = {
-            'is_new_file': self.is_new_file,
-            'file_id': self.selected_file_id,
-            'new_file_name': file_name,
-            'field_mappings': self.field_mappings if not self.is_new_file else None
-        }
-        
-        export_dxf(
-            self.username,
-            self.password,                
-            self.address,                   
-            self.port,                  
-            self.dbname,
-            self.dxf_handler,
-            table_info
-        )
-        self.accept()
-
     def on_cancel_clicked(self):
         """Обработка нажатия кнопки Отмена"""
         self.reject()
@@ -905,9 +874,38 @@ class ExportDialog(QDialog):
         add_connection(self.dbname, self.username, self.password)
         
         file_name = self.new_file_name.text().strip() if self.is_new_file else None
-        if self.is_new_file and not file_name:
-            QtWidgets.QMessageBox.warning(self, "Warning", "Please enter a file name")
-            return
+        if self.is_new_file:
+            if not file_name:
+                QtWidgets.QMessageBox.warning(self, "Предупреждение", "Введите имя файла")
+                return
+                
+            # Повторная проверка существования файла перед сохранением
+            try:
+                from ..db.database import check_file_exists
+                file_exists = check_file_exists(
+                    self.username,
+                    self.password,
+                    self.address,
+                    self.port,
+                    self.dbname,
+                    file_name
+                )
+                
+                if file_exists:
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Предупреждение",
+                        "Файл с таким именем уже существует. Выберите другое имя."
+                    )
+                    return
+            except Exception as e:
+                Logger.log_error(f"Ошибка проверки файла: {str(e)}")
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Ошибка",
+                    f"Не удалось проверить имя файла: {str(e)}"
+                )
+                return
 
         # Добавляем информацию о таблице                
         table_info = {
@@ -943,6 +941,40 @@ class ExportDialog(QDialog):
             self.nongeom_mappings = {}
             self.geom_mapping_table.clearContents()
             self.nongeom_mapping_table.clearContents()
+            
+            # Проверяем существование файла с таким именем
+            if text.strip():
+                try:
+                    from ..db.database import check_file_exists
+                    file_exists = check_file_exists(
+                        self.username,
+                        self.password,
+                        self.address,
+                        self.port,
+                        self.dbname,
+                        text.strip()
+                    )
+                    
+                    if file_exists:
+                        # Красный фон и подсказка при существующем файле
+                        self.new_file_name.setStyleSheet("background-color: #ffcccc;")
+                        self.new_file_name.setToolTip("Файл с таким именем уже существует. Выберите другое имя.")
+                        self.buttonBox.button(QDialogButtonBox.Ok).setEnabled(False)
+                    else:
+                        # Нормальный фон и очистка подсказки при уникальном имени
+                        self.new_file_name.setStyleSheet("background-color: #ffffff;")
+                        self.new_file_name.setToolTip("Имя файла доступно")
+                        self.buttonBox.button(QDialogButtonBox.Ok).setEnabled(True)
+                except Exception as e:
+                    # Желтый фон и подсказка при ошибке проверки
+                    self.new_file_name.setStyleSheet("background-color: #fff3cd;")
+                    self.new_file_name.setToolTip(f"Ошибка при проверке имени файла: {str(e)}")
+                    Logger.log_error(f"Ошибка проверки файла: {str(e)}")
+            else:
+                # Сброс стиля и подсказки при пустом имени
+                self.new_file_name.setStyleSheet("")
+                self.new_file_name.setToolTip("Введите имя файла")
+                self.buttonBox.button(QDialogButtonBox.Ok).setEnabled(False)
 
     def on_import_mode_changed(self, checked):
         """Обработка изменения режима импорта"""

@@ -9,8 +9,7 @@ from ezdxf.addons.drawing import layout, svg
 import os
 
 from ..logger.logger import Logger
-from PyQt5.QtCore import  pyqtSignal, QObject
-from qgis.core import QgsProject, QgsLayerTreeGroup
+from PyQt5.QtCore import  pyqtSignal, QObject, Qt
 
 def get_selected_file(tree_widget_handler):
     """
@@ -34,8 +33,42 @@ class DXFHandler(QObject):
         self.type_selection = type_selection
         self.tree_widget_handler = tree_widget_handler
         self.selected_entities = {}
+        if self.tree_widget_handler is not None:
+            self.tree_widget_handler.selection_changed.connect(self.update_selected_entities)
 
-    #получить полный путь по имени файла
+    def update_selected_entities(self, file_name=None):
+        """
+        Обновляет selected_entities на основе выбранных элементов в дереве
+        """
+        if file_name is None:
+            file_name = self.tree_widget_handler.get_selected_file_name()
+            if not file_name:
+                return
+
+        if file_name not in self.msps:
+            return
+
+        selected_entities = []
+        
+        # Получаем все слои из файла
+        layers = self.msps[file_name].groupby(dxfattrib="layer")
+        
+        # Для каждого слоя проверяем выбранные сущности
+        for layer_name, entities in layers.items():
+            if file_name in self.tree_widget_handler.tree_items:
+                layer_data = self.tree_widget_handler.tree_items[file_name].get(layer_name)
+                if layer_data:
+                    # Проверяем каждую сущность в слое
+                    for entity in entities:
+                        entity_description = f"{entity}"
+                        entity_item = layer_data['entities'].get(entity_description)
+                        if entity_item and entity_item.checkState(0) == Qt.Checked:
+                            selected_entities.append(entity)
+
+        # Обновляем selected_entities для данного файла
+        self.selected_entities[file_name] = selected_entities
+        Logger.log_message(f"Updated selected entities for {file_name}: {len(selected_entities)} entities")
+
     def get_file_path(self, filename):
         """
         Возвращает полный путь к файлу.

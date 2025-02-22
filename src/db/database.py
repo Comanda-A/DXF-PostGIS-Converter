@@ -13,14 +13,30 @@ from ..dxf.dxf_handler import DXFHandler
 # Шаблон URL для подключения к базе данных
 PATTERN_DATABASE_URL = 'postgresql://{username}:{password}@{address}:{port}/{dbname}'
 
-# Глобальная переменная для хранения текущего движка и сессии
+# Глобальные переменные для хранения текущего движка, сессии и кэша файлов
 engine: Engine = None
 SessionLocal: sessionmaker[Session] = None
+_files_cache: dict = {}  # Кэш для хранения информации о файлах
+
+def _update_files_cache(db: Session):
+    """Обновление кэша файлов из базы данных"""
+    global _files_cache
+    try:
+        files = db.query(models.File).all()
+        _files_cache = {
+            file.filename: {
+                'id': file.id,
+                'upload_date': file.upload_date,
+                'update_date': file.update_date
+            } for file in files
+        }
+    except Exception as e:
+        Logger.log_error(f"Ошибка обновления кэша файлов: {str(e)}")
 
 def _connect_to_database(username, password, address, port, dbname):
     """Создание подключения к базе данных"""
     try:
-        global engine, SessionLocal
+        global engine, SessionLocal, _files_cache
 
         # Закрываем текущие сессии, если они есть
         if SessionLocal:
@@ -45,14 +61,22 @@ def _connect_to_database(username, password, address, port, dbname):
         # Логируем успешное подключение
         Logger.log_message(f"Подключено к базе данных PostgreSQL '{dbname}' по адресу {address}:{port} с пользователем '{username}'.")
 
-        return SessionLocal()
+        session = SessionLocal()
+        
+        # Инициализируем кэш файлов
+        _update_files_cache(session)
+
+        return session
     except Exception as e:
         Logger.log_error(f"Ошибка подключения к базе данных PostgreSQL '{dbname}' по адресу {address}:{port} с пользователем '{username}'.")
         return None
 
-def _create_file(db: Session, file_name: str, dxf_handler: DXFHandler) -> models.File:
+def _create_file(db: Session, file_name: str, new_file_name: str | None, dxf_handler: DXFHandler) -> models.File:
     """Создание записи файла в базе данных"""
-    db_file = db.query(models.File).filter(models.File.filename == file_name).first()
+    # Используем new_file_name если он задан, иначе используем исходное имя файла
+    actual_filename = new_file_name if new_file_name else file_name
+    
+    db_file = db.query(models.File).filter(models.File.filename == actual_filename).first()
     if db_file is not None:
         return db_file
     else:
@@ -67,7 +91,7 @@ def _create_file(db: Session, file_name: str, dxf_handler: DXFHandler) -> models
         # Конвертируем Vec3 в список
         meta = _replace_vec3_to_list(meta)
         db_file = models.File(
-            filename=file_name,
+            filename=actual_filename,  # Используем actual_filename вместо new_file_name
             file_metadata=meta,
             upload_date=datetime.now(timezone.utc),
             update_date=datetime.now(timezone.utc)
@@ -94,16 +118,20 @@ def _create_layer(db: Session, file_id: int, file_name: str, layer_name: str, dx
         db.refresh(db_layer)
         return db_layer
 
-def _handle_existing_file(db: Session, table_info: dict, username: str, password: str, address: str, port: str, dbname: str) -> Session:
+def _handle_existing_file(db: Session, table_info: dict, username: str, password: str, address: str, port: str, dbname: str) -> tuple[Session, str | None]:
     """Обработка существующего файла в зависимости от режима импорта"""
     if table_info['import_mode'] == 'overwrite':
         file_id = table_info['file_id']
-        delete_dxf(username, password, address, port, dbname, file_id)
-        return _connect_to_database(username, password, address, port, dbname)
+        # Получаем имя файла перед удалением
+        existing_file = db.query(models.File).filter(models.File.id == file_id).first()
+        if existing_file:
+            filename_to_overwrite = existing_file.filename
+            delete_dxf(username, password, address, port, dbname, file_id)
+            return _connect_to_database(username, password, address, port, dbname), filename_to_overwrite
     elif table_info['import_mode'] == 'mapping':
         _update_mappings(db, table_info)
-        return db
-    return db
+        return db, None
+    return db, None
 
 def _update_mappings(db: Session, table_info: dict) -> None:
     """Обновление геометрических и негеометрических сопоставлений"""
@@ -142,19 +170,20 @@ def _process_layer_entities(db: Session, db_file: models.File, filename: str, la
         
         db.add(object_class(**object_data))
 
-def _create_output_dxf(db: Session, db_file: models.File, filename: str, dxf_handler: DXFHandler) -> None:
+def _create_output_dxf(db: Session, db_file: models.File, source_filename: str, dxf_handler: DXFHandler) -> None:
     """Создание выходного DXF файла и SVG предпросмотра"""
     file_metadata = db_file.file_metadata
     layers = db.query(models.Layer).filter(models.Layer.file_id == db_file.id).all()
     geom_objects = db.query(models.GeometricObject).filter(models.GeometricObject.file_id == db_file.id).all()
     non_geom_objects = db.query(models.NonGeometricObject).filter(models.NonGeometricObject.file_id == db_file.id).all()
 
-    original_path = dxf_handler.get_file_path(filename)
+    original_path = dxf_handler.get_file_path(source_filename)
     output_path = original_path.replace('.dxf', '_exported.dxf')
 
     convert_postgis_to_dxf(file_metadata, layers, geom_objects, non_geom_objects, output_path)
     doc = dxf_handler.simle_read_dxf_file(output_path)
-    dxf_handler.save_svg_preview(doc, doc.modelspace(), filename)
+    # Используем имя файла из базы данных для превью
+    dxf_handler.save_svg_preview(doc, doc.modelspace(), db_file.filename)
 
     import os
     if os.path.exists(output_path):
@@ -169,33 +198,44 @@ def export_dxf(username: str, password: str, address: str, port: str, dbname: st
         return
     
     try:
-        if not table_info['is_new_file']:
-            db = _handle_existing_file(db, table_info, username, password, address, port, dbname)
+        new_filename = None
+        if table_info['is_new_file']:
+            new_filename = table_info.get('new_file_name')
+            if not new_filename:
+                Logger.log_error("Не указано имя нового файла")
+                return
+        else:
+            db, existing_filename = _handle_existing_file(db, table_info, username, password, address, port, dbname)
             if table_info['import_mode'] == 'mapping':
                 Logger.log_message("Успешно экспортированы данные DXF в базу данных")
                 return
+            elif table_info['import_mode'] == 'overwrite':
+                new_filename = existing_filename
 
-        for filename, dxf_drawing in dxf_handler.dxf.items():
-            db_file = _create_file(db, filename, dxf_handler)
-            entities_to_export = dxf_handler.get_entities_for_export(filename)
+        #for filename, dxf_drawing in dxf_handler.dxf.items():
+        filename = dxf_handler.tree_widget_handler.current_file_name
+        db_file = _create_file(db, filename, new_filename, dxf_handler)
+        entities_to_export = dxf_handler.get_entities_for_export(filename)
 
-            if dxf_handler.selected_entities:
+        if dxf_handler.selected_entities:
 
-                # Группировка объектов по слоям
-                layers_entities = {}
-                for entity in entities_to_export:
-                    layer_name = entity.dxf.layer
-                    if layer_name not in layers_entities:
-                        layers_entities[layer_name] = []
-                    layers_entities[layer_name].append(entity)
-                entities_to_export = layers_entities
+            # Группировка объектов по слоям
+            layers_entities = {}
+            for entity in entities_to_export:
+                layer_name = entity.dxf.layer
+                if layer_name not in layers_entities:
+                    layers_entities[layer_name] = []
+                layers_entities[layer_name].append(entity)
+            entities_to_export = layers_entities
 
-            for layer_name, layer_entities in entities_to_export.items():
-                _process_layer_entities(db, db_file, filename, layer_name, layer_entities, dxf_handler)
+        for layer_name, layer_entities in entities_to_export.items():
+            _process_layer_entities(db, db_file, filename, layer_name, layer_entities, dxf_handler)
             
-            db.commit()
-            _create_output_dxf(db, db_file, filename, dxf_handler)
+        db.commit()
+            # Используем имя файла из new_filename при создании превью
+        _create_output_dxf(db, db_file, filename, dxf_handler)
 
+        _update_files_cache(db)  # Обновляем кэш после экспорта
         Logger.log_message("Успешно экспортированы данные DXF в базу данных")
         
     except Exception as e:
@@ -234,6 +274,7 @@ def delete_dxf(username: str, password: str, address: str, port: str, dbname: st
 
     db.delete(file)
     db.commit()
+    _update_files_cache(db)  # Обновляем кэш после удаления
 
 def get_all_files_from_db(username, password, address, port, dbname):
     """Получение списка всех файлов из базы данных"""
@@ -385,3 +426,12 @@ def get_table_fields(username, password, address, port, dbname, schema_name, tab
         return None
     finally:
         db.close()
+
+def check_file_exists(username, password, host, port, database, filename):
+    """
+    Проверяет существование файла с указанным именем используя кэш
+    
+    Returns:
+        bool: True если файл существует, False в противном случае
+    """
+    return filename in _files_cache

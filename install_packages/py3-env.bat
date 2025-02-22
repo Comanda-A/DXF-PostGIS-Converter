@@ -1,6 +1,8 @@
 @ECHO OFF 
 
-set OSGEO4W_ROOT=C:\Program Files\QGIS 3.38.0
+REM Поиск установленной версии QGIS в каталоге "C:\Program Files\QGIS *.*"
+for /f "delims=" %%i in ('dir "C:\Program Files\QGIS *.*" /b /ad') do set QGIS_DIR=%%i
+set OSGEO4W_ROOT=C:\Program Files\%QGIS_DIR%
 
 set PATH=%OSGEO4W_ROOT%\bin;%PATH%
 set PATH=%PATH%;%OSGEO4W_ROOT%\apps\qgis\bin

@@ -82,12 +82,16 @@ def _create_file(db: Session, file_name: str, new_file_name: str | None, dxf_han
     else:
         meta = dxf_handler.get_file_metadata(file_name)
         styles_meta = dxf_handler.extract_styles(file_name)
-        tables_meta = dxf_handler.get_tables(file_name)
+        #tables_meta = dxf_handler.get_tables(file_name)
         blocks_meta = dxf_handler.extract_blocks_from_dxf(file_name)
-
-        meta["tables"] = tables_meta.get("tables", {})
+        #objects_meta = dxf_handler.extract_object_section(file_name)
+        #linetypes_meta = dxf_handler.extract_linetypes(file_name)
+        #meta["tables"] = tables_meta.get("tables", {})
         meta["blocks"] = blocks_meta
         meta["styles"] = styles_meta
+        #meta["linetypes"] = linetypes_meta
+        #meta["objects"] = objects_meta
+        
         # Конвертируем Vec3 в список
         meta = _replace_vec3_to_list(meta)
         db_file = models.File(
@@ -207,6 +211,15 @@ def export_dxf(username: str, password: str, address: str, port: str, dbname: st
         else:
             db, existing_filename = _handle_existing_file(db, table_info, username, password, address, port, dbname)
             if table_info['import_mode'] == 'mapping':
+                # Для режима маппинга проверяем наличие выбранных сущностей
+                if dxf_handler.selected_entities:
+                    # Обновляем маппинг только для выбранных сущностей
+                    filename = dxf_handler.tree_widget_handler.current_file_name
+                    entities_to_export = dxf_handler.get_entities_for_export(filename)
+                    _update_selected_mappings(db, table_info, entities_to_export)
+                else:
+                    # Если нет выбранных сущностей, обновляем все маппинги
+                    _update_mappings(db, table_info)
                 Logger.log_message("Успешно экспортированы данные DXF в базу данных")
                 return
             elif table_info['import_mode'] == 'overwrite':
@@ -243,6 +256,30 @@ def export_dxf(username: str, password: str, address: str, port: str, dbname: st
         Logger.log_error(f"Ошибка экспорта данных DXF: {str(e)}")
     finally:
         db.close()
+
+def _update_selected_mappings(db: Session, table_info: dict, selected_entities: list) -> None:
+    """Обновление сопоставлений только для выбранных объектов"""
+    geom_mappings = table_info.get('geom_mappings', {})
+    nongeom_mappings = table_info.get('nongeom_mappings', {})
+
+    # Создаем set из handles выбранных сущностей для быстрого поиска
+    selected_handles = {entity.dxf.handle for entity in selected_entities}
+    
+    for mappings, model_class in [(geom_mappings, models.GeometricObject), 
+                                 (nongeom_mappings, models.NonGeometricObject)]:
+        for handle, mapping in mappings.items():
+            # Проверяем, является ли объект выбранным
+            if handle in selected_handles:
+                if 'entity_id' in mapping and 'attributes' in mapping:
+                    obj = db.query(model_class).filter(model_class.id == mapping['entity_id']).first()
+                    if obj and mapping['attributes']:
+                        extra_data = obj.extra_data
+                        if 'attributes' not in extra_data:
+                            extra_data['attributes'] = {}
+                        extra_data['attributes'].update(mapping['attributes'])
+                        obj.extra_data = extra_data
+    
+    db.commit()
 
 def import_dxf(username: str, password: str, address: str, port: str, dbname: str, file_id: int, path: str):
     """Импорт DXF из базы данных"""

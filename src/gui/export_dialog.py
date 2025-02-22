@@ -3,7 +3,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGroupBox, 
                            QTreeWidget, QLabel, QPushButton, QLineEdit, QWidget, 
                            QComboBox, QTabWidget, QTableWidget, QDialogButtonBox,
-                           QHeaderView, QTreeWidgetItem)
+                           QHeaderView, QTreeWidgetItem, QProgressDialog)
 from qgis.core import QgsSettings
 
 from ..db.saved_connections_manager import *
@@ -14,6 +14,37 @@ from ..db.database import export_dxf
 from ..db.database import (get_layer_objects, get_layers_for_file, get_table_fields)
 from .info_dialog import InfoDialog
 from ..config.help_content import EXPORT_DIALOG_HELP
+from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import QThread, pyqtSignal
+
+
+class ExportThread(QThread):
+    finished = pyqtSignal(bool, str)  # Сигнал: успех/неуспех, сообщение
+    
+    def __init__(self, username, password, address, port, dbname, dxf_handler, table_info):
+        super().__init__()
+        self.username = username
+        self.password = password
+        self.address = address
+        self.port = port
+        self.dbname = dbname
+        self.dxf_handler = dxf_handler
+        self.table_info = table_info
+
+    def run(self):
+        try:
+            export_dxf(
+                self.username,
+                self.password,
+                self.address,
+                self.port,
+                self.dbname,
+                self.dxf_handler,
+                self.table_info
+            )
+            self.finished.emit(True, "Экспорт успешно завершен!")
+        except Exception as e:
+            self.finished.emit(False, str(e))
 
 
 class ExportDialog(QDialog):
@@ -618,9 +649,30 @@ class ExportDialog(QDialog):
 
             if layers:
                 self.layer_combo.blockSignals(True)
+                
+                # Если есть выбранные сущности, создаем множество их слоев
+                selected_layers = set()
+                if self.dxf_handler.selected_entities:
+                    # получить корень дерева
+                    filename = self.tree_widget.topLevelItem(0).text(0)
+                    start = filename.find("Файл: ") + len("Файл: ")
+                    end = filename.find(" |", start)
+                    filename = filename[start:end]
+                    Logger.log_message(f"Selected entities for file: {filename}")
+                    entities = self.dxf_handler.get_entities_for_export(filename)
+                    selected_layers = {
+                        entity.dxf.layer 
+                        for entity in entities
+                    }
+
+                # Фильтруем и добавляем слои
                 for layer in layers:
                     layer_id, name, color, description, metadata = layer
                     
+                    # Пропускаем слои, которые не содержат выбранные объекты
+                    if selected_layers and name not in selected_layers:
+                        continue
+                        
                     # Формируем текст для отображения
                     display_text = name if name else "Unnamed Layer"
                     
@@ -645,10 +697,17 @@ class ExportDialog(QDialog):
                     # Показываем вкладки маппинга только если в режиме маппинга
                     if self.import_mode == 'mapping':
                         self.mapping_tabs.show()
-            else:
-                Logger.log_error(f"No layers found for file {self.selected_file_id}")
-                self.mapping_group.hide()
-                self.mapping_tabs.hide()
+                else:
+                    # Если нет доступных слоев для маппинга, показываем сообщение
+                    if selected_layers:
+                        QtWidgets.QMessageBox.information(
+                            self,
+                            "Информация",
+                            "Нет слоев, содержащих выбранные объекты"
+                        )
+                    Logger.log_error(f"No layers found for file {self.selected_file_id}")
+                    self.mapping_group.hide()
+                    self.mapping_tabs.hide()
                 
         except Exception as e:
             Logger.log_error(f"Не удалось загрузить слои файла: {str(e)}")
@@ -698,8 +757,30 @@ class ExportDialog(QDialog):
             geom_dxf = []
             nongeom_dxf = []
             
-            # Получаем сущности DXF для слоя со считыванием всех файлов
-            for filename in self.dxf_handler.dxf:
+            filename = self.dxf_tree_widget_handler.current_file_name
+            
+            # Получаем сущности DXF для слоя
+            if self.dxf_handler.selected_entities:
+                entities_to_export = self.dxf_handler.get_entities_for_export(filename)
+                # Фильтруем только выбранные сущности для текущего слоя
+                selected_entities = [
+                    entity for entity in entities_to_export
+                    if entity.dxf.layer == layer_name
+                ]
+                
+                for entity in selected_entities:
+                    entity_type = entity.dxftype()
+                    entity_data = {
+                        'handle': entity.dxf.handle,
+                        'type': entity_type,
+                        'entity': entity
+                    }
+                    if entity_type in ['TEXT', '3DSOLID']:
+                        nongeom_dxf.append(entity_data)
+                    else:
+                        geom_dxf.append(entity_data)
+            else:
+                # Если нет выбранных сущностей, работаем со всем слоем
                 layer_entities = self.dxf_handler.get_layers(filename).get(layer_name, [])
                 for entity in layer_entities:
                     entity_type = entity.dxftype()
@@ -907,7 +988,21 @@ class ExportDialog(QDialog):
                 )
                 return
 
-        # Добавляем информацию о таблице                
+        # Создаем и настраиваем диалог прогресса
+        self.progress = QProgressDialog("Экспорт объектов в базу данных...", None, 0, 0, self)
+        self.progress.setWindowModality(Qt.WindowModal)
+        self.progress.setWindowTitle("Экспорт")
+        self.progress.setAutoClose(True)
+        self.progress.setCancelButton(None)
+        self.progress.setMinimumDuration(0)
+        
+        # Добавляем анимацию точек
+        self.dots = 0
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_progress_text)
+        self.timer.start(500)
+        
+        # Подготавливаем информацию для экспорта
         table_info = {
             'is_new_file': self.is_new_file,
             'file_id': self.selected_file_id,
@@ -918,16 +1013,42 @@ class ExportDialog(QDialog):
             'nongeom_mappings': self.nongeom_mappings if not self.is_new_file and self.import_mode == 'mapping' else None
         }
         
-        export_dxf(
+        # Создаем и запускаем поток экспорта
+        self.export_thread = ExportThread(
             self.username,
-            self.password,                
-            self.address,                   
-            self.port,                  
+            self.password,
+            self.address,
+            self.port,
             self.dbname,
             self.dxf_handler,
             table_info
         )
-        self.accept()
+        self.export_thread.finished.connect(self.on_export_finished)
+        self.export_thread.start()
+        
+        # Показываем прогресс
+        self.progress.show()
+
+    def update_progress_text(self):
+        """Обновление текста в окне прогресса"""
+        self.dots = (self.dots + 1) % 4
+        self.progress.setLabelText(f"Экспорт объектов в базу данных{'.' * self.dots}")
+
+    def on_export_finished(self, success, message):
+        """Обработка завершения экспорта"""
+        self.timer.stop()
+        self.progress.close()
+        
+        if success:
+            QtWidgets.QMessageBox.information(self, "Успех", message)
+            self.accept()
+        else:
+            Logger.log_error(f"Ошибка при экспорте: {message}")
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось выполнить экспорт: {message}"
+            )
 
     def on_cancel_clicked(self):
         """Обработка нажатия кнопки Отмена"""
@@ -994,22 +1115,19 @@ class ExportDialog(QDialog):
         from .attribute_dialog import AttributeDialog
         dialog = AttributeDialog(dxf_entity, db_entity, self)
         if dialog.exec_() == QDialog.Accepted:
-            # Получаем сопоставленные атрибуты из диалогового окна
-            if db_entity and 'handle' in db_entity:
-                # Обновляем сопоставления на основе результатов диалога
-                handle = dxf_entity['handle']
-                if handle in self.geom_mappings:
-                    self.geom_mappings[handle]['attributes'] = dialog.get_mapped_attributes()
-                elif handle in self.nongeom_mappings:
-                    self.nongeom_mappings[handle]['attributes'] = dialog.get_mapped_attributes()
+            handle = dxf_entity['handle']
+            if handle in self.geom_mappings:
+                self.geom_mappings[handle]['attributes'] = dialog.get_mapped_attributes()
+            elif handle in self.nongeom_mappings:
+                self.nongeom_mappings[handle]['attributes'] = dialog.get_mapped_attributes()
 
     def on_entity_mapping_changed(self, dxf_handle, db_id, mappings):
         """Обновление сопоставления при изменении выбора объекта"""
         if db_id:
             mappings[dxf_handle] = {
                 'entity_id': db_id,
-                'attributes': {}  # Сбрасываем сопоставление атрибутов
+                'attributes': {}
             }
         else:
-            mappings.pop(dxf_handle, None)
+                mappings.pop(dxf_handle, None)
 

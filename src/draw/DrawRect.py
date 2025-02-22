@@ -1,7 +1,6 @@
 from qgis.gui import QgsRubberBand, QgsMapToolEmitPoint, QgsMapTool
 from PyQt5 import QtGui
 from qgis.core import QgsWkbTypes, QgsRectangle, QgsPointXY
-import asyncio
 
 class RectangleMapTool(QgsMapToolEmitPoint):
     def __init__(self, canvas, dlg):

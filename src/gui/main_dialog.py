@@ -166,7 +166,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
         self.export_to_db_button.setEnabled(self.dxf_handler.file_is_open)
         self.select_area_button.setEnabled(self.dxf_handler.file_is_open)
-        self.progress_dialog.close()
+        #self.progress_dialog.close()
         
         # Clean up worker
         if hasattr(self, 'long_task_worker'):

@@ -42,7 +42,7 @@ class RectangleMapTool(QgsMapToolEmitPoint):
             self.yMax = r.yMaximum()
                 
             self.dlg.show()
-            asyncio.run(self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, None, self.xMin, self.xMax, self.yMin, self.yMax))
+            self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, None, self.xMin, self.xMax, self.yMin, self.yMax)
             self.dlg.coord.setPlainText(f"Координаты квадрата:\n Минимум Х:{self.xMin}\nМинимум Y:{self.yMin}\nМаксимум Х:{self.xMax}\nМаксимум Y:{self.yMax}")
 
             """ ------------------ """

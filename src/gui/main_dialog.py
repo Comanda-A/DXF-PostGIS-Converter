@@ -1,5 +1,4 @@
 import os
-import asyncio
 
 from qgis.PyQt import uic, QtWidgets, QtCore
 from qgis.PyQt.QtWidgets import QMessageBox, QProgressDialog, QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView, QFileDialog
@@ -16,6 +15,8 @@ from ..tree_widget_handler import TreeWidgetHandler
 from ..db.database import get_all_files_from_db, import_dxf, delete_dxf
 from .info_dialog import InfoDialog
 from ..config.help_content import MAIN_DIALOG_HELP
+from ..workers.dxf_worker import DXFWorker
+from ..workers.long_task_worker import LongTaskWorker
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'main_dialog.ui'))
@@ -38,6 +39,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.preview_cache = {}  # Кеш предпросмотров
         self.preview_factory = PreviewWidgetFactory()
         self.plugin_root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        self.worker = None
 
         # нажатие по кнопке export_to_db_button
         self.export_to_db_button.clicked.connect(self.export_to_db_button_click)
@@ -82,55 +84,94 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         else:
             Logger.log_warning('База данных не выбрана!')
 
-    async def read_dxf(self, file_name):
+    def read_dxf(self, file_name):
         """
         Обработка выбора DXF файла и заполнение древовидного виджета слоями и объектами.
         """
         self.label.setText(os.path.basename(file_name))
-        await self.start_long_task("read_dxf_file", self.dxf_handler.read_dxf_file, self.dxf_handler, file_name)
+        self.start_long_task("read_dxf_file", self.dxf_handler.read_dxf_file, self.dxf_handler, file_name)
 
-    async def read_multiple_dxf(self, file_names):
+    def read_multiple_dxf(self, file_names):
         """
         Обработка выбора нескольких DXF файлов и заполнение древовидного виджета слоями и объектами.
         """
         total_files = len(file_names)
-        self.progress_dialog = QProgressDialog("Processing...", "Cancel", 0, total_files, self)
-        self.progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
-        self.progress_dialog.show()
+        #self.progress_dialog = QProgressDialog("Processing...", "Cancel", 0, total_files, self)
+        #self.progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
+        #self.progress_dialog.canceled.connect(self.cancel_processing)
+        #self.progress_dialog.show()
 
-        tasks = [self.read_dxf(file_name) for file_name in file_names]
-        await asyncio.gather(*tasks)
+        self.worker = DXFWorker(self.dxf_handler, file_names)
+        self.worker.progress.connect(self.update_progress)
+        self.worker.finished.connect(self.process_results)
+        self.worker.error.connect(self.handle_error)
+        
+        self.worker.start()
 
-    async def start_long_task(self, task_id, func, real_func, *args):
+    def cancel_processing(self):
+        if self.worker:
+            self.worker.cancel()
+            self.worker.wait()
+            self.worker = None
+
+    def update_progress(self, current, total):
+        pass
+        #if self.progress_dialog:
+            #self.progress_dialog.setValue(current)
+
+    def process_results(self, results):
+        #self.progress_dialog.close()
+        for result in results:
+            if result:
+                self.dxf_tree_widget_handler.populate_tree_widget(result)
+        
+        self.export_to_db_button.setEnabled(self.dxf_handler.file_is_open)
+        self.select_area_button.setEnabled(self.dxf_handler.file_is_open)
+
+    def handle_error(self, error_message):
+        self.progress_dialog.close()
+        QMessageBox.critical(self, "Error", f"Error processing DXF files: {error_message}")
+
+    def start_long_task(self, task_id, func, real_func, *args):
         """
-        Запускает длительную задачу, создавая диалог прогресса и подключая его к обработчику.
+        Запускает длительную задачу в отдельном потоке.
         Аргументы:
             task_id (str): Идентификатор задачи.
             func (callable): Функция для выполнения.
             real_func (callable): Функция для выполнения в воркере.
             *args: Список аргументов переменной длины.
         """
+        # Create and setup worker
+        self.long_task_worker = LongTaskWorker(task_id, func, *args)
+        self.long_task_worker.finished.connect(self.on_finished)
+        self.long_task_worker.error.connect(self.handle_long_task_error)
+        
+        # Start the worker thread
+        self.long_task_worker.start()
 
-        loop = asyncio.get_event_loop()
-        future = loop.run_in_executor(None, func, *args)
-        result = await future
-
-        self.on_finished(task_id, result)
+    def handle_long_task_error(self, error_message):
+        """Обработчик ошибок длительных задач"""
+        QMessageBox.critical(self, "Error", f"Error during task execution: {error_message}")
+        #self.progress_dialog.close()
 
     def on_finished(self, task_id, result):
         """
-        Обрабатывает завершение задачи, останавливая воркер.
+        Обрабатывает завершение задачи.
         """
         if result is not None:
             if task_id == "read_dxf_file":
                 self.dxf_tree_widget_handler.populate_tree_widget(result)
             elif task_id == "select_entities_in_area" and result != []:
                 self.dxf_tree_widget_handler.select_area(result)
-                # создать функцию в dxf_handler для сохранения выбранных объектов, чтобы ими манипулировать при конвертации в бд
 
         self.export_to_db_button.setEnabled(self.dxf_handler.file_is_open)
         self.select_area_button.setEnabled(self.dxf_handler.file_is_open)
         self.progress_dialog.close()
+        
+        # Clean up worker
+        if hasattr(self, 'long_task_worker'):
+            self.long_task_worker.deleteLater()
+            self.long_task_worker = None
 
     def export_to_db_button_click(self):
         from .export_dialog import ExportDialog

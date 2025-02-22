@@ -617,18 +617,9 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
         if self.chkGPKG.isChecked(): out = "GPKG"
         if self.chkSHP.isChecked():  out = "SHP"
 
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+    
+        self.iface.read_multiple_dxf(self.current_files)
 
-        tasks = [self.iface.read_multiple_dxf(self.current_files)]
-        if not loop.is_running():
-            loop.run_until_complete(asyncio.gather(*tasks))
-        else:
-            for task in tasks:
-                asyncio.create_task(task)
 
         Antw = DXFImporter(self, out, self.listDXFDatNam, ZielPfad, self.chkSHP.isChecked() or self.chkGPKG.isChecked(),
                            self.cbCharSet.currentText(), self.chkCol.isChecked(), self.chkLay.isChecked(),

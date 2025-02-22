@@ -1,14 +1,17 @@
 import os
 import sys
+
 import ezdxf
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
 
 # Добавляем путь к корневой директории проекта
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.db.database import PATTERN_DATABASE_URL, Base, export_dxf, import_dxf, get_all_files_from_db
 from src.dxf.dxf_handler import DXFHandler
+from src.tree_widget_handler import TreeWidgetHandler
 
 
 def test_dxf_integrity(input_dxf_path: str, output_dxf_path: str = None):
@@ -55,25 +58,25 @@ def test_dxf_integrity(input_dxf_path: str, output_dxf_path: str = None):
 
     try:
         # Загружаем DXF файл
-        dxf_handler = DXFHandler(None, None, None)
+        file_name = os.path.basename(input_dxf_path)
+        tree_widget_handler = TreeWidgetHandler(None)
+        tree_widget_handler.current_file_name = file_name
+        dxf_handler = DXFHandler(None, None, tree_widget_handler)
         layers_entities, filename = dxf_handler.read_dxf_file(input_dxf_path)
         print(f"Файл {filename} успешно загружен")
 
-        file_name = os.path.basename(input_dxf_path)
 
         blocks_meta = dxf_handler.extract_blocks_from_dxf(file_name)
-        # save in txt file
+        objects_meta = dxf_handler.extract_object_section(file_name)
+        linetypes = dxf_handler.extract_linetypes(file_name)
         with open("../dxf_examples/output/blocks.txt", "w") as f:
             f.write(str(blocks_meta))
-        xrecord_data = dxf_handler.extract_all_xrecords(file_name)
-        with open("../dxf_examples/output/xrecord.txt", "w") as f:
-            f.write(str(xrecord_data))
-        dict_meta = dxf_handler.extract_dictionary(file_name)
-        with open("../dxf_examples/output/dictionary.txt", "w") as f:
-            f.write(str(dict_meta))
-        dict_var_default_meta = dxf_handler.extract_dictionary_vars_and_with_default(file_name)
-        with open("../dxf_examples/output/dict_var_default.txt", "w") as f:
-            f.write(str(dict_var_default_meta))
+
+        with open("../dxf_examples/output/objects.txt", "w") as f:
+            f.write(str(objects_meta))
+
+        with open("../dxf_examples/output/linetypes.txt", "w") as f:
+            f.write(str(linetypes))
 
         table_info = {
             'is_new_file': True,
@@ -118,6 +121,7 @@ def test_dxf_integrity(input_dxf_path: str, output_dxf_path: str = None):
 
         print("Проверка целостности завершена")
 
+        os.system("ezdxf view " + output_dxf_path)
         os.system("ezdxf view " + input_dxf_path)
         os.system("ezdxf browse " + output_dxf_path)
 

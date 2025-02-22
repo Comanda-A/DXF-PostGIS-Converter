@@ -58,7 +58,9 @@ class TreeWidgetHandler(QObject):
     selection_changed = pyqtSignal(str)
 
     def __init__(self, tree_widget, selectable: bool = True):
+
         super().__init__()  # Initialize QObject
+        if tree_widget is None: return
         self.tree_widget = tree_widget
         self.tree_items = {}  # Structure: {file_name: {layer_name: {'item': item, 'entities': {}}}}
         self.selectable = False
@@ -253,15 +255,32 @@ class TreeWidgetHandler(QObject):
 
         layers, file_name = layers[0], layers[1]
         self.layer_count = len(layers)
-        
+
         # Подсчет общего количества объектов
         self.total_entities = sum(len(entities) for entities in layers.values())
         self.selected_total_entities = 0
 
+        # Проверяем, существует ли уже элемент с таким именем файла
+        existing_item = None
+        for i in range(self.tree_widget.topLevelItemCount()):
+            item = self.tree_widget.topLevelItem(i)
+            if file_name in item.text(0):
+                existing_item = item
+                break
+
+        # Если элемент существует, удаляем его
+        if existing_item is not None:
+            index = self.tree_widget.indexOfTopLevelItem(existing_item)
+            self.tree_widget.takeTopLevelItem(index)
+            if file_name in self.tree_items:
+                del self.tree_items[file_name]
+            if file_name in self.files_data:
+                del self.files_data[file_name]
+
         # Initialize file-specific data
         self.files_data[file_name] = {
             'layers': {},
-            'total_entities': sum(len(entities) for entities in layers.values()),
+            'total_entities': self.total_entities,
             'selected_entities': 0,
             'layer_count': len(layers),
             'selected_layers': 0
@@ -292,9 +311,8 @@ class TreeWidgetHandler(QObject):
         # Отключаем обновления UI во время заполнения
         self.tree_widget.setUpdatesEnabled(False)
 
-        # Initialize file structure if not exists
-        if file_name not in self.tree_items:
-            self.tree_items[file_name] = {}
+        # Initialize file structure
+        self.tree_items[file_name] = {}
 
         for layer, entities in layers.items():
             entity_count = len(entities)

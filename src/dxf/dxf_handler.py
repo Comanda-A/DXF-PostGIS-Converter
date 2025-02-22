@@ -450,109 +450,157 @@ class DXFHandler(QObject):
             }
         return None
 
-    def extract_all_xrecords(self, filename):
+    def extract_object_section(self, filename: str) -> dict:
         """
-        Извлекает все XRECORD объекты из DXF файла.
-
-        Функция ищет XRECORD объекты в секции OBJECTS и в extension dictionaries графических объектов.
+        Извлекает различные объекты из секции OBJECTS DXF файла.
+        
+        Включает:
+        - XRECORD объекты
+        - Dictionary объекты
+        - DictionaryVar объекты
+        - DictionaryWithDefault объекты
+        
+        Returns:
+            dict: Словарь с информацией о различных объектах
         """
+        if filename not in self.dxf:
+            Logger.log_error(f"DXF файл {filename} не загружен.")
+            return {}
+        
         doc = self.dxf[filename]
-        xrecords = {
-            "objects": [],
-            "entity": {}
+        result = {
+            "xrecords": {
+                "objects": [],
+                "entity": {}
+            },
+            "dictionaries": {},
+            "dictionary_vars": [],
+            "dictionary_with_default": []
         }
 
+        def process_dictionary(dictionary, parent_handle=None):
+            """
+            Рекурсивно обрабатывает словари, включая вложенные, и добавляет их в результат.
 
-        # Ищем XRECORD объекты в секции OBJECTS
+            Args:
+                dictionary: Текущий обрабатываемый словарь.
+                parent_handle: Handle родительского словаря, если имеется.
+            """
+            dictionary_info = {
+                "type": dictionary.dxftype(),
+                "hard_owned": getattr(dictionary.dxf, "hard_owned", None),
+                "cloning": getattr(dictionary.dxf, "cloning", None),
+                "entries": {},
+                "parent_handle": parent_handle
+            }
+            try:
+                for key, value in dictionary.items():
+                    if isinstance(value, str):
+                        # Если значение - строка, это handle объекта
+                        referenced_obj = doc.entitydb.get(value)
+                        if referenced_obj:
+                            value_info = {
+                                "type": referenced_obj.dxftype(),
+                                "handle": value
+                            }
+                            if referenced_obj.dxftype() in ("DICTIONARY", "ACDBDICTIONARYWDFLT"):
+                                process_dictionary(referenced_obj, parent_handle=dictionary.dxf.handle)
+                        else:
+                            value_info = {
+                                "type": "Unknown",
+                                "handle": value
+                            }
+                    else:
+                        value_info = {
+                            "type": value.dxftype(),
+                            "handle": value.dxf.handle
+                        }
+                        if value.dxftype() in ("DICTIONARY", "ACDBDICTIONARYWDFLT"):
+                            process_dictionary(value, parent_handle=dictionary.dxf.handle)
+                    dictionary_info["entries"][key] = value_info
+            except Exception as e:
+                Logger.log_error(f"Ошибка при извлечении записей словаря с handle {dictionary.dxf.handle}: {e}")
+            result["dictionaries"][dictionary.dxf.handle] = dictionary_info
+
+        # Обработка XRECORD объектов в секции OBJECTS
         for obj in doc.objects:
             if obj.dxftype() == "XRECORD":
-                xrecords["objects"].append(obj)
-        
-        # Ищем XRECORD объекты в extension dictionaries графических объектов (например, в Modelspace)
-        msp = doc.modelspace()
-        for entity in msp:
-            if entity.has_extension_dict:
-                xdict = entity.get_extension_dict()
-                for key, obj in xdict.items():
-                    if obj.dxftype() == "XRECORD":
-                        if entity.dxf.handle not in xrecords["entity"]:
-                            xrecords["entity"][entity.dxf.handle] = []
-                        xrecords["entity"][entity.dxf.handle].append(obj)
-        
-        return xrecords
-
-    # Новый метод для извлечения объектов Dictionary из DXF файла
-    def extract_dictionary(self, filename: str) -> dict:
-        """
-        Извлекает все Dictionary объекты из DXF файла.
-        
-        Возвращает:
-            dict с ключами в виде handle словаря, значениями - информация об объекте Dictionary и его записях.
-        """
-        if filename not in self.dxf:
-            Logger.log_error(f"DXF файл {filename} не загружен.")
-            return {}
-        
-        doc = self.dxf[filename]
-        dictionaries = {}
-        for obj in doc.objects:
-            if obj.dxftype() in ("DICTIONARY", "ACDBDICTIONARYWDFLT"):
-                # Собираем базовую информацию о словаре
-                dictionary_info = {
-                    "type": obj.dxftype(),
-                    "hard_owned": getattr(obj.dxf, "hard_owned", None),
-                    "cloning": getattr(obj.dxf, "cloning", None),
-                    "entries": {}
-                }
-                # Итерируем по записям словаря
-                try:
-                    for key, value in obj.items():
-                        dictionary_info["entries"][key] = value  # значение может быть handle строкой или DXFEntity
-                except Exception as e:
-                    Logger.log_error(f"Ошибка при извлечении записей словаря с handle {obj.dxf.handle}: {e}")
-                dictionaries[obj.dxf.handle] = dictionary_info
-
-        return dictionaries
-
-    # Новый метод для извлечения объектов DictionaryVar и DictionaryWithDefault из DXF файла
-    def extract_dictionary_vars_and_with_default(self, filename: str) -> dict:
-        """
-        Извлекает объекты DictionaryVar и DictionaryWithDefault из DXF файла.
-
-        Возвращает:
-            dict с ключами:
-                "dictionary_vars" - список словарных переменных,
-                "dictionary_with_default" - список объектов DictionaryWithDefault.
-        """
-        if filename not in self.dxf:
-            Logger.log_error(f"DXF файл {filename} не загружен.")
-            return {}
-        
-        doc = self.dxf[filename]
-        dictionary_vars = []
-        dictionary_with_default = []
-        
-        for obj in doc.objects:
-            if obj.dxftype() == "DICTIONARYVAR":
+                xrecord_data = {}
+                for tag in obj.tags:
+                    xrecord_data[tag.code] = tag.value
+                result["xrecords"]["objects"].append({
+                    "handle": obj.dxf.handle,
+                    "data": xrecord_data
+                })
+            
+            # Обработка Dictionary объектов
+            elif obj.dxftype() in ("DICTIONARY", "ACDBDICTIONARYWDFLT"):
+                process_dictionary(obj)
+            
+            # Обработка DictionaryVar объектов
+            elif obj.dxftype() == "DICTIONARYVAR":
                 var_info = {
                     "handle": obj.dxf.handle,
                     "schema": getattr(obj.dxf, "schema", None),
                     "value": getattr(obj.dxf, "value", None),
                     "propertyvalue": obj.propertyvalue if hasattr(obj, "propertyvalue") else None
                 }
-                dictionary_vars.append(var_info)
+                result["dictionary_vars"].append(var_info)
+            
+            # Обработка DictionaryWithDefault объектов
             elif obj.dxftype() == "ACDBDICTIONARYWDFLT":
-                # Собираем default, если он существует
                 dwd_info = {
                     "handle": obj.dxf.handle,
                     "default": getattr(obj.dxf, "default", None)
                 }
-                dictionary_with_default.append(dwd_info)
-        
-        return {
-            "dictionary_vars": dictionary_vars,
-            "dictionary_with_default": dictionary_with_default
-        }
+                result["dictionary_with_default"].append(dwd_info)
+
+        # Поиск XRECORD объектов в extension dictionaries графических объектов
+        msp = doc.modelspace()
+        for entity in msp:
+            if entity.has_extension_dict:
+                xdict = entity.get_extension_dict()
+                for key, obj in xdict.items():
+                    if obj.dxftype() == "XRECORD":
+                        if entity.dxf.handle not in result["xrecords"]["entity"]:
+                            result["xrecords"]["entity"][entity.dxf.handle] = []
+                        xrecord_data = {}
+                        for tag in obj.tags:
+                            xrecord_data[tag.code] = tag.value
+                        result["xrecords"]["entity"][entity.dxf.handle].append({
+                            "handle": obj.dxf.handle,
+                            "data": xrecord_data
+                        })
+
+        return result
+
+    def extract_linetypes(self, filename: str) -> dict:
+        """
+        Извлекает информацию о типах линий из секции TABLES DXF-файла.
+
+        Args:
+            filename (str): Путь к DXF-файлу.
+
+        Returns:
+            dict: Словарь с информацией о типах линий, где ключи — имена типов линий,
+                  а значения — их описания и паттерны.
+        """
+        if filename not in self.dxf:
+            Logger.log_error(f"DXF файл {filename} не загружен.")
+            return {}
+
+        doc = self.dxf[filename]
+        linetypes = {}
+        for linetype in doc.linetypes:
+            pattern_values = []
+            for tag in linetype.pattern_tags.tags:
+                if tag.code == 49:  # Код группы 49 соответствует элементам паттерна
+                    pattern_values.append(tag.value)
+            linetypes[linetype.dxf.name] = {
+                "description": linetype.dxf.description,
+                "pattern": pattern_values
+            }
+        return linetypes
 
     def extract_styles(self, filename: str) -> dict:
         """

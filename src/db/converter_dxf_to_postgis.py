@@ -167,6 +167,28 @@ def insert_blocks_to_new_file(doc, blocks_data):
 
     Logger.log_message("Completed block insertion")
 
+
+def create_linetypes(doc, linetypes_data: dict):
+    """
+    Создаёт новые типы линий в таблице LTYPE DXF-документа на основе предоставленных данных.
+    """
+    for name, data in linetypes_data.items():
+        description = data.get('description', '')
+        pattern = data.get('pattern', [])
+
+        # Проверяем, существует ли уже тип линии с таким именем
+        if name in doc.linetypes:
+            Logger.log_warning(f"Тип линии '{name}' уже существует в документе.")
+            continue
+
+        # Добавляем новый тип линии в таблицу LTYPE
+        doc.linetypes.new(name=name, dxfattribs={
+            'description': description,
+            'pattern': pattern
+        })
+        Logger.log_message(f"Добавлен новый тип линии: {name}")
+
+
 def insert_styles_to_new_file(doc, styles: dict):
     """
     Внедряет стили в новый документ DXF.
@@ -213,7 +235,10 @@ def convert_postgis_to_dxf(
 
     #Добавление стилей
     styles = file_metadata.get('styles', {})
-    insert_styles_to_new_file(doc, styles)  # New call at ~199
+    insert_styles_to_new_file(doc, styles)
+    # Добавление типов линий
+    #linetypes = file_metadata.get('linetypes', {})
+    #create_linetypes(doc, linetypes)
 
     # Добавляем слои и объекты в DXF
     for layer in layers:

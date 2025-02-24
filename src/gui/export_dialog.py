@@ -653,12 +653,7 @@ class ExportDialog(QDialog):
                 # Если есть выбранные сущности, создаем множество их слоев
                 selected_layers = set()
                 if self.dxf_handler.selected_entities:
-                    # получить корень дерева
-                    filename = self.tree_widget.topLevelItem(0).text(0)
-                    start = filename.find("Файл: ") + len("Файл: ")
-                    end = filename.find(" |", start)
-                    filename = filename[start:end]
-                    Logger.log_message(f"Selected entities for file: {filename}")
+                    filename = self.dxf_tree_widget_handler.current_file_name
                     entities = self.dxf_handler.get_entities_for_export(filename)
                     selected_layers = {
                         entity.dxf.layer 

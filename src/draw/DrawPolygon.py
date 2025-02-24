@@ -1,25 +1,19 @@
-from qgis.gui import QgsRubberBand, QgsMapToolEmitPoint, QgsMapTool
+from .BaseMapTool import BaseMapTool
+from qgis.gui import QgsRubberBand
 from PyQt5 import QtGui, QtCore
 from qgis.core import QgsWkbTypes
 
-class PolygonMapTool(QgsMapToolEmitPoint):
+class PolygonMapTool(BaseMapTool):
     def __init__(self, canvas, dlg):
-        self.canvas = canvas
-        QgsMapToolEmitPoint.__init__(self, self.canvas)
-        self.rubberBand = QgsRubberBand(self.canvas, QgsWkbTypes.PolygonGeometry)
-        self.rubberBand.setColor(QtGui.QColor(0, 0, 255))
-        self.rubberBand.setFillColor(QtGui.QColor(0, 0, 255, 50))
-        self.rubberBand.setWidth(1)
+        super().__init__(canvas, dlg)
         self.tempRubberBand = QgsRubberBand(self.canvas, QgsWkbTypes.LineGeometry)
         self.tempRubberBand.setColor(QtGui.QColor(0, 0, 255, 100))
         self.tempRubberBand.setWidth(1)
         self.reset()
-        self.dlg = dlg
 
     def reset(self):
+        super().reset()
         self.points = []
-        self.isEmittingPoint = False
-        self.rubberBand.reset(QgsWkbTypes.PolygonGeometry)
         self.tempRubberBand.reset(QgsWkbTypes.LineGeometry)
     
     def canvasPressEvent(self, e):
@@ -31,10 +25,6 @@ class PolygonMapTool(QgsMapToolEmitPoint):
             self.isEmittingPoint = True
         else:
             self.tempRubberBand.addPoint(point, True)
-
-    
-    def canvasReleaseEvent(self, e):
-        pass
     
     def canvasMoveEvent(self, e):
         if not self.isEmittingPoint or not self.points:
@@ -58,14 +48,11 @@ class PolygonMapTool(QgsMapToolEmitPoint):
         self.rubberBand.show()
         self.tempRubberBand.reset(QgsWkbTypes.LineGeometry)
         self.geom = [(point.x(), point.y()) for point in self.points]
-        self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, self.dlg.dxf_handler, self.geom)
-        self.dlg.coord.setPlainText(f"Координаты полигона:\n {self.geom}")
         
-        self.deactivate()
-        self.canvas.unsetMapTool(self)
-        self.canvas.refresh()
-        self.dlg.showNormal()
-        self.reset()
+        self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, 
+                                self.dlg.dxf_handler, self.geom)
+        self.update_dialog_coordinates(f"Координаты полигона:\n {self.geom}")
+        self.finish_drawing()
         
     def showTemporaryPolygon(self, point):
         if not self.points:
@@ -75,6 +62,3 @@ class PolygonMapTool(QgsMapToolEmitPoint):
             self.rubberBand.addPoint(p, False)
         self.rubberBand.addPoint(point, True)
         self.rubberBand.show()
-    def deactivate(self):
-        QgsMapTool.deactivate(self)
-        self.deactivated.emit()

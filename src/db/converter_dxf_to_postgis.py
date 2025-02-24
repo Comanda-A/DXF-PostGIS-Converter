@@ -314,12 +314,12 @@ def convert_postgis_to_dxf(
             char_height = geom_object.extra_data.get('char_height', 1.0)
             base_point = geom_object.extra_data.get('base_point', (0, 0, 0))
             
-            Logger.log_message(f'MULTILEADER: {attributes}')
+            #Logger.log_message(f'MULTILEADER: {attributes}')
             # Create MULTILEADER entity and apply all extra attributes if supported
             if text:
                 ml_builder = msp.add_multileader_mtext(dxfattribs=attribs)
                 ml_builder.set_content(content=text, alignment=attributes.get('text_attachment_point', 0), style=style, char_height=char_height)
-                Logger.log_message(geom_object.extra_data.get('rotation', 0))
+                #Logger.log_message(geom_object.extra_data.get('rotation', 0))
                 ml_builder.context.mtext.rotation = geom_object.extra_data.get('rotation', 0)
                 if leader_lines:
                     ml_builder.add_leader_line(side=ConnectionSide.left, vertices=leader_lines[0])
@@ -420,7 +420,7 @@ def convert_postgis_to_dxf(
                 Logger.log_error("convert_postgis_to_dxf() geom_type == '3DSOLID' ERROR. e: " + str(e))
 
    
-    #doc.audit()
+    doc.audit()
     # Сохраняем DXF файл
     doc.saveas(path)
 
@@ -576,7 +576,7 @@ def _convert_arc_to_postgis(entity: Arc) -> tuple[BaseGeometry, dict]:
 
 def _convert_multileader_to_postgis(entity: MultiLeader, dxf_handler : DXFHandler) -> tuple[Polygon | Point, dict]:
     extra_data = _attributes_to_dict(entity)
-    Logger.log_message(f'MULTILEADER: {extra_data}')
+    #Logger.log_message(f'MULTILEADER: {extra_data}')
     text_style_entity = dxf_handler.get_entity_db(extra_data['attributes']['text_style_handle'])
 
     extra_data['text_style'] = text_style_entity.dxf.name

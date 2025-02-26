@@ -11,16 +11,31 @@ from ..tree_widget_handler import TreeWidgetHandler
 from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler
 from ..db.database import export_dxf
-from ..db.database import (get_layer_objects, get_layers_for_file, get_table_fields)
+from ..db.database import (get_layer_objects, get_layers_for_file)
 from .info_dialog import InfoDialog
 from ..config.help_content import EXPORT_DIALOG_HELP
 from PyQt5.QtCore import QTimer
 from PyQt5.QtCore import QThread, pyqtSignal
 
 class ExportThread(QThread):
+    """
+    Поток для выполнения экспорта данных в базу данных.
+    Работает отдельно от основного потока интерфейса, чтобы не блокировать UI.
+    """
     finished = pyqtSignal(bool, str)  # Сигнал: успех/неуспех, сообщение
     
     def __init__(self, username, password, address, port, dbname, dxf_handler, table_info):
+        """
+        Инициализация потока экспорта.
+        
+        :param username: Имя пользователя для подключения к БД
+        :param password: Пароль пользователя
+        :param address: Адрес сервера БД
+        :param port: Порт сервера БД
+        :param dbname: Имя базы данных
+        :param dxf_handler: Обработчик DXF-файлов
+        :param table_info: Информация о таблице для экспорта
+        """
         super().__init__()
         self.username = username
         self.password = password
@@ -31,7 +46,11 @@ class ExportThread(QThread):
         self.table_info = table_info
 
     def run(self):
+        """
+        Основной метод потока. Выполняет экспорт и отправляет сигнал о результате.
+        """
         try:
+            Logger.log_message("Запуск экспорта DXF в базу данных")
             export_dxf(
                 self.username,
                 self.password,
@@ -41,13 +60,26 @@ class ExportThread(QThread):
                 self.dxf_handler,
                 self.table_info
             )
+            Logger.log_message("Экспорт успешно завершен")
             self.finished.emit(True, "Экспорт успешно завершен!")
         except Exception as e:
+            Logger.log_error(f"Ошибка при экспорте: {str(e)}")
             self.finished.emit(False, str(e))
 
 
 class ExportDialog(QDialog):
+    """
+    Диалог экспорта данных в базу данных.
+    Позволяет настраивать экспорт DXF-объектов в PostGIS.
+    """
     def __init__(self, dxf_tree_widget_handler: TreeWidgetHandler, dxf_handler: DXFHandler, parent=None):
+        """
+        Инициализация диалога экспорта.
+        
+        :param dxf_tree_widget_handler: Обработчик древовидного виджета DXF
+        :param dxf_handler: Обработчик DXF-файлов
+        :param parent: Родительский виджет
+        """
         super().__init__(parent)
         self.dxf_tree_widget_handler = dxf_tree_widget_handler
         self.dxf_handler = dxf_handler
@@ -57,13 +89,13 @@ class ExportDialog(QDialog):
         self.is_new_file = True
         self.selected_file_name = None
         self.selected_layer_id = None
-        self.geom_mappings = {}
-        self.nongeom_mappings = {}
-        self.import_mode = 'overwrite'  # Меняем режим по умолчанию на "Overwrite"
+        self.geom_mappings = {}  # Сопоставления геометрических объектов
+        self.nongeom_mappings = {}  # Сопоставления негеометрических объектов
+        self.import_mode = 'overwrite'  # Режим импорта по умолчанию - "Перезапись"
         self.dlg = None
         self.connection_manager = ConnectionsManager()
 
-        # Параметры БД
+        # Параметры подключения к БД
         self.address = 'none'
         self.port = '5432'
         self.dbname = 'none'
@@ -71,13 +103,14 @@ class ExportDialog(QDialog):
         self.password = 'none'
         self.schemaname = 'none'
 
+        Logger.log_message("Инициализация диалога экспорта")
         self.setup_ui()
-        
         self.load_last_connection()
 
     def setup_ui(self):
         """Создание и настройка элементов пользовательского интерфейса"""
-        self.setWindowTitle("Export to Database")
+        Logger.log_message("Настройка интерфейса диалога экспорта")
+        self.setWindowTitle("Экспорт в базу данных")
         self.setMinimumWidth(1200)
         self.setMinimumHeight(800)
 
@@ -116,26 +149,26 @@ class ExportDialog(QDialog):
         left_column.setSpacing(10)
         
         # Группа DXF объектов
-        self.dxf_group = QGroupBox("DXF Objects")
+        self.dxf_group = QGroupBox("DXF Объекты")
         dxf_layout = QVBoxLayout()
         self.tree_widget = QTreeWidget()
         self.tree_widget.setHeaderHidden(True)
-        self.tree_widget.setColumnCount(1)  # Изменено на 1 колонку
+        self.tree_widget.setColumnCount(1)  # Одна колонка для отображения объектов
         self.tree_widget.setMinimumHeight(300)
-        self.tree_widget.setMinimumWidth(400)  # Установим минимальную ширину
+        self.tree_widget.setMinimumWidth(400)
         dxf_layout.addWidget(self.tree_widget)
         self.dxf_group.setLayout(dxf_layout)
         left_column.addWidget(self.dxf_group)
 
         # Группа подключения к базе данных
-        self.connection_group = QGroupBox("Database Connection")
+        self.connection_group = QGroupBox("Подключение к базе данных")
         conn_layout = QVBoxLayout()
         
         # Строка адреса
         addr_layout = QHBoxLayout()
         self.address_label = QLabel()
-        self.select_db_button = QPushButton("Select DB")
-        addr_layout.addWidget(QLabel("Address:"))
+        self.select_db_button = QPushButton("Выбрать БД")
+        addr_layout.addWidget(QLabel("Адрес:"))
         addr_layout.addWidget(self.address_label)
         addr_layout.addWidget(self.select_db_button)
         conn_layout.addLayout(addr_layout)
@@ -143,36 +176,36 @@ class ExportDialog(QDialog):
         # Строка порта
         port_layout = QHBoxLayout()
         self.port_lineedit = QLineEdit()
-        port_layout.addWidget(QLabel("Port:"))
+        port_layout.addWidget(QLabel("Порт:"))
         port_layout.addWidget(self.port_lineedit)
         conn_layout.addLayout(port_layout)
         
         # Строка имени БД
         db_layout = QHBoxLayout()
         self.dbname_label = QLabel()
-        db_layout.addWidget(QLabel("DB Name:"))
+        db_layout.addWidget(QLabel("Имя БД:"))
         db_layout.addWidget(self.dbname_label)
         conn_layout.addLayout(db_layout)
         
         # Строка схемы
         schema_layout = QHBoxLayout()
         self.schema_label = QLabel()
-        schema_layout.addWidget(QLabel("Schema:"))
+        schema_layout.addWidget(QLabel("Схема:"))
         schema_layout.addWidget(self.schema_label)
         conn_layout.addLayout(schema_layout)
         
         # Строка имени пользователя
         user_layout = QHBoxLayout()
         self.username_label = QLabel()
-        user_layout.addWidget(QLabel("Username:"))
+        user_layout.addWidget(QLabel("Имя пользователя:"))
         user_layout.addWidget(self.username_label)
         conn_layout.addLayout(user_layout)
         
         # Строка пароля
         pass_layout = QHBoxLayout()
         self.password_lineedit = QLineEdit()
-        self.password_lineedit.setEchoMode(QLineEdit.Password)
-        pass_layout.addWidget(QLabel("Password:"))
+        self.password_lineedit.setEchoMode(QLineEdit.Password)  # Скрываем ввод пароля
+        pass_layout.addWidget(QLabel("Пароль:"))
         pass_layout.addWidget(self.password_lineedit)
         conn_layout.addLayout(pass_layout)
         
@@ -195,7 +228,7 @@ class ExportDialog(QDialog):
         right_widget.setLayout(right_column)
         
         # Группа выбора файла
-        self.file_group = QGroupBox("File Selection")
+        self.file_group = QGroupBox("Выбор файла")
         file_layout = QVBoxLayout()
         
         # Выбор существующего файла и ввод имени
@@ -204,16 +237,16 @@ class ExportDialog(QDialog):
         self.new_file_name.setPlaceholderText("Введите имя файла")
         
         # Выбор режима импорта
-        self.import_mode_group = QGroupBox("Import Mode")
+        self.import_mode_group = QGroupBox("Режим импорта")
         self.import_mode_group.setVisible(False)  # Изначально скрыт
         mode_layout = QVBoxLayout()
         
-        self.mapping_radio = QtWidgets.QRadioButton("Field Mapping")
-        self.mapping_radio.setChecked(False)  # Изменено состояние по умолчанию
+        self.mapping_radio = QtWidgets.QRadioButton("Сопоставление полей")
+        self.mapping_radio.setChecked(False)
         self.mapping_radio.toggled.connect(self.on_import_mode_changed)
         
-        self.overwrite_radio = QtWidgets.QRadioButton("Overwrite File")
-        self.overwrite_radio.setChecked(True)  # Изменено состояние по умолчанию
+        self.overwrite_radio = QtWidgets.QRadioButton("Перезаписать файл")
+        self.overwrite_radio.setChecked(True)
         self.overwrite_radio.toggled.connect(self.on_import_mode_changed)
         
         mode_layout.addWidget(self.mapping_radio)
@@ -227,12 +260,12 @@ class ExportDialog(QDialog):
         right_column.addWidget(self.file_group)
 
         # Слои и сопоставление полей
-        self.mapping_group = QGroupBox("Layer and Field Mapping")
+        self.mapping_group = QGroupBox("Сопоставление слоёв и полей")
         self.mapping_group.setVisible(False)  # Изначально скрыт
         mapping_layout = QVBoxLayout()
         
         # Выбор слоя
-        layer_label = QLabel("Select Layer:")
+        layer_label = QLabel("Выберите слой:")
         self.layer_combo = QComboBox()
         mapping_layout.addWidget(layer_label)
         mapping_layout.addWidget(self.layer_combo)
@@ -248,7 +281,7 @@ class ExportDialog(QDialog):
         self.geom_mapping_table = QTableWidget()
         self._setup_table(self.geom_mapping_table)
         geom_layout.addWidget(self.geom_mapping_table)
-        self.mapping_tabs.addTab(self.geom_tab, "Geometric Objects")
+        self.mapping_tabs.addTab(self.geom_tab, "Геометрические объекты")
         
         # Вкладка негеометрических объектов
         self.nongeom_tab = QtWidgets.QWidget()
@@ -256,7 +289,7 @@ class ExportDialog(QDialog):
         self.nongeom_mapping_table = QTableWidget()
         self._setup_table(self.nongeom_mapping_table)
         nongeom_layout.addWidget(self.nongeom_mapping_table)
-        self.mapping_tabs.addTab(self.nongeom_tab, "Non-Geometric Objects")
+        self.mapping_tabs.addTab(self.nongeom_tab, "Негеометрические объекты")
         
         mapping_layout.addWidget(self.mapping_tabs)
         self.mapping_group.setLayout(mapping_layout)
@@ -264,6 +297,8 @@ class ExportDialog(QDialog):
 
         # Кнопки внизу правой колонки
         self.buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttonBox.button(QDialogButtonBox.Ok).setText("Экспорт")
+        self.buttonBox.button(QDialogButtonBox.Cancel).setText("Отмена")
         right_column.addWidget(self.buttonBox)
         
         # Добавляем разделитель, чтобы прижать все к верху
@@ -283,14 +318,27 @@ class ExportDialog(QDialog):
         self._connect_signals()
 
     def _setup_table(self, table):
-        """Вспомогательная функция для настройки таблицы сопоставлений"""
-        table.setColumnCount(2)
-        table.setHorizontalHeaderLabels(["DXF Field", "DB Field"])
+        """
+        Вспомогательная функция для настройки таблицы сопоставлений.
+        
+        :param table: Таблица для настройки
+        """
+        table.setColumnCount(3)
+        table.setHorizontalHeaderLabels(["Поле DXF", "Поле БД", "Actions"])
         table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         table.setMinimumHeight(150)
+        
+        # Оптимизация для больших таблиц
+        table.setVerticalScrollMode(QtWidgets.QAbstractItemView.ScrollPerPixel)
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        
+        # Оптимизация отрисовки
+        table.setItemDelegate(OptimizedItemDelegate())
 
     def _connect_signals(self):
         """Подключение всех сигналов пользовательского интерфейса"""
+        Logger.log_message("Подключение сигналов интерфейса")
         self.select_db_button.clicked.connect(self.on_select_db_button_clicked)
         self.info_button.clicked.connect(self.show_info_dialog)
         self.port_lineedit.textChanged.connect(self.on_port_changed)
@@ -303,11 +351,13 @@ class ExportDialog(QDialog):
 
     def show_info_dialog(self):
         """Показать диалог с описанием интерфейса"""
-        dialog = InfoDialog("Export Dialog Help", EXPORT_DIALOG_HELP, self)
+        Logger.log_message("Отображение справочной информации")
+        dialog = InfoDialog("Справка по экспорту", EXPORT_DIALOG_HELP, self)
         dialog.exec_()
 
     def load_last_connection(self):
         """Загрузка последнего использованного подключения к базе данных из настроек QGIS"""
+        Logger.log_message("Загрузка последнего подключения к БД")
         settings = QgsSettings()
         self.address = settings.value("DXFPostGIS/lastConnection/host", 'none')
         self.port = settings.value("DXFPostGIS/lastConnection/port", '5432')
@@ -317,11 +367,13 @@ class ExportDialog(QDialog):
         self.schemaname = settings.value("DXFPostGIS/lastConnection/schema", 'none')
 
         if self.dbname != 'none':
+            Logger.log_message(f"Загружены параметры БД: {self.dbname} на {self.address}")
             self.refresh_data_dialog()
             self.load_available_tables()
 
     def save_current_connection(self):
         """Сохранение текущего подключения к базе данных в настройках QGIS"""
+        Logger.log_message("Сохранение параметров текущего подключения")
         settings = QgsSettings()
         settings.setValue("DXFPostGIS/lastConnection/host", self.address)
         settings.setValue("DXFPostGIS/lastConnection/port", self.port)
@@ -331,15 +383,31 @@ class ExportDialog(QDialog):
         settings.setValue("DXFPostGIS/lastConnection/schema", self.schemaname)
 
     def on_port_changed(self, text):
+        """
+        Обработка изменения порта.
+        
+        :param text: Новое значение порта
+        """
         self.port = text
-
+        Logger.log_message(f"Изменен порт: {text}")
 
     def on_password_changed(self, text):
+        """
+        Обработка изменения пароля.
+        
+        :param text: Новое значение пароля
+        """
         self.password = text
-
+        Logger.log_message("Пароль был изменен")
 
     def copy_checked_items(self, parent_item, new_parent_item):
-        """Рекурсивная функция для копирования всех отмеченных (Checked) дочерних элементов из дерева"""
+        """
+        Рекурсивная функция для копирования всех отмеченных (Checked) дочерних 
+        элементов из дерева.
+        
+        :param parent_item: Исходный родительский элемент
+        :param new_parent_item: Новый родительский элемент для копирования
+        """
         # Проходим по всем дочерним элементам
         for i in range(parent_item.childCount()):
             child_item = parent_item.child(i)
@@ -353,9 +421,9 @@ class ExportDialog(QDialog):
                 # Рекурсивно копируем его дочерние элементы
                 self.copy_checked_items(child_item, new_child_item)
 
-
     def populate_tree_widget(self):
-        """Заполнение древовидного виджета"""
+        """Заполнение древовидного виджета выбранными элементами"""
+        Logger.log_message("Заполнение древовидного виджета выбранными элементами")
         # Очищаем tree_widget перед заполнением
         self.tree_widget.clear()
 
@@ -373,8 +441,9 @@ class ExportDialog(QDialog):
 
                 self.copy_checked_items(file_item, new_file_item)
 
-
     def refresh_data_dialog(self):
+        """Обновление данных диалога на основе текущих настроек подключения"""
+        Logger.log_message("Обновление данных диалога экспорта")
         self.address_label.setText(self.address)
         self.port_lineedit.setText(self.port)
         self.dbname_label.setText(self.dbname)
@@ -384,16 +453,17 @@ class ExportDialog(QDialog):
         self.show_window()
         self.populate_tree_widget()
 
-
-
     def show_window(self):
+        """Отображение диалогового окна и перевод его в активное состояние"""
+        Logger.log_message("Отображение диалогового окна экспорта")
         # Показать окно и сделать его активным
         self.raise_()
         self.activateWindow()
         self.show()
 
-
     def on_select_db_button_clicked(self):
+        """Обработка нажатия кнопки выбора базы данных"""
+        Logger.log_message("Открытие диалога выбора базы данных")
         from .providers_dialog import ProvidersDialog
         
         if self.dlg is None:
@@ -402,6 +472,7 @@ class ExportDialog(QDialog):
             result = self.dlg.exec_()
 
             if result and self.dlg.db_tree.currentSchema() is not None:
+                Logger.log_message("База данных успешно выбрана")
                 self.address = self.dlg.db_tree.currentDatabase().connection().db.connector.host
                 self.port = self.dlg.db_tree.currentDatabase().connection().db.connector.port
                 self.dbname = self.dlg.db_tree.currentDatabase().connection().db.connector.dbname
@@ -424,17 +495,22 @@ class ExportDialog(QDialog):
                     
                     self.refresh_data_dialog()
                     self.load_available_tables()
+                else:
+                    Logger.log_error("Не удалось получить учетные данные для доступа к БД")
                     
                 self.dlg = None
+            else:
+                Logger.log_message("Выбор базы данных отменен пользователем")
 
     def load_available_tables(self):
         """Загрузка доступных файлов из БД"""
+        Logger.log_message("Загрузка доступных файлов из БД")
         try:
             self.file_combo.blockSignals(True)  # Блокируем сигналы, чтобы избежать нежелательных вызовов
             self.file_combo.clear()
             
             # Добавляем опцию "Новый файл" первой
-            self.file_combo.addItem("New File", None)
+            self.file_combo.addItem("Новый файл", None)
             
             # Получаем файлы только если имеется валидное подключение
             if self.dbname != 'none' and self.username != 'none':
@@ -448,6 +524,7 @@ class ExportDialog(QDialog):
                 )
                 
                 if files:
+                    Logger.log_message(f"Загружено {len(files)} файлов из БД")
                     for file_info in files:
                         try:
                             filename = file_info['filename']
@@ -458,26 +535,35 @@ class ExportDialog(QDialog):
                                 display_text = filename
                             self.file_combo.addItem(display_text, file_info['id'])
                         except Exception as e:
-                            Logger.log_error(f"Failed to add file to combo box: {str(e)}")
+                            Logger.log_error(f"Ошибка добавления файла в выпадающий список: {str(e)}")
                             continue
+                else:
+                    Logger.log_message("В базе данных не найдено файлов")
             
             self.file_combo.blockSignals(False)  # Разблокируем сигналы
             self.file_combo.setCurrentIndex(0)
             
         except Exception as e:
-            Logger.log_error(f"Failed to load files: {str(e)}")
+            Logger.log_error(f"Ошибка загрузки файлов: {str(e)}")
             self.file_combo.clear()
-            self.file_combo.addItem("New File", None)
+            self.file_combo.addItem("Новый файл", None)
 
     def on_cancel_clicked(self):
         """Обработка нажатия кнопки Отмена"""
+        Logger.log_message("Экспорт отменен пользователем")
         self.reject()
 
     def on_file_selection_changed(self, index):
-        """Обработка изменения выбора файла"""
+        """
+        Обработка изменения выбора файла.
+        
+        :param index: Индекс выбранного файла
+        """
         try:
             self.selected_file_id = self.file_combo.currentData()
             self.is_new_file = self.selected_file_id is None
+            
+            Logger.log_message(f"Выбран {'новый' if self.is_new_file else 'существующий'} файл")
             
             # Включаем/отключаем ввод имени нового файла в зависимости от выбора
             self.new_file_name.setEnabled(self.is_new_file)
@@ -492,6 +578,7 @@ class ExportDialog(QDialog):
                 self.import_mode_group.setVisible(True)
                 item_text = self.file_combo.currentText()
                 self.selected_file_name = item_text.split(' (')[0] if ' (' in item_text else item_text
+                Logger.log_message(f"Выбран файл: {self.selected_file_name}")
                 # Не показываем группу сопоставления по умолчанию, так как мы в режиме перезаписи
                 self.mapping_group.setVisible(self.import_mode == 'mapping')
                 if self.import_mode == 'mapping':
@@ -505,10 +592,11 @@ class ExportDialog(QDialog):
                 self.mapping_tabs.setVisible(False)
                 
         except Exception as e:
-            Logger.log_error(f"Error in file selection: {str(e)}")
+            Logger.log_error(f"Ошибка при выборе файла: {str(e)}")
 
     def _reset_mapping_state(self):
         """Сброс всех состояний, связанных с сопоставлением"""
+        Logger.log_message("Сброс состояния сопоставления полей")
         self.mapping_tabs.hide()
         self.mapping_group.hide()
         self.import_mode_group.hide()  # Также скрываем режим импорта
@@ -521,6 +609,7 @@ class ExportDialog(QDialog):
     def load_file_layers(self):
         """Загрузка слоев для выбранного файла"""
         try:
+            Logger.log_message(f"Загрузка слоев для файла ID: {self.selected_file_id}")
             self.layer_combo.clear()
             
             if not self.selected_file_id:
@@ -644,16 +733,34 @@ class ExportDialog(QDialog):
             
             filename = self.dxf_tree_widget_handler.current_file_name
             
+            # Прогресс диалог для загрузки сущностей
+            progress = QProgressDialog("Загрузка объектов слоя...", "Отмена", 0, 100, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.show()
+            QtWidgets.QApplication.processEvents()
+            
             # Получаем сущности DXF для слоя
             if self.dxf_handler.selected_entities:
                 entities_to_export = self.dxf_handler.get_entities_for_export(filename)
+                
+                progress.setLabelText("Фильтрация выбранных сущностей...")
+                progress.setValue(10)
+                QtWidgets.QApplication.processEvents()
+                
                 # Фильтруем только выбранные сущности для текущего слоя
                 selected_entities = [
                     entity for entity in entities_to_export
                     if entity.dxf.layer == layer_name
                 ]
                 
-                for entity in selected_entities:
+                total = len(selected_entities)
+                for i, entity in enumerate(selected_entities):
+                    if i % 50 == 0:
+                        progress.setValue(10 + int(30 * i / total))
+                        QtWidgets.QApplication.processEvents()
+                        if progress.wasCanceled():
+                            return
+                            
                     entity_type = entity.dxftype()
                     entity_data = {
                         'handle': entity.dxf.handle,
@@ -666,8 +773,20 @@ class ExportDialog(QDialog):
                         geom_dxf.append(entity_data)
             else:
                 # Если нет выбранных сущностей, работаем со всем слоем
+                progress.setLabelText("Загрузка всех сущностей слоя...")
+                progress.setValue(20)
+                QtWidgets.QApplication.processEvents()
+                
                 layer_entities = self.dxf_handler.get_layers(filename).get(layer_name, [])
-                for entity in layer_entities:
+                total = len(layer_entities)
+                
+                for i, entity in enumerate(layer_entities):
+                    if i % 50 == 0:
+                        progress.setValue(20 + int(20 * i / max(1, total)))
+                        QtWidgets.QApplication.processEvents()
+                        if progress.wasCanceled():
+                            return
+                            
                     entity_type = entity.dxftype()
                     entity_data = {
                         'handle': entity.dxf.handle,
@@ -685,10 +804,15 @@ class ExportDialog(QDialog):
             QtWidgets.QApplication.processEvents()
 
             if not geom_dxf and not nongeom_dxf:
-                Logger.log_message(f"No entities found in layer {layer_name}")
+                Logger.log_message(f"Сущности не найдены в слое {layer_name}")
+                progress.close()
                 return
 
             # Получаем сущности из базы данных
+            progress.setLabelText("Загрузка объектов из базы данных...")
+            progress.setValue(45)
+            QtWidgets.QApplication.processEvents()
+            
             db_entities = get_layer_objects(
                 self.username,
                 self.password,
@@ -699,13 +823,24 @@ class ExportDialog(QDialog):
             )
 
             if not db_entities:
+                progress.close()
                 return
 
             # Разделяем геометрические и негеометрические сущности
+            progress.setLabelText("Обработка объектов базы данных...")
+            progress.setValue(60)
+            QtWidgets.QApplication.processEvents()
+            
             geom_db_entities = []
             nongeom_db_entities = []
             
-            for entity in db_entities:
+            for i, entity in enumerate(db_entities):
+                if i % 100 == 0:
+                    progress.setValue(60 + int(20 * i / max(1, len(db_entities))))
+                    QtWidgets.QApplication.processEvents()
+                    if progress.wasCanceled():
+                        return
+                        
                 try:
                     entity_id, geom_type, extra_data, obj_type = entity
                     if isinstance(extra_data, str):
@@ -727,113 +862,215 @@ class ExportDialog(QDialog):
                 except Exception as e:
                     Logger.log_error(f"Error processing entity: {str(e)}")
 
-            # Устанавливаем пакетную обработку для таблиц
-            BATCH_SIZE = 50
+            progress.setLabelText("Настройка таблиц сопоставления...")
+            progress.setValue(85)
+            QtWidgets.QApplication.processEvents()
             
-            if geom_dxf:
-                self._setup_mapping_table_batch(
-                    self.geom_mapping_table,
-                    geom_dxf,
-                    geom_db_entities,
-                    self.geom_mappings,
-                    BATCH_SIZE
-                )
+            # Создаем отдельный оптимизатор таблиц
+            table_optimizer = MappingTableOptimizer(self)
 
-            if nongeom_dxf:
-                self._setup_mapping_table_batch(
-                    self.nongeom_mapping_table,
-                    nongeom_dxf,
-                    nongeom_db_entities,
-                    self.nongeom_mappings,
-                    BATCH_SIZE
-                )
+            # Определяем наличие крупного набора данных
+            large_dataset = len(geom_dxf) > 200 or len(nongeom_dxf) > 200
+            
+            # Настраиваем и подключаем таблицы
+            if large_dataset:
+                # Для больших наборов данных используем пагинацию
+                self._setup_pagination_controls()
+                
+                # Сохраняем данные для пагинации
+                self.all_geom_dxf = geom_dxf
+                self.all_nongeom_dxf = nongeom_dxf
+                self.all_geom_db_entities = geom_db_entities
+                self.all_nongeom_db_entities = nongeom_db_entities
+                
+                # Настраиваем только первую страницу
+                self._load_current_page()
+            else:
+                # Для небольших наборов обычная настройка таблиц
+                if geom_dxf:
+                    table_optimizer.setup_mapping_table(
+                        self.geom_mapping_table,
+                        geom_dxf,
+                        geom_db_entities,
+                        self.geom_mappings
+                    )
+
+                if nongeom_dxf:
+                    table_optimizer.setup_mapping_table(
+                        self.nongeom_mapping_table,
+                        nongeom_dxf,
+                        nongeom_db_entities,
+                        self.nongeom_mappings
+                    )
 
             # Показываем таблицы
             self.geom_mapping_table.setVisible(True)
             self.nongeom_mapping_table.setVisible(True)
+            
+            progress.setValue(100)
+            progress.close()
                 
         except Exception as e:
             Logger.log_error(f"Failed to load field mappings: {str(e)}")
+            import traceback
+            Logger.log_error(traceback.format_exc())
+            try:
+                progress.close()
+            except:
+                pass
 
-    def _setup_mapping_table_batch(self, table, dxf_entities, db_entities, mappings, batch_size):
-        """Настройка таблицы сопоставлений с пакетной обработкой"""
-        try:
-            table.blockSignals(True)
-            table.setColumnCount(3)
-            table.setHorizontalHeaderLabels(['DXF Entity', 'DB Entity', 'Actions'])
-            table.setRowCount(len(dxf_entities))
+    def _setup_pagination_controls(self):
+        """Настройка элементов управления пагинацией для больших таблиц"""
+        # Создаем контейнеры для пагинации, если их еще нет
+        if not hasattr(self, 'pagination_widget_geom'):
+            # Геометрические объекты
+            self.pagination_widget_geom = QtWidgets.QWidget()
+            pagination_layout_geom = QtWidgets.QHBoxLayout(self.pagination_widget_geom)
+            pagination_layout_geom.setContentsMargins(0, 0, 0, 0)
             
-            # Устанавливаем равномерное распределение столбцов
-            header = table.horizontalHeader()
-            for i in range(3):
-                header.setSectionResizeMode(i, QHeaderView.Stretch)
+            self.prev_page_geom = QtWidgets.QPushButton("◄")
+            self.prev_page_geom.setFixedWidth(40)
+            self.page_label_geom = QtWidgets.QLabel("Страница 1")
+            self.next_page_geom = QtWidgets.QPushButton("►")
+            self.next_page_geom.setFixedWidth(40)
             
-            # Создаем поиск для объектов БД
-            db_handle_map = {entity['handle']: entity for entity in db_entities}
+            pagination_layout_geom.addWidget(self.prev_page_geom)
+            pagination_layout_geom.addWidget(self.page_label_geom)
+            pagination_layout_geom.addWidget(self.next_page_geom)
             
-            # Обрабатываем сущности пакетами
-            for i in range(0, len(dxf_entities), batch_size):
-                batch = dxf_entities[i:i + batch_size]
-                
-                for j, dxf_entity in enumerate(batch, i):
-                    self._create_table_row(table, j, dxf_entity, db_handle_map, db_entities, mappings)
-                    
-                    # Обновляем UI каждые 10 строк
-                    if (j + 1) % 10 == 0:  
-                        QtWidgets.QApplication.processEvents()
+            # Встраиваем в вкладку
+            geom_layout = self.geom_tab.layout()
+            geom_layout.addWidget(self.pagination_widget_geom)
             
-            table.blockSignals(False)
-            table.resizeColumnsToContents()
-                
-        except Exception as e:
-            Logger.log_error(f"Ошибка при настройке таблицы сопоставлений: {str(e)}")
+            # Негеометрические объекты
+            self.pagination_widget_nongeom = QtWidgets.QWidget()
+            pagination_layout_nongeom = QtWidgets.QHBoxLayout(self.pagination_widget_nongeom)
+            pagination_layout_nongeom.setContentsMargins(0, 0, 0, 0)
+            
+            self.prev_page_nongeom = QtWidgets.QPushButton("◄")
+            self.prev_page_nongeom.setFixedWidth(40)
+            self.page_label_nongeom = QtWidgets.QLabel("Страница 1")
+            self.next_page_nongeom = QtWidgets.QPushButton("►")
+            self.next_page_nongeom.setFixedWidth(40)
+            
+            pagination_layout_nongeom.addWidget(self.prev_page_nongeom)
+            pagination_layout_nongeom.addWidget(self.page_label_nongeom)
+            pagination_layout_nongeom.addWidget(self.next_page_nongeom)
+            
+            # Встраиваем в вкладку
+            nongeom_layout = self.nongeom_tab.layout()
+            nongeom_layout.addWidget(self.pagination_widget_nongeom)
+            
+            # Настройка параметров пагинации
+            self.page_size = 100  # Элементов на страницу
+            self.current_page_geom = 1
+            self.current_page_nongeom = 1
+            
+            # Подключаем обработчики
+            self.prev_page_geom.clicked.connect(lambda: self._change_page('geom', -1))
+            self.next_page_geom.clicked.connect(lambda: self._change_page('geom', 1))
+            self.prev_page_nongeom.clicked.connect(lambda: self._change_page('nongeom', -1))
+            self.next_page_nongeom.clicked.connect(lambda: self._change_page('nongeom', 1))
+        
+        # Обновляем видимость и состояние элементов пагинации
+        self.pagination_widget_geom.setVisible(True)
+        self.pagination_widget_nongeom.setVisible(True)
+        
+        # Сбрасываем текущие страницы
+        self.current_page_geom = 1
+        self.current_page_nongeom = 1
 
-    def _create_table_row(self, table, row_idx, dxf_entity, db_handle_map, db_entities, mappings):
-        """Создание одной строки в таблице сопоставлений"""
-        # Текст сущности
-        dxf_text = f"{dxf_entity['type']}(#{dxf_entity['handle']})"
-        dxf_item = QtWidgets.QTableWidgetItem(dxf_text)
-        dxf_item.setFlags(dxf_item.flags() & ~Qt.ItemIsEditable)
+    def _change_page(self, table_type, direction):
+        """
+        Изменение текущей страницы данных для указанной таблицы
         
-        if dxf_entity['handle'] not in db_handle_map:
-            dxf_item.setBackground(Qt.yellow)
-            dxf_item.setToolTip("Новая сущность, отсутствующая в базе данных")
+        :param table_type: Тип таблицы ('geom' или 'nongeom')
+        :param direction: Направление изменения (1 - вперед, -1 - назад)
+        """
+        if table_type == 'geom':
+            new_page = self.current_page_geom + direction
+            max_pages = (len(self.all_geom_dxf) + self.page_size - 1) // self.page_size
+            
+            if 1 <= new_page <= max_pages:
+                self.current_page_geom = new_page
+                self._update_page_label('geom')
+                self._load_page_data('geom')
+                
+        elif table_type == 'nongeom':
+            new_page = self.current_page_nongeom + direction
+            max_pages = (len(self.all_nongeom_dxf) + self.page_size - 1) // self.page_size
+            
+            if 1 <= new_page <= max_pages:
+                self.current_page_nongeom = new_page
+                self._update_page_label('nongeom')
+                self._load_page_data('nongeom')
+
+    def _update_page_label(self, table_type):
+        """Обновление метки с номером текущей страницы"""
+        if table_type == 'geom':
+            total_pages = (len(self.all_geom_dxf) + self.page_size - 1) // self.page_size
+            self.page_label_geom.setText(f"Страница {self.current_page_geom} из {total_pages}")
+            
+            # Обновляем состояние кнопок
+            self.prev_page_geom.setEnabled(self.current_page_geom > 1)
+            self.next_page_geom.setEnabled(self.current_page_geom < total_pages)
+            
+        elif table_type == 'nongeom':
+            total_pages = (len(self.all_nongeom_dxf) + self.page_size - 1) // self.page_size
+            self.page_label_nongeom.setText(f"Страница {self.current_page_nongeom} из {total_pages}")
+            
+            # Обновляем состояние кнопок
+            self.prev_page_nongeom.setEnabled(self.current_page_nongeom > 1)
+            self.next_page_nongeom.setEnabled(self.current_page_nongeom < total_pages)
+
+    def _load_current_page(self):
+        """Загружает текущую страницу для обеих таблиц"""
+        self._update_page_label('geom')
+        self._update_page_label('nongeom')
+        self._load_page_data('geom')
+        self._load_page_data('nongeom')
+
+    def _load_page_data(self, table_type):
+        """
+        Загружает данные для указанной страницы в соответствующую таблицу
         
-        table.setItem(row_idx, 0, dxf_item)
+        :param table_type: Тип таблицы ('geom' или 'nongeom')
+        """
+        table_optimizer = MappingTableOptimizer(self)
         
-        # Комбобокс для сущности БД
-        combo = QtWidgets.QComboBox()
-        combo.addItem('')
-        for db_entity in db_entities:
-            display_text = f"{db_entity['type']}(#{db_entity['handle']})"
-            combo.addItem(display_text, db_entity['id'])
+        if table_type == 'geom':
+            start_idx = (self.current_page_geom - 1) * self.page_size
+            end_idx = min(start_idx + self.page_size, len(self.all_geom_dxf))
+            page_items = self.all_geom_dxf[start_idx:end_idx]
+            
+            # Очищаем и настраиваем таблицу для текущей страницы
+            self.geom_mapping_table.clearContents()
+            self.geom_mapping_table.setRowCount(0)
+            
+            if page_items:
+                table_optimizer.setup_mapping_table(
+                    self.geom_mapping_table,
+                    page_items,
+                    self.all_geom_db_entities,
+                    self.geom_mappings
+                )
         
-        if dxf_entity['handle'] in db_handle_map:
-            db_entity = db_handle_map[dxf_entity['handle']]
-            display_text = f"{db_entity['type']}(#{db_entity['handle']})"
-            index = combo.findText(display_text)
-            if index >= 0:
-                combo.setCurrentIndex(index)
-                mappings[dxf_entity['handle']] = {
-                    'entity_id': db_entity['id'],
-                    'attributes': {}
-                }
-        
-        table.setCellWidget(row_idx, 1, combo)
-        
-        # Кнопка атрибутов
-        attr_button = QPushButton("Показать атрибуты")
-        attr_button.clicked.connect(
-            lambda checked, e=dxf_entity, d=db_handle_map.get(dxf_entity['handle']):
-                self._show_attributes_dialog(e, d)
-        )
-        table.setCellWidget(row_idx, 2, attr_button)
-        
-        # Подключаем сигнал комбобокса
-        combo.currentIndexChanged.connect(
-            lambda idx, h=dxf_entity['handle'], c=combo: 
-                self.on_entity_mapping_changed(h, c.currentData(), mappings)
-        )
+        elif table_type == 'nongeom':
+            start_idx = (self.current_page_nongeom - 1) * self.page_size
+            end_idx = min(start_idx + self.page_size, len(self.all_nongeom_dxf))
+            page_items = self.all_nongeom_dxf[start_idx:end_idx]
+            
+            # Очищаем и настраиваем таблицу для текущей страницы
+            self.nongeom_mapping_table.clearContents()
+            self.nongeom_mapping_table.setRowCount(0)
+            
+            if page_items:
+                table_optimizer.setup_mapping_table(
+                    self.nongeom_mapping_table,
+                    page_items,
+                    self.all_nongeom_db_entities,
+                    self.nongeom_mappings
+                )
 
     def on_ok_clicked(self):
         """Обработка нажатия кнопки OK"""
@@ -847,14 +1084,7 @@ class ExportDialog(QDialog):
             # Повторная проверка существования файла перед сохранением
             try:
                 from ..db.database import check_file_exists
-                file_exists = check_file_exists(
-                    self.username,
-                    self.password,
-                    self.address,
-                    self.port,
-                    self.dbname,
-                    file_name
-                )
+                file_exists = check_file_exists(file_name)
                 
                 if file_exists:
                     QtWidgets.QMessageBox.warning(
@@ -951,14 +1181,7 @@ class ExportDialog(QDialog):
             if text.strip():
                 try:
                     from ..db.database import check_file_exists
-                    file_exists = check_file_exists(
-                        self.username,
-                        self.password,
-                        self.address,
-                        self.port,
-                        self.dbname,
-                        text.strip()
-                    )
+                    file_exists = check_file_exists(text.strip())
                     
                     if file_exists:
                         # Красный фон и подсказка при существующем файле
@@ -1014,3 +1237,217 @@ class ExportDialog(QDialog):
             }
         else:
                 mappings.pop(dxf_handle, None)
+
+class OptimizedItemDelegate(QtWidgets.QStyledItemDelegate):
+    """Оптимизированный делегат для элементов таблицы с редкой отрисовкой"""
+    def paint(self, painter, option, index):
+        # Оптимизированная отрисовка только видимых ячеек
+        if option.rect.intersects(painter.viewport()):
+            super().paint(painter, option, index)
+
+
+class MappingTableOptimizer:
+    """
+    Класс для оптимизированной настройки таблиц сопоставления.
+    Отделяет логику создания таблицы от основного класса.
+    """
+    def __init__(self, parent):
+        """
+        Инициализация оптимизатора
+        
+        :param parent: Родительский виджет
+        """
+        self.parent = parent
+
+    def setup_mapping_table(self, table, dxf_entities, db_entities, mappings):
+        """Настройка таблицы сопоставлений с оптимизацией производительности"""
+        try:
+            table.blockSignals(True)
+            table.setRowCount(0)  # Сбрасываем количество строк
+            
+            # Подготовка базы данных сущностей для быстрого поиска
+            db_handle_map = {entity['handle']: entity for entity in db_entities}
+            
+            # Заранее создаем все строки таблицы
+            table.setRowCount(len(dxf_entities))
+            
+            # Для оптимизации будем обновлять только по 20 строк за раз
+            batch_size = 20
+            total_batches = (len(dxf_entities) + batch_size - 1) // batch_size
+            
+            for batch_idx in range(total_batches):
+                start = batch_idx * batch_size
+                end = min(start + batch_size, len(dxf_entities))
+                
+                # Создаем строки для текущего пакета
+                for i in range(start, end):
+                    dxf_entity = dxf_entities[i]
+                    self._create_table_row_optimized(table, i, dxf_entity, db_handle_map, db_entities, mappings)
+                
+                # Обновляем интерфейс после каждого пакета строк
+                if (batch_idx + 1) % 2 == 0 or batch_idx == total_batches - 1:
+                    QtWidgets.QApplication.processEvents()
+            
+            table.blockSignals(False)
+                
+        except Exception as e:
+            Logger.log_error(f"Ошибка при настройке таблицы сопоставлений: {str(e)}")
+            import traceback
+            Logger.log_error(traceback.format_exc())
+
+    def _create_table_row_optimized(self, table, row_idx, dxf_entity, db_handle_map, db_entities, mappings):
+        """Оптимизированное создание одной строки в таблице сопоставлений"""
+        # Текст сущности
+        dxf_text = f"{dxf_entity['type']}(#{dxf_entity['handle']})"
+        dxf_item = QtWidgets.QTableWidgetItem(dxf_text)
+        dxf_item.setFlags(dxf_item.flags() & ~Qt.ItemIsEditable)
+        
+        handle = dxf_entity['handle']
+        is_new = handle not in db_handle_map
+        
+        if is_new:
+            dxf_item.setBackground(Qt.yellow)
+            dxf_item.setToolTip("Новая сущность, отсутствующая в базе данных")
+        
+        table.setItem(row_idx, 0, dxf_item)
+        
+        # Создаем и настраиваем контейнер для комбобокса
+        combo_container = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(combo_container)
+        layout.setContentsMargins(2, 2, 2, 2)
+        
+        # Используем кэширование для оптимизации
+        handle_cache = getattr(self, '_handle_cache', {})
+        if handle in handle_cache:
+            combo = handle_cache[handle]
+        else:
+            combo = self._create_combo_for_entity(handle, dxf_entity, db_handle_map, db_entities, mappings)
+            handle_cache[handle] = combo
+        
+        setattr(self, '_handle_cache', handle_cache)
+        
+        layout.addWidget(combo)
+        table.setCellWidget(row_idx, 1, combo_container)
+        
+        # Кнопка атрибутов - создаем, только если нажата
+        attr_button = QtWidgets.QPushButton("Атрибуты")
+        attr_button.setProperty("dxf_handle", handle)
+        attr_button.clicked.connect(
+            lambda checked, h=handle, e=dxf_entity, d=db_handle_map.get(handle):
+                self._show_attributes_dialog(h, e, d, mappings)
+        )
+        table.setCellWidget(row_idx, 2, attr_button)
+
+    def _create_combo_for_entity(self, handle, dxf_entity, db_handle_map, db_entities, mappings):
+        """Создание оптимизированного комбобокса для сущности"""
+        combo = QtWidgets.QComboBox()
+        combo.setMaxVisibleItems(15)  # Оптимизация отображения выпадающего списка
+        
+        # Добавляем пустой вариант
+        combo.addItem('', None)
+        
+        # Добавляем соответствующую сущность из БД, если она существует
+        found_match = False
+        if handle in db_handle_map:
+            db_entity = db_handle_map[handle]
+            display_text = f"{db_entity['type']}(#{db_entity['handle']})"
+            combo.addItem(display_text, db_entity['id'])
+            combo.setCurrentIndex(1)  # Выбираем соответствующее значение
+            
+            # Сохраняем сопоставление
+            mappings[handle] = {
+                'entity_id': db_entity['id'],
+                'attributes': {}
+            }
+            
+            found_match = True
+        
+        # Если не нашли соответствие, добавим 5 первых вариантов + многоточие
+        if not found_match and len(db_entities) > 0:
+            # Добавляем только несколько элементов для производительности
+            for i, entity in enumerate(db_entities[:5]):
+                display_text = f"{entity['type']}(#{entity['handle']})"
+                combo.addItem(display_text, entity['id'])
+                
+            # Если элементов больше, добавим специальный пункт "Больше..."
+            if len(db_entities) > 5:
+                combo.addItem("Больше...", "more_items")
+                # Подключаем обработчик для динамической загрузки
+                combo.activated.connect(
+                    lambda idx, c=combo, db=db_entities:
+                        self._handle_combo_more_selection(idx, c, db, mappings, handle)
+                )
+        
+        # Подключаем обработчик изменения
+        combo.currentIndexChanged.connect(
+            lambda idx, h=handle, c=combo:
+                self._on_entity_mapping_changed(h, c.currentData(), mappings)
+        )
+        
+        return combo
+
+    def _handle_combo_more_selection(self, idx, combo, db_entities, mappings, handle):
+        """Обработчик выбора пункта 'Больше...' в выпадающем списке"""
+        if combo.currentData() == "more_items":
+            # Блокируем сигналы комбобокса
+            combo.blockSignals(True)
+            
+            # Запоминаем текущий текст
+            current_text = combo.currentText()
+            
+            # Очищаем комбобокс
+            combo.clear()
+            
+            # Добавляем пустой элемент
+            combo.addItem('', None)
+            
+            # Добавляем пункт "Вернуться к сокращенному списку"
+            combo.addItem("< Назад", "back")
+            
+            # Добавляем все элементы
+            for entity in db_entities:
+                display_text = f"{entity['type']}(#{entity['handle']})"
+                combo.addItem(display_text, entity['id'])
+            
+            # Разблокируем сигналы и выбираем первый элемент
+            combo.blockSignals(False)
+            combo.setCurrentIndex(0)
+            
+            # Показываем выпадающий список
+            combo.showPopup()
+        elif combo.currentData() == "back":
+            # Возвращаемся к сокращенному списку
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem('', None)
+            
+            # Добавляем первые 5 элементов
+            for i, entity in enumerate(db_entities[:5]):
+                display_text = f"{entity['type']}(#{entity['handle']})"
+                combo.addItem(display_text, entity['id'])
+                
+            combo.addItem("Больше...", "more_items")
+            combo.blockSignals(False)
+            combo.setCurrentIndex(0)
+            
+            # Сбрасываем маппинг
+            if handle in mappings:
+                del mappings[handle]
+
+    def _on_entity_mapping_changed(self, dxf_handle, db_id, mappings):
+        """Обновление сопоставления при изменении выбора объекта"""
+        if db_id and db_id not in ["more_items", "back"]:
+            mappings[dxf_handle] = {
+                'entity_id': db_id,
+                'attributes': {}
+            }
+        elif db_id is None:
+            mappings.pop(dxf_handle, None)
+
+    def _show_attributes_dialog(self, handle, dxf_entity, db_entity, mappings):
+        """Показать атрибуты в отдельном диалоговом окне"""
+        from .attribute_dialog import AttributeDialog
+        dialog = AttributeDialog(dxf_entity, db_entity, self.parent)
+        if dialog.exec_() == QDialog.Accepted:
+            if handle in mappings:
+                mappings[handle]['attributes'] = dialog.get_mapped_attributes()

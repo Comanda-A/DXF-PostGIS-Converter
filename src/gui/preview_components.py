@@ -6,6 +6,7 @@ from qgis.PyQt.QtCore import Qt, QSize
 from qgis.PyQt.QtSvg import QGraphicsSvgItem, QSvgWidget
 import os
 from ..logger.logger import Logger
+from ..localization.localization_manager import LocalizationManager
 
 class ZoomableGraphicsView(QGraphicsView):
     def __init__(self, parent=None):
@@ -44,7 +45,8 @@ class PreviewDialog(QDialog):
     def __init__(self, svg_path, parent=None):
         """Инициализирует диалог предпросмотра с указанным SVG файлом."""
         super().__init__(parent)
-        self.setWindowTitle("DXF Preview")
+        self.lm = LocalizationManager.instance()
+        self.setWindowTitle(self.lm.get_string("PREVIEW_COMPONENTS", "title"))
         self.resize(800, 600)
         self.setup_ui(svg_path)
 
@@ -67,15 +69,7 @@ class PreviewDialog(QDialog):
 
     def create_instructions(self):
         """Создает метку с инструкциями по управлению предпросмотром."""
-        instructions = QLabel(
-            "🖱️ Управление:\n"
-            "• Ctrl + колесо мыши - масштабирование\n"
-            "• Зажать ЛКМ - перемещение\n"
-            "• Двойной клик - сброс вида\n"
-            "• Ctrl + (+/-) - масштабирование\n"
-            "• Ctrl + 0 - сброс вида\n"
-            "• Esc - закрыть"
-        )
+        instructions = QLabel(self.lm.get_string("PREVIEW_COMPONENTS", "instructions"))
         instructions.setStyleSheet("color: #666; font-size: 10px;")
         return instructions
 
@@ -85,9 +79,9 @@ class PreviewDialog(QDialog):
         layout = QHBoxLayout(container)
         
         buttons = [
-            ("⟲", "Сбросить вид", lambda: self.reset_view()),
-            ("➕", "Приблизить", lambda: self.zoom(1.2)),
-            ("➖", "Отдалить", lambda: self.zoom(0.8))
+            ("⟲", self.lm.get_string("PREVIEW_COMPONENTS", "reset_view"), lambda: self.reset_view()),
+            ("➕", self.lm.get_string("PREVIEW_COMPONENTS", "zoom_in"), lambda: self.zoom(1.2)),
+            ("➖", self.lm.get_string("PREVIEW_COMPONENTS", "zoom_out"), lambda: self.zoom(0.8))
         ]
         
         for text, tooltip, callback in buttons:
@@ -147,6 +141,7 @@ class PreviewWidgetFactory:
     def __init__(self):
         """Инициализирует фабрику виджетов предпросмотра с кешированием созданных виджетов."""
         self.preview_cache = {}
+        self.lm = LocalizationManager.instance()
 
     def clear_cache(self):
         """Очищает кеш виджетов предпросмотра."""
@@ -167,10 +162,10 @@ class PreviewWidgetFactory:
         preview_dir = os.path.join(plugin_root_dir, 'previews')
         preview_path = os.path.join(preview_dir, f"{os.path.splitext(file_name)[0]}.svg")
         
-        Logger.log_message(f"Поиск предпросмотра по пути: {preview_path}")
+        Logger.log_message(self.lm.get_string("PREVIEW_COMPONENTS", "preview_search", preview_path))
         
         if not os.path.exists(preview_path):
-            Logger.log_warning(f"Предпросмотр не найден по пути: {preview_path}")
+            Logger.log_warning(self.lm.get_string("PREVIEW_COMPONENTS", "preview_not_found", preview_path))
             return None
 
         # Если виджет уже есть в кеше и не был удален, используем его
@@ -202,5 +197,5 @@ class PreviewWidgetFactory:
             self.preview_cache[preview_path] = container
             return container
         except Exception as e:
-            Logger.log_error(f"Ошибка создания виджета предпросмотра: {str(e)}")
+            Logger.log_error(self.lm.get_string("PREVIEW_COMPONENTS", "preview_error", str(e)))
             return None

@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>DXF-PostGIS Converter</string>
+   <string>DXF-PostGIS Конвертер</string>
   </property>
   <widget class="QTabWidget" name="tabWidget">
    <property name="geometry">
@@ -55,7 +55,7 @@
       </font>
      </property>
      <property name="text">
-      <string>Open dxf</string>
+      <string>Открыть DXF</string>
      </property>
      <property name="checkable">
       <bool>false</bool>
@@ -78,7 +78,7 @@
       </font>
      </property>
      <property name="text">
-      <string>File not selected :(</string>
+      <string>Файл не выбран :(</string>
      </property>
      <property name="textFormat">
       <enum>Qt::AutoText</enum>
@@ -147,7 +147,7 @@
       </font>
      </property>
      <property name="text">
-      <string>Select area</string>
+      <string>Выбрать область</string>
      </property>
      <property name="checkable">
       <bool>false</bool>
@@ -180,17 +180,17 @@
      </property>
      <item>
       <property name="text">
-       <string>rect</string>
+       <string>прямоугольник</string>
       </property>
      </item>
      <item>
       <property name="text">
-       <string>circle</string>
+       <string>круг</string>
       </property>
      </item>
      <item>
       <property name="text">
-       <string>polygon</string>
+       <string>полигон</string>
       </property>
      </item>
     </widget>
@@ -211,17 +211,17 @@
      </property>
      <item>
       <property name="text">
-       <string>inside</string>
+       <string>внутри</string>
       </property>
      </item>
      <item>
       <property name="text">
-       <string>outside</string>
+       <string>снаружи</string>
       </property>
      </item>
      <item>
       <property name="text">
-       <string>overlap</string>
+       <string>пересечение</string>
       </property>
      </item>
     </widget>
@@ -241,7 +241,7 @@
       </font>
      </property>
      <property name="text">
-      <string>Shape type</string>
+      <string>Тип фигуры</string>
      </property>
     </widget>
     <widget class="QLabel" name="label_3">
@@ -260,7 +260,7 @@
       </font>
      </property>
      <property name="text">
-      <string>Selection rule</string>
+      <string>Правило выбора</string>
      </property>
     </widget>
     <widget class="QPushButton" name="export_to_db_button">
@@ -282,7 +282,7 @@
       </font>
      </property>
      <property name="text">
-      <string>Export to db</string>
+      <string>Экспорт в БД</string>
      </property>
      <property name="checkable">
       <bool>false</bool>
@@ -341,7 +341,7 @@
    </widget>
    <widget class="QWidget" name="tab_3">
     <attribute name="title">
-     <string>Settings</string>
+     <string>Настройки</string>
     </attribute>
     <widget class="QCheckBox" name="enable_logging_checkbox">
      <property name="geometry">
@@ -360,6 +360,46 @@
      </property>
      <property name="text">
       <string>Включить логи</string>
+     </property>
+    </widget>
+    <!-- Add language switcher -->
+    <widget class="QComboBox" name="language_combo">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>60</y>
+       <width>200</width>
+       <height>30</height>
+      </rect>
+     </property>
+     <item>
+      <property name="text">
+       <string>ru</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>en</string>
+      </property>
+     </item>
+    </widget>
+    <widget class="QLabel" name="language_label">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>40</y>
+       <width>200</width>
+       <height>16</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Calibri</family>
+       <pointsize>10</pointsize>
+      </font>
+     </property>
+     <property name="text">
+      <string>Язык интерфейса</string>
      </property>
     </widget>
    </widget>

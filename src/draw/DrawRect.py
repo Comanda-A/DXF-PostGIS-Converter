@@ -27,8 +27,10 @@ class RectangleMapTool(BaseMapTool):
             self.yMin = r.yMinimum()
             self.yMax = r.yMaximum()
             
-            coord_text = f"Координаты квадрата:\n Минимум Х:{self.xMin}\nМинимум Y:{self.yMin}\nМаксимум Х:{self.xMax}\nМаксимум Y:{self.yMax}"
-            self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, None, 
+            coord_text = self.dlg.lm.get_string("DRAW", "square_coordinates",
+                            f"{self.xMin:.2f}", f"{self.yMin:.2f}", 
+                            f"{self.xMax:.2f}", f"{self.yMax:.2f}")
+            self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area,
                                    self.xMin, self.xMax, self.yMin, self.yMax)
             self.update_dialog_coordinates(coord_text)
             self.finish_drawing()

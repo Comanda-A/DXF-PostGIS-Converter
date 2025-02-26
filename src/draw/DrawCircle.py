@@ -23,9 +23,11 @@ class CircleMapTool(BaseMapTool):
         radius = self.calculateRadius()
         if radius is not None:
             self.radius = radius
-            self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, 
-                                   None, self.centerPoint, self.radius)
-            self.update_dialog_coordinates(f"Координаты круга:\n Центр :{self.centerPoint}\nРадиус:{self.radius}")
+            center_str = f"({self.centerPoint.x():.2f}, {self.centerPoint.y():.2f})"
+            self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, self.centerPoint, self.radius)
+            self.update_dialog_coordinates(
+                self.dlg.lm.get_string("DRAW", "circle_coordinates", center_str, f"{self.radius:.2f}")
+            )
             self.finish_drawing()
 
     def canvasMoveEvent(self, e):

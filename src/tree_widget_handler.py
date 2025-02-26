@@ -3,6 +3,7 @@ from qgis.PyQt.QtCore import Qt, pyqtSignal, QObject
 
 from qgis.core import QgsApplication
 from .logger.logger import Logger
+from .localization.localization_manager import LocalizationManager
 
 
 def remove_item(item, tree_widget):
@@ -16,8 +17,11 @@ def remove_item(item, tree_widget):
 
 
 def add_remove_button_to_item(item, tree_widget):
+    # Получаем менеджер локализации
+    lm = LocalizationManager.instance()
+    
     # Создаем кнопку
-    remove_button = QPushButton('Удалить')
+    remove_button = QPushButton(lm.get_string("TREE_WIDGET_HANDLER", "remove_button"))
 
     # Устанавливаем размер кнопки
     remove_button.setFixedSize(80, 20)
@@ -37,10 +41,10 @@ def add_remove_button_to_item(item, tree_widget):
     tree_widget.setItemWidget(item, 1, widget)
 
 
-def get_word_form(number: int, forms: tuple) -> str:
+def get_word_form(number: int, forms: list) -> str:
     """
     Возвращает правильную форму слова в зависимости от числа
-    forms - кортеж из трех форм слова, например: ('слой', 'слоя', 'слоев')
+    forms - список из трех форм слова, например: ['слой', 'слоя', 'слоев']
     """
     if number % 100 in [11, 12, 13, 14]:
         return forms[2]
@@ -58,7 +62,6 @@ class TreeWidgetHandler(QObject):
     selection_changed = pyqtSignal(str)
 
     def __init__(self, tree_widget, selectable: bool = True):
-
         super().__init__()  # Initialize QObject
         if tree_widget is None: return
         self.tree_widget = tree_widget
@@ -79,11 +82,14 @@ class TreeWidgetHandler(QObject):
         # Set the stretch factors for the columns
         self.tree_widget.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tree_widget.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        
+        # Инициализация менеджера локализации
+        self.lm = LocalizationManager.instance()
 
-        # Добавляем формы слов для склонения
+        # Добавляем формы слов для склонения из локализации
         self.word_forms = {
-            'layer': ('слой', 'слоя', 'слоев'),
-            'entity': ('объект', 'объекта', 'объектов'),
+            'layer': self.lm.get_string("TREE_WIDGET_HANDLER", "word_forms")["layer"],
+            'entity': self.lm.get_string("TREE_WIDGET_HANDLER", "word_forms")["entity"],
         }
 
     def _reset_file_text(self, file_item, file_name):
@@ -93,7 +99,9 @@ class TreeWidgetHandler(QObject):
             layers_word = get_word_form(file_data['layer_count'], self.word_forms['layer'])
             entities_word = get_word_form(file_data['total_entities'], self.word_forms['entity'])
             file_item.setText(0, 
-                f'Файл: {file_name} | ({file_data["layer_count"]} {layers_word}, {file_data["total_entities"]} {entities_word})'
+                self.lm.get_string("TREE_WIDGET_HANDLER", "file_text",
+                                  file_name, file_data["layer_count"], layers_word,
+                                  file_data["total_entities"], entities_word)
             )
 
     def handle_item_changed(self, item, column):
@@ -107,7 +115,6 @@ class TreeWidgetHandler(QObject):
         try:
             current_file_name = self._get_file_name_from_item(root_item)
             
-            # Continue with the rest of the method only if we have a valid file name
             if current_file_name and current_file_name != "":
                 # Если файл еще не выбран, и мы выбираем слой или его элементы
                 if not self.selected_file and item.parent():
@@ -119,8 +126,8 @@ class TreeWidgetHandler(QObject):
                 elif self.selected_file and root_item != self.selected_file and item.checkState(column) in [Qt.Checked, Qt.PartiallyChecked]:
                     reply = QMessageBox.question(
                         None,
-                        'Подтверждение',
-                        'Вы действительно хотите выбрать элемент в этом файле? В таком случае выбор с предыдущего файла сотрется.',
+                        self.lm.get_string("TREE_WIDGET_HANDLER", "selection_confirm_title"),
+                        self.lm.get_string("TREE_WIDGET_HANDLER", "selection_confirm_message"),
                         QMessageBox.Yes | QMessageBox.No,
                         QMessageBox.No
                     )
@@ -180,11 +187,11 @@ class TreeWidgetHandler(QObject):
                 if not self.updating_selection:
                     self.selection_changed.emit(current_file_name)
             else:
-                Logger.log_message(f"Warning: Invalid or empty file name from item: {root_item.text(0)}")
+                Logger.log_message(self.lm.get_string("LOGGING", "invalid_file_name", root_item.text(0)))
                 return
                 
         except Exception as e:
-            Logger.log_message(f"Error processing item change: {str(e)}")
+            Logger.log_message(self.lm.get_string("LOGGING", "item_change_error", str(e)))
             return
 
     def _clear_file_statistics(self, file_name):
@@ -198,19 +205,46 @@ class TreeWidgetHandler(QObject):
 
     def _get_file_name_from_item(self, item):
         """Извлекает имя файла из элемента дерева"""
+        # Получаем оригинальное имя файла из пользовательских данных
+        if item.data(0, Qt.UserRole):
+            return item.data(0, Qt.UserRole)
+            
         text = item.text(0)
         # Handle connection error case
-        if '(Error when receiving data)' in text:
-            return text.split(' (Error')[0]
+        error_text = self.lm.get_string("TREE_WIDGET_HANDLER", "error_receiving_data")
+        if error_text and error_text in text:
+            return text.split(f" ({error_text}")[0]
+        
         # Handle regular file case
-        if 'Файл: ' in text:
-            return text.split('Файл: ')[1].split(' |')[0]
-        # Handle direct filename case
+        file_text = self.lm.get_string("TREE_WIDGET_HANDLER", "file")
+        if file_text and file_text in text:
+            parts = text.split(file_text)
+            if len(parts) > 1:
+                file_part = parts[1]
+                # Handle potential separator
+                if " |" in file_part:
+                    return file_part.split(" |")[0].strip()
+                return file_part.strip()
+        
+        # If no standard format is detected, return the original text
         return text
 
     def _get_layer_name_from_item(self, item):
         """Извлекает имя слоя из элемента дерева"""
-        return item.text(0).split('|')[0].replace('Layer:', '').strip()
+        # Получаем оригинальное имя слоя из пользовательских данных
+        if item.data(0, Qt.UserRole):
+            return item.data(0, Qt.UserRole)
+            
+        text = item.text(0)
+        layer_prefix = self.lm.get_string("TREE_WIDGET_HANDLER", "layer")
+        if layer_prefix in text:
+            parts = text.split(layer_prefix)
+            if len(parts) > 1:
+                layer_part = parts[1]
+                if " |" in layer_part:
+                    return layer_part.split(" |")[0].strip()
+                return layer_part.strip()
+        return text.split('|')[0].replace(self.lm.get_string("TREE_WIDGET_HANDLER", "layer"), '').strip()
 
     def _get_layer_item(self, item):
         """Получает элемент слоя из любого дочернего элемента"""
@@ -218,10 +252,6 @@ class TreeWidgetHandler(QObject):
         while layer_item.parent() and layer_item.parent().parent():
             layer_item = layer_item.parent()
         return layer_item if layer_item.parent() else None
-
-    def _get_layer_key(self, file_name, layer_name):
-        """Создает уникальный ключ для слоя"""
-        return f"{file_name}::{layer_name}"
 
     def _get_layer_data(self, file_name, layer_name):
         """Получает данные слоя по файлу и имени слоя"""
@@ -280,7 +310,8 @@ class TreeWidgetHandler(QObject):
         existing_item = None
         for i in range(self.tree_widget.topLevelItemCount()):
             item = self.tree_widget.topLevelItem(i)
-            if file_name in item.text(0):
+            original_name = item.data(0, Qt.UserRole)
+            if original_name and original_name == file_name:
                 existing_item = item
                 break
 
@@ -317,8 +348,14 @@ class TreeWidgetHandler(QObject):
         layers_word = get_word_form(self.layer_count, self.word_forms['layer'])
         entities_word = get_word_form(self.total_entities, self.word_forms['entity'])
         file_item = QTreeWidgetItem([
-            f'Файл: {file_name} | ({self.layer_count} {layers_word}, {self.total_entities} {entities_word})'
+            self.lm.get_string("TREE_WIDGET_HANDLER", "file_text",
+                             file_name, self.layer_count, layers_word,
+                             self.total_entities, entities_word)
         ])
+        
+        # Сохраняем оригинальное имя файла в пользовательских данных
+        file_item.setData(0, Qt.UserRole, file_name)
+        
         file_item.setCheckState(0, Qt.Unchecked)
         self.tree_widget.addTopLevelItem(file_item)
 
@@ -332,14 +369,22 @@ class TreeWidgetHandler(QObject):
 
         for layer, entities in layers.items():
             entity_count = len(entities)
-            layer_item = QTreeWidgetItem([f'Layer: {layer} | ({entity_count} объектов | выбрано: 0)'])
+            # Используем локализованное сообщение для слоя
+            layer_item = QTreeWidgetItem([
+                self.lm.get_string("TREE_WIDGET_HANDLER", "layer_text",
+                                 layer, entity_count, 
+                                 get_word_form(entity_count, self.word_forms['entity']),
+                                 0, self.word_forms['entity'][2])
+            ])
+            
+            # Сохраняем оригинальное имя слоя в пользовательских данных
+            layer_item.setData(0, Qt.UserRole, layer)
+            
             layer_item.setCheckState(0, Qt.Unchecked)
             file_item.addChild(layer_item)
             
-            # Store layer data with file context
             self.tree_items[file_name][layer] = {'item': layer_item, 'entities': {}}
 
-            # Batch add entities
             entity_items = []
             for entity in entities:
                 entity_description = f"{entity}"
@@ -393,10 +438,10 @@ class TreeWidgetHandler(QObject):
         if entity_type in geometry_properties:
             geometry = [f"{prop.capitalize()}: {getattr(entity.dxf, prop)}" for prop in geometry_properties[entity_type]]
 
-        attr_header = QTreeWidgetItem(['Attributes'])
+        attr_header = QTreeWidgetItem([self.lm.get_string("TREE_WIDGET_HANDLER", "attributes")])
         attr_header.setCheckState(0, Qt.Unchecked)
         entity_item.addChild(attr_header)
-        geometry_header = QTreeWidgetItem(['Geometry'])
+        geometry_header = QTreeWidgetItem([self.lm.get_string("TREE_WIDGET_HANDLER", "geometry")])
         geometry_header.setCheckState(0, Qt.Unchecked)
         entity_item.addChild(geometry_header)
 
@@ -429,7 +474,11 @@ class TreeWidgetHandler(QObject):
 
         # Обрабатываем каждый слой
         total_steps = len(entities)
-        progress_dialog = QProgressDialog("Проверка объектов...", "Отмена", 0, total_steps)
+        progress_dialog = QProgressDialog(
+            self.lm.get_string("TREE_WIDGET_HANDLER", "checking_objects"),
+            self.lm.get_string("TREE_WIDGET_HANDLER", "cancel"),
+            0, total_steps
+        )
         progress_dialog.setWindowModality(Qt.WindowModal)
         progress_dialog.show()
 
@@ -475,67 +524,6 @@ class TreeWidgetHandler(QObject):
             self._update_file_text(current_file)
             # После завершения всех обновлений эмитим сигнал один раз
             self.updating_selection = False  # Сбрасываем флаг
-
-    def check_entity_in_tree(self, entity, layers_to_check, file_name):
-        """Проверяет наличие entity в дереве с учетом контекста файла"""
-        layer_name = entity.dxf.layer
-        entity_description = f"{entity}"
-
-        layer_data = self._get_layer_data(file_name, layer_name)
-        if layer_data and entity_description in layer_data['entities']:
-            entity_item = layer_data['entities'][entity_description]
-            entity_item.setCheckState(0, Qt.Checked)
-            self.update_child_check_states(entity_item, Qt.Checked)
-            layers_to_check.add(self._get_layer_key(file_name, layer_name))
-
-    def print_tree_items(self):
-        for file_name, layers in self.tree_items.items():
-            Logger.log_message(f"File: {file_name}")
-            for layer, data in layers.items():
-                Logger.log_message(f"  Layer: {layer}")
-                layer_item = data['item']
-                layer_checked = layer_item.checkState(0) == Qt.Checked
-                Logger.log_message(f"    Layer Checked: {layer_checked}")
-                for entity_description, entity_item in data['entities'].items():
-                    entity_checked = entity_item.checkState(0) == Qt.Checked
-                    Logger.log_message(f"      Entity: {entity_description}, Checked: {entity_checked}")
-
-    def get_checked_children(self, parent_item):
-        checked_children = []
-        for i in range(parent_item.childCount()):
-            child = parent_item.child(i)
-            if child.checkState(0) == Qt.Checked:
-                checked_children.append(child)
-        return checked_children
-
-    #TODO: модернизируй согласно новой структуре (если это необходимо)
-    def get_all_checked_entities(self):
-        checked_entities = {}
-
-        for file_name, layers in self.tree_items.items():
-            for layer, data in layers.items():
-                if data['item'].checkState(0) == Qt.Checked:
-                    for entity_description, entity_item in data['entities'].items():
-                        if entity_item.checkState(0) == Qt.Checked:
-                            attributes = []
-                            geometry = []
-                            for i in range(entity_item.childCount()):
-                                child = entity_item.child(i)
-                                if child.text(0) == 'Attributes':
-                                    attributes = [attr.text(0) for attr in self.get_checked_children(child)]
-                                elif child.text(0) == 'Geometry':
-                                    geometry = [geom.text(0) for geom in self.get_checked_children(child)]
-
-                            if layer not in checked_entities:
-                                checked_entities[layer] = []
-
-                            checked_entities[layer].append({
-                                'entity_description': entity_item.text(0),
-                                'attributes': attributes,
-                                'geometry': geometry
-                            })
-
-        return checked_entities
 
     def clear_all_checks(self):
         self.batch_update = True
@@ -593,13 +581,13 @@ class TreeWidgetHandler(QObject):
         
         if self.selected_layers_count > 0:
             self.selected_file.setText(0, (
-                f'Файл: {file_name} | ({file_data["layer_count"]} {layers_word} | '
-                f'выбрано {self.selected_layers_count} {selected_layers_word} | '
+                f'{self.lm.get_string("TREE_WIDGET_HANDLER", "file")} {file_name} | ({file_data["layer_count"]} {layers_word} | '
+                f'{self.lm.get_string("TREE_WIDGET_HANDLER", "selected")} {self.selected_layers_count} {selected_layers_word} | '
                 f'{self.selected_total_entities} {selected_entities_word} из {file_data["total_entities"]})'
             ))
         else:
             self.selected_file.setText(0, 
-                f'Файл: {file_name} | ({file_data["layer_count"]} {layers_word}, {file_data["total_entities"]} {entities_word})'
+                f'{self.lm.get_string("TREE_WIDGET_HANDLER", "file")} {file_name} | ({file_data["layer_count"]} {layers_word}, {file_data["total_entities"]} {entities_word})'
             )
 
     def update_layer_statistics(self, layer_name, file_name):
@@ -625,17 +613,23 @@ class TreeWidgetHandler(QObject):
             selected_entities_word = get_word_form(selected_entities, self.word_forms['entity'])
             
             layer_item.setText(0, (
-                f'Layer: {layer_name} | ({total_entities} {entities_word} | '
-                f'выбрано: {selected_entities} {selected_entities_word})'
+                f'{self.lm.get_string("TREE_WIDGET_HANDLER", "layer")} {layer_name} | ({total_entities} {entities_word} | '
+                f'{self.lm.get_string("TREE_WIDGET_HANDLER", "selected")} {selected_entities} {selected_entities_word})'
             ))
 
     def get_selected_file_name(self):
         """Возвращает имя выбранного файла или None"""
         if self.selected_file:
+            # Получаем оригинальное имя файла из пользовательских данных
+            original_name = self.selected_file.data(0, Qt.UserRole)
+            if original_name:
+                Logger.log_message(self.lm.get_string("LOGGING", "selected_file", original_name))
+                return original_name
+                
+            # Запасной вариант - парсинг текста
             file_text = self.selected_file.text(0)
-            file_name = file_text.split('Файл: ')[1].split(' |')[0]
-            Logger.log_message(f"Selected file: {file_name}")
-            
+            file_name = file_text.split(self.lm.get_string("TREE_WIDGET_HANDLER", "file"))[1].split(' |')[0]
+            Logger.log_message(self.lm.get_string("LOGGING", "selected_file", file_name))
             return file_name
         return None
 

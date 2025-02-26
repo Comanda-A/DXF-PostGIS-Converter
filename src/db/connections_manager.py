@@ -1,3 +1,6 @@
+"""
+Менеджер подключений к базам данных
+"""
 from qgis.core import QgsSettings, QgsProviderRegistry, QgsDataSourceUri
 from qgis._core import QgsApplication, QgsAuthMethodConfig
 import json
@@ -18,13 +21,13 @@ class ConnectionsManager:
             return
             
         self._initialized = True
+        self.settings = QgsSettings()
         self.connections = {}
         self.load_connections()
     
     def load_connections(self):
         """Загружает сохраненные подключения из настроек QGIS"""
-        settings = QgsSettings()
-        connections_json = settings.value("DXFPostGIS/connections", "{}")
+        connections_json = self.settings.value("DXFPostGIS/connections", "{}")
         try:
             self.connections = json.loads(connections_json)
         except json.JSONDecodeError:
@@ -32,9 +35,8 @@ class ConnectionsManager:
     
     def save_connections(self):
         """Сохраняет все подключения в настройки QGIS"""
-        settings = QgsSettings()
         connections_json = json.dumps(self.connections)
-        settings.setValue("DXFPostGIS/connections", connections_json)
+        self.settings.setValue("DXFPostGIS/connections", connections_json)
     
     def get_connection(self, conn_name):
         """Возвращает сохраненные учетные данные для подключения"""

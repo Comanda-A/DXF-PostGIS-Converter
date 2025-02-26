@@ -49,9 +49,12 @@ class PolygonMapTool(BaseMapTool):
         self.tempRubberBand.reset(QgsWkbTypes.LineGeometry)
         self.geom = [(point.x(), point.y()) for point in self.points]
         
-        self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, 
-                                self.dlg.dxf_handler, self.geom)
-        self.update_dialog_coordinates(f"Координаты полигона:\n {self.geom}")
+        coords_str = ", ".join([f"({x:.2f}, {y:.2f})" for x, y in self.geom])
+        
+        self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, self.geom)
+        self.update_dialog_coordinates(
+            self.dlg.lm.get_string("DRAW", "polygon_coordinates", coords_str)
+        )
         self.finish_drawing()
         
     def showTemporaryPolygon(self, point):

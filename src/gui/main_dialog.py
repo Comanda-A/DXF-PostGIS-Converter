@@ -13,10 +13,10 @@ from ..dxf.dxf_handler import DXFHandler
 from ..tree_widget_handler import TreeWidgetHandler
 from ..db.database import get_all_files_from_db, import_dxf, delete_dxf
 from .info_dialog import InfoDialog
-from ..config.help_content import MAIN_DIALOG_HELP
 from ..workers.dxf_worker import DXFWorker
 from ..workers.long_task_worker import LongTaskWorker
 from ..db.connections_manager import ConnectionsManager
+from ..localization.localization_manager import LocalizationManager
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'main_dialog.ui'))
@@ -32,6 +32,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         super(ConverterDialog, self).__init__(parent)
         self.setupUi(self)
         self.iface = iface
+        self.lm = LocalizationManager.instance()  # Инициализация менеджера локализации
+        self.setupUiText()
 
         self.dxf_tree_widget_handler = TreeWidgetHandler(self.dxf_tree_widget)
         self.dxf_handler = DXFHandler(self.type_shape, self.type_selection, self.dxf_tree_widget_handler)
@@ -57,6 +59,10 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         # Обновляем логгер с текущей настройкой
         Logger.set_logging_enabled(enable_logging)
 
+        # --- New: Инициализация переключателя языка ---
+        self.language_combo.setCurrentText(self.lm.current_language)
+        self.language_combo.currentTextChanged.connect(self.change_language)
+
         # Добавление кнопки информации и настройка ее стилей
         self.info_button = QPushButton("?", self)
         self.info_button.setFixedSize(25, 25)
@@ -74,7 +80,35 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         # Перемещаем кнопку в правый верхний угол
         self.info_button.move(self.width() - 35, 10)
         self.info_button.clicked.connect(self.show_help)
-
+    def setupUiText(self):
+        """Обновляет текст элементов пользовательского интерфейса согласно выбранному языку"""
+        # Заголовок окна
+        self.setWindowTitle(self.lm.get_string("UI", "main_dialog_title"))
+        
+        # Заголовки вкладок
+        self.tabWidget.setTabText(0, self.lm.get_string("UI", "tab_dxf_to_sql"))
+        self.tabWidget.setTabText(1, self.lm.get_string("UI", "tab_sql_to_dxf"))
+        self.tabWidget.setTabText(2, self.lm.get_string("UI", "tab_settings"))
+        
+        self.open_dxf_button.setText(self.lm.get_string("UI", "open_dxf_button"))
+        self.language_label.setText(self.lm.get_string("UI", "interface_language"))        
+        self.enable_logging_checkbox.setText(self.lm.get_string("UI", "enable_logs"))                     
+        self.settings_structureLabel_2.setText(self.lm.get_string("UI", "databases_label")) 
+        self.type_selection.clear()
+        self.type_selection.addItem(self.lm.get_string("UI", "selection_intersect"))        
+        self.type_selection.addItem(self.lm.get_string("UI", "selection_outside"))        
+        self.type_selection.addItem(self.lm.get_string("UI", "selection_inside"))
+        self.type_shape.clear()                 
+        self.type_shape.addItem(self.lm.get_string("UI", "shape_polygon"))        
+        self.type_shape.addItem(self.lm.get_string("UI", "shape_circle"))        
+        self.type_shape.addItem(self.lm.get_string("UI", "shape_rectangle"))        
+        self.label_3.setText(self.lm.get_string("UI", "type_selection"))        
+        self.label_2.setText(self.lm.get_string("UI", "type_shape"))        
+        self.label.setText(self.lm.get_string("UI", "file_not_selected"))        
+        self.select_area_button.setText(self.lm.get_string("UI", "select_area_button"))
+        self.export_to_db_button.setText(self.lm.get_string("UI", "export_to_db_button"))
+        
+  
     def toggle_logging(self, state):
         """
         Включение или отключение логирования при изменении состояния чекбокса.
@@ -82,7 +116,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         is_enabled = state == Qt.Checked
         self.settings.setValue("DXFPostGISConverter/EnableLogging", is_enabled)
         Logger.set_logging_enabled(is_enabled)
-        Logger.log_message(f"Логирование {'включено' if is_enabled else 'отключено'}")
+        status_text = self.lm.get_string("LOGGING", "logging_enabled" if is_enabled else "logging_disabled")
+        Logger.log_message(status_text)
 
     def handle_tab_change(self, index):
         # 0 - dxf-postgis, 1 - postgis - dxf, 2 - setting
@@ -113,9 +148,10 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def handle_error(self, error_message):
         self.progress_dialog.close()
-        QMessageBox.critical(self, "Ошибка", f"Ошибка при обработке DXF файлов: {error_message}")
+        QMessageBox.critical(self, self.lm.get_string("COMMON", "error"), 
+                            self.lm.get_string("MAIN_DIALOG", "error_processing_dxf", error_message))
 
-    def start_long_task(self, task_id, func, real_func, *args):
+    def start_long_task(self, task_id, func, *args):
         """
         Запускает длительную задачу в отдельном потоке.
         Аргументы:
@@ -132,7 +168,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def handle_long_task_error(self, error_message):
         """Обработчик ошибок длительных задач"""
-        QMessageBox.critical(self, "Ошибка", f"Ошибка при выполнении задачи: {error_message}")
+        QMessageBox.critical(self, self.lm.get_string("COMMON", "error"), 
+                            self.lm.get_string("MAIN_DIALOG", "error_executing_task", error_message))
 
     def on_finished(self, task_id, result):
         """
@@ -159,8 +196,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         if has_selection:
             msg_box = QMessageBox()
             msg_box.setIcon(QMessageBox.Question)
-            msg_box.setWindowTitle("Экспорт выбранного")
-            msg_box.setText("Вы хотите экспортировать только выбранные объекты?")
+            msg_box.setWindowTitle(self.lm.get_string("MAIN_DIALOG", "export_to_db"))
+            msg_box.setText(self.lm.get_string("MAIN_DIALOG", "export_selected_question"))
             msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
             
             result = msg_box.exec_()
@@ -193,12 +230,12 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         settings = QgsProviderRegistry.instance().providerMetadata('postgres').connections()
 
         if not settings:
-            no_conn_item = QTreeWidgetItem(["Не найдены подключения PostgreSQL"])
+            no_conn_item = QTreeWidgetItem([self.lm.get_string("MAIN_DIALOG", "no_connections")])
             self.db_structure_treewidget.addTopLevelItem(no_conn_item)
             return
 
         for conn_name, conn_metadata in settings.items():
-            Logger.log_message(f"Обработка подключения {conn_name}")
+            Logger.log_message(self.lm.get_string("LOGGING", "processing_connection", conn_name))
             try:
                 uri = QgsDataSourceUri(conn_metadata.uri())
                 
@@ -212,13 +249,13 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                 buttons_layout.setContentsMargins(20, 0, 0, 0)
 
                 # Добавляем кнопку подключения
-                connect_button = QPushButton('Подключиться')
+                connect_button = QPushButton(self.lm.get_string("MAIN_DIALOG", "connect_button"))
                 connect_button.setFixedSize(80, 20)
                 connect_button.clicked.connect(
                     partial(self.connect_to_db, conn_name, conn_item, uri))
 
                 # Добавляем кнопку информации
-                info_button = QPushButton('Инфо')
+                info_button = QPushButton(self.lm.get_string("MAIN_DIALOG", "info_button"))
                 info_button.setFixedSize(80, 20)
                 info_button.clicked.connect(
                     partial(self.open_db_info_dialog, conn_name, uri.database(), uri.host(), uri.port()))
@@ -232,7 +269,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
             except Exception as e:
                 Logger.log_message(f"Ошибка обработки подключения {conn_name}: {str(e)}")
-                error_item = QTreeWidgetItem([f"{conn_name} (Ошибка подключения)"])
+                error_item = QTreeWidgetItem([f"{conn_name} ({self.lm.get_string('MAIN_DIALOG', 'connection_error', '')}"])
                 self.db_structure_treewidget.addTopLevelItem(error_item)
 
         # Адаптируем размеры столбцов
@@ -263,13 +300,13 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                                         uri.port(), uri.database())
             
             if files is None or len(files) == 0:
-                Logger.log_message(f"База данных '{conn_name}' пуста или не поддерживает структуру хранения")
-                conn_item.setText(0, f'{conn_name} (Пусто)')
+                Logger.log_message(self.lm.get_string("MAIN_DIALOG", "db_empty_message", conn_name))
+                conn_item.setText(0, f'{conn_name} ({self.lm.get_string("MAIN_DIALOG", "db_empty")})')
                 # Скрываем кнопку подключения, даже если БД пуста
                 buttons_widget = self.db_structure_treewidget.itemWidget(conn_item, 1)
                 if buttons_widget:
                     for child in buttons_widget.children():
-                        if isinstance(child, QPushButton) and child.text() == 'Подключиться':
+                        if isinstance(child, QPushButton) and child.text() == self.lm.get_string("MAIN_DIALOG", "connect_button"):
                             child.hide()
                             break
                 return
@@ -284,7 +321,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             if buttons_widget:
                 # Находим и скрываем кнопку подключения
                 for child in buttons_widget.children():
-                    if isinstance(child, QPushButton) and child.text() == 'Подключиться':
+                    if isinstance(child, QPushButton) and child.text() == self.lm.get_string("MAIN_DIALOG", "connect_button"):
                         child.hide()
                         break
 
@@ -308,9 +345,9 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                     buttons_layout.addWidget(preview_widget)
 
                 # Добавляем кнопки
-                import_button = QPushButton('Импорт')
-                delete_button = QPushButton('Удалить')
-                info_button = QPushButton('Инфо')
+                import_button = QPushButton(self.lm.get_string("MAIN_DIALOG", "import_button"))
+                delete_button = QPushButton(self.lm.get_string("MAIN_DIALOG", "delete_button"))
+                info_button = QPushButton(self.lm.get_string("MAIN_DIALOG", "info_button"))
 
                 for btn in (import_button, delete_button, info_button):
                     btn.setFixedSize(80, 20)
@@ -333,7 +370,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
         except Exception as e:
             Logger.log_message(f"Ошибка подключения к базе данных '{conn_name}': {str(e)}")
-            conn_item.setText(0, f'{conn_name} (Ошибка подключения: {str(e)})')
+            conn_item.setText(0, f'{conn_name} ({self.lm.get_string("MAIN_DIALOG", "connection_error", str(e))})')
 
     def delete_file_from_db(self, conn_display_name, database, host, port, file_id, file_name):
         """
@@ -342,13 +379,13 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         # Создаем диалоговое окно
         msg_box = QMessageBox()
         msg_box.setIcon(QMessageBox.Information)
-        msg_box.setWindowTitle("Удаление файла")
-        msg_box.setText(f"Вы действительно хотите удалить файл '{file_name}'?")
+        msg_box.setWindowTitle(self.lm.get_string("MAIN_DIALOG", "delete_file_title"))
+        msg_box.setText(self.lm.get_string("MAIN_DIALOG", "delete_file_question", file_name))
 
         # Добавляем кнопки
-        yes_button = msg_box.addButton("Да", QMessageBox.YesRole)
-        no_button = msg_box.addButton("Нет", QMessageBox.NoRole)
-        cancel_button = msg_box.addButton("Отмена", QMessageBox.RejectRole)
+        yes_button = msg_box.addButton(self.lm.get_string("COMMON", "yes"), QMessageBox.YesRole)
+        no_button = msg_box.addButton(self.lm.get_string("COMMON", "no"), QMessageBox.NoRole)
+        cancel_button = msg_box.addButton(self.lm.get_string("COMMON", "cancel"), QMessageBox.RejectRole)
 
         # Отображаем диалоговое окно
         msg_box.exec_()
@@ -357,7 +394,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         if msg_box.clickedButton() == yes_button:
             saved_conn = self.connections_manager.get_connection(conn_display_name)
             if not saved_conn:
-                QMessageBox.warning(None, "Ошибка", "Не найдены сохраненные учетные данные для этого подключения")
+                QMessageBox.warning(None, self.lm.get_string("COMMON", "error"), 
+                                   self.lm.get_string("MAIN_DIALOG", "saved_credentials_error"))
                 return
                 
             # Очищаем кеш перед удалением файла
@@ -375,15 +413,14 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         # Создаем диалоговое окно
         msg_box = QMessageBox()
         msg_box.setIcon(QMessageBox.Information)
-        msg_box.setWindowTitle("Информация о файле")
-        msg_box.setText(f"ID: {file_id}\nИмя файла: {file_name}\nДата загрузки: {upload_date}")
+        msg_box.setWindowTitle(self.lm.get_string("MAIN_DIALOG", "file_info_title"))
+        msg_box.setText(self.lm.get_string("MAIN_DIALOG", "file_info_text", file_id, file_name, upload_date))
 
         # Добавляем кнопки
         msg_box.addButton(QMessageBox.Ok)
 
         # Отображаем диалоговое окно
         msg_box.exec_()
-
 
     def open_db_info_dialog(self, conn_name, dbname, host, port):
         """Открытие диалога информации о базе данных"""
@@ -398,27 +435,24 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                 password = conn['password']
             else:
                 # Если нет сохраненных данных, выводим сообщение
-                username = "Не сохранено"
-                password = "Не сохранено"
+                username = self.lm.get_string("MAIN_DIALOG", "not_saved")
+                password = self.lm.get_string("MAIN_DIALOG", "not_saved")
 
-            info_text = (
-                f"Подключение: {conn_name}\n"
-                f"База данных: {dbname}\n"
-                f"Пользователь: {username}\n"
-                f"Пароль: {'*' * len(password) if password and password != 'Не сохранено' else 'Не сохранено'}\n"
-                f"Хост: {host}\n"
-                f"Порт: {port}"
-            )
+            password_display = '*' * len(password) if password and password != self.lm.get_string("MAIN_DIALOG", "not_saved") else self.lm.get_string("MAIN_DIALOG", "not_saved")
+            
+            info_text = self.lm.get_string("MAIN_DIALOG", "db_info_text", 
+                                          conn_name, dbname, username, password_display, host, port)
             
             msg_box = QMessageBox()
             msg_box.setIcon(QMessageBox.Information)
-            msg_box.setWindowTitle("Информация о подключении")
+            msg_box.setWindowTitle(self.lm.get_string("MAIN_DIALOG", "db_info_title"))
             msg_box.setText(info_text)
             msg_box.exec_()
             
         except Exception as e:
-            Logger.log_message(f"Ошибка при отображении информации о подключении {conn_name}: {str(e)}")
-            QMessageBox.warning(None, "Ошибка", f"Не удалось получить информацию о подключении: {str(e)}")
+            Logger.log_message(self.lm.get_string("MAIN_DIALOG", "error_displaying_connection", conn_name, str(e)))
+            QMessageBox.warning(None, self.lm.get_string("COMMON", "error"), 
+                               self.lm.get_string("MAIN_DIALOG", "error_displaying_connection", conn_name, str(e)))
 
     def import_from_db_button_click(self, conn_display_name, dbname, host, port, file_name, file_id):
         """
@@ -426,17 +460,20 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         """
         # Открываем диалоговое окно для выбора пути сохранения файла
         options = QFileDialog.Options()
-        file_path, _ = QFileDialog.getSaveFileName(None, "Сохранить файл как", f"{file_name}", "DXF файлы (*.dxf);;Все файлы (*)", options=options)
+        file_path, _ = QFileDialog.getSaveFileName(None, self.lm.get_string("MAIN_DIALOG", "save_file_as"), 
+                                                 f"{file_name}", "DXF файлы (*.dxf);;Все файлы (*)", options=options)
         
         if file_path:
             conn = self.connections_manager.get_connection(conn_display_name)
             if not conn:
-                QMessageBox.warning(None, "Ошибка", "Не найдены сохраненные учетные данные для этого подключения")
+                QMessageBox.warning(None, self.lm.get_string("COMMON", "error"), 
+                                   self.lm.get_string("MAIN_DIALOG", "saved_credentials_error"))
                 return
                 
             import_dxf(conn['username'], conn['password'], host, port, dbname, file_id, file_path)
         else:
-            QMessageBox.warning(None, "Ошибка", "Пожалуйста, выберите путь для сохранения файла.")
+            QMessageBox.warning(None, self.lm.get_string("COMMON", "warning"), 
+                               self.lm.get_string("MAIN_DIALOG", "file_path_error"))
 
     def show_full_preview(self, svg_path):
         """Показывает диалог предпросмотра в полном размере"""
@@ -445,7 +482,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def show_help(self):
         """Показать диалог помощи с информацией об интерфейсе"""
-        help_dialog = InfoDialog("Справка - DXF-PostGIS Converter", MAIN_DIALOG_HELP, self)
+        help_dialog = InfoDialog(self.lm.get_string("MAIN_DIALOG", "help_dialog_title"),
+                                 self.lm.get_string("HELP_CONTENT", "MAIN_DIALOG"), self)
         help_dialog.exec_()
 
     def resizeEvent(self, event):
@@ -453,3 +491,11 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         super().resizeEvent(event)
         if hasattr(self, 'info_button'):
             self.info_button.move(self.width() - 35, 10)
+
+    def change_language(self, new_lang):
+        """Обработка смены языка через переключатель"""
+        self.lm.set_language(new_lang)
+        Logger.log_message(f"Язык изменен на {new_lang}")
+        # Optionally, trigger UI re-translation if needed
+        # For example: self.retranslateUi(self)
+        self.setupUiText()

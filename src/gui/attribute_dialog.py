@@ -2,10 +2,13 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTableWidget, QHeaderView, QDialogButtonBox
 
+from ..localization.localization_manager import LocalizationManager
+
 class AttributeDialog(QDialog):
     def __init__(self, dxf_entity, db_entity, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Атрибуты объекта")
+        self.lm = LocalizationManager.instance()  # Инициализация менеджера локализации
+        self.setWindowTitle(self.lm.get_string("ATTRIBUTE_DIALOG", "title"))
         self.setMinimumWidth(400)
         
         layout = QVBoxLayout(self)
@@ -13,7 +16,11 @@ class AttributeDialog(QDialog):
         # Создание таблицы атрибутов
         self.attr_table = QTableWidget()
         self.attr_table.setColumnCount(3)  # Добавлен столбец для флажка сопоставления
-        self.attr_table.setHorizontalHeaderLabels(['Сопоставить', 'Атрибут DXF', 'Атрибут БД'])
+        self.attr_table.setHorizontalHeaderLabels([
+            self.lm.get_string("ATTRIBUTE_DIALOG", "map_column"),
+            self.lm.get_string("ATTRIBUTE_DIALOG", "dxf_attr_column"),
+            self.lm.get_string("ATTRIBUTE_DIALOG", "db_attr_column")
+        ])
         self.attr_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         
         # Получение атрибутов DXF из иерархии объекта
@@ -71,6 +78,8 @@ class AttributeDialog(QDialog):
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
+        button_box.button(QDialogButtonBox.Ok).setText(self.lm.get_string("COMMON", "ok"))
+        button_box.button(QDialogButtonBox.Cancel).setText(self.lm.get_string("COMMON", "cancel"))
         layout.addWidget(button_box)
 
     def get_mapped_attributes(self):

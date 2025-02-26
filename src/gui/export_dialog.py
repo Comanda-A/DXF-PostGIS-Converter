@@ -16,8 +16,6 @@ from .info_dialog import InfoDialog
 from ..config.help_content import EXPORT_DIALOG_HELP
 from PyQt5.QtCore import QTimer
 from PyQt5.QtCore import QThread, pyqtSignal
-from .credentials_dialog import CredentialsDialog
-
 
 class ExportThread(QThread):
     finished = pyqtSignal(bool, str)  # Сигнал: успех/неуспех, сообщение
@@ -397,10 +395,7 @@ class ExportDialog(QDialog):
 
     def on_select_db_button_clicked(self):
         from .providers_dialog import ProvidersDialog
-        from qgis.core import QgsProviderRegistry, QgsDataSourceUri
-        from qgis._core import QgsApplication, QgsAuthMethodConfig
-        import os
-
+        
         if self.dlg is None:
             self.dlg = ProvidersDialog()
             self.dlg.show()
@@ -412,99 +407,25 @@ class ExportDialog(QDialog):
                 self.dbname = self.dlg.db_tree.currentDatabase().connection().db.connector.dbname
                 self.username = self.dlg.db_tree.currentDatabase().connection().db.connector.user
 
-                # Создаем уникальный идентификатор подключения на основе host, port и database
-                conn_display_name = f"{self.address}:{self.port}/{self.dbname}"
+                # Получаем учетные данные через универсальный метод ConnectionsManager
+                username, password = self.connection_manager.get_credentials(
+                    self.address, 
+                    self.port, 
+                    self.dbname,
+                    default_username=self.username,
+                    parent=self
+                )
                 
-                # Сначала пробуем найти сохраненные учетные данные по уникальному ключу
-                conn = self.connection_manager.get_connection(conn_display_name)
-                if conn:
-                    self.username = conn['username']
-                    self.password = conn['password']
-                    Logger.log_message(f"Используем сохраненные учетные данные для {conn_display_name}")
-                else:
-                    # Если нет сохраненных данных, пробуем извлечь учетные данные из QGIS
-                    conn_metadata = None
-                    uri = None
-                    # Ищем соответствующее подключение в QGIS
-                    for name, metadata in QgsProviderRegistry.instance().providerMetadata('postgres').connections().items():
-                        try:
-                            uri_check = QgsDataSourceUri(metadata.uri())
-                            if (uri_check.host() == self.address and 
-                                uri_check.port() == self.port and 
-                                uri_check.database() == self.dbname):
-                                conn_metadata = metadata
-                                uri = uri_check
-                                break
-                        except Exception as e:
-                            Logger.log_error(f"Ошибка при проверке соединения {name}: {str(e)}")
-                            continue
+                if username and password:
+                    self.username = username
+                    self.password = password
+                    self.schemaname = self.dlg.db_tree.currentSchema().name
+                    self.save_current_connection()
                     
-                    # Пробуем получить пароль из URI или AuthConfig
-                    password = None
-                    if uri:
-                        # Проверяем наличие прямого пароля
-                        if uri.password():
-                            password = uri.password()
-                        # Проверяем auth_config
-                        elif uri.authConfigId():
-                            auth_mgr = QgsApplication.authManager()
-                            if auth_mgr:
-                                auth_cfg = QgsAuthMethodConfig()
-                                if auth_mgr.loadAuthenticationConfig(uri.authConfigId(), auth_cfg, True):
-                                    password = auth_cfg.config('password', '')
-                                    # Если имя пользователя в auth конфиге отличается от URI
-                                    username_auth = auth_cfg.config('username', '')
-                                    if username_auth:
-                                        self.username = username_auth
-                        # Проверяем наличие сервиса PostgreSQL
-                        elif uri.service():
-                            # Пробуем прочитать файл конфигурации сервисов PostgreSQL
-                            pgservicefile = os.path.expanduser("~/.pg_service.conf")
-                            if os.path.exists(pgservicefile):
-                                try:
-                                    with open(pgservicefile, 'r') as f:
-                                        current_service = None
-                                        for line in f:
-                                            line = line.strip()
-                                            if line.startswith('[') and line.endswith(']'):
-                                                current_service = line[1:-1]
-                                            elif current_service == uri.service() and '=' in line:
-                                                key, value = line.split('=', 1)
-                                                key = key.strip()
-                                                value = value.strip()
-                                                if key == 'password':
-                                                    password = value
-                                                elif key == 'user' and not self.username:
-                                                    self.username = value
-                                except Exception as e:
-                                    Logger.log_error(f"Ошибка при чтении pg_service.conf: {str(e)}")
-
-                    # Если не смогли получить пароль, запрашиваем у пользователя
-                    if not password:
-                        username, password = CredentialsDialog.get_credentials_for_connection(
-                            conn_display_name, self, default_username=self.username)
-                        if username and password:
-                            self.username = username
-                            self.password = password
-                            # Сохраняем новые учетные данные
-                            self.connection_manager.save_connection(conn_display_name, username, password)
-                            Logger.log_message(f"Учетные данные для '{conn_display_name}' успешно сохранены")
-                        else:
-                            Logger.log_message(f"Пользователь отменил ввод учетных данных для {conn_display_name}")
-                            return
-                    else:
-                        # Если смогли извлечь пароль из QGIS, используем его
-                        self.password = password
-                        # И сохраняем для будущего использования
-                        self.connection_manager.save_connection(conn_display_name, self.username, password)
-                        Logger.log_message(f"Учетные данные для '{conn_display_name}' получены из QGIS и сохранены")
-                        
-                self.schemaname = self.dlg.db_tree.currentSchema().name
-                self.save_current_connection()
-
-            self.refresh_data_dialog()
-            self.load_available_tables()
-            self.dlg = None
+                    self.refresh_data_dialog()
+                    self.load_available_tables()
+                    
+                self.dlg = None
 
     def load_available_tables(self):
         """Загрузка доступных файлов из БД"""
@@ -547,130 +468,6 @@ class ExportDialog(QDialog):
             Logger.log_error(f"Failed to load files: {str(e)}")
             self.file_combo.clear()
             self.file_combo.addItem("New File", None)
-
-    def on_file_changed(self, index):
-        """Обработка изменения выбора файла"""
-        try:
-            self.selected_file_id = self.file_combo.currentData()
-            use_existing = self.selected_file_id is not None
-            
-            # Очистить предыдущее состояние
-            self.table_combo.clear()
-            self.field_mappings = {}
-            
-            # Включить/отключить элементы управления
-            self.new_table_radio.setEnabled(not use_existing)
-            self.existing_table_radio.setEnabled(use_existing)
-            self.new_table_name.setEnabled(not use_existing)
-            
-            if use_existing:
-                self.existing_table_radio.setChecked(True)
-                self.load_file_tables()
-            else:
-                self.new_table_radio.setChecked(True)
-        except Exception as e:
-            Logger.log_error(f"Ошибка при выборе файла: {str(e)}")
-
-    def load_file_tables(self):
-        """Загрузка таблиц, связанных с выбранным файлом"""
-        if not self.selected_file_id:
-            return
-            
-        try:
-            self.table_combo.clear()
-            from ..db.database import get_all_file_layers_from_db
-            
-            layers = get_all_file_layers_from_db(
-                self.username,
-                self.password,
-                self.address,
-                self.port,
-                self.dbname,
-                self.selected_file_id
-            )
-            
-            if layers:
-                for layer in layers:
-                    try:
-                        name = layer.get('name', '')
-                        if name:
-                            self.table_combo.addItem(name)
-                    except Exception as e:
-                        Logger.log_error(f"Failed to add layer to combo box: {str(e)}")
-                        continue
-            
-        except Exception as e:
-            Logger.log_error(f"Failed to load file tables: {str(e)}")
-
-    def on_table_changed(self, table_name):
-        """Обработка изменения выбора таблицы"""
-        if not table_name:
-            return
-            
-        self.selected_table = table_name
-        self.load_field_mapping()
-
-    def load_field_mapping(self):
-        """Загрузка доступных полей для сопоставления между DXF и выбранной таблицей"""
-        if not self.selected_file_name:
-            return
-            
-        try:
-            # Получаем основные поля DXF (на основе наших моделей базы данных)
-            dxf_fields = [
-                'file_id',
-                'layer_id', 
-                'geom_type',
-                'geometry',
-                'extra_data'
-            ]
-            
-            # Добавляем дополнительные поля из DXF
-            if hasattr(self.dxf_handler, 'get_additional_fields'):
-                dxf_fields.extend(self.dxf_handler.get_additional_fields())
-            
-            # Получаем поля таблицы с использованием новой функции базы данных
-            table_fields = get_table_fields(
-                self.username,
-                self.password,
-                self.address,
-                self.port,
-                self.dbname,
-                self.schemaname,
-                self.selected_file_name
-            )
-
-            if table_fields is None:
-                return
-
-            for i, dxf_field in enumerate(dxf_fields):
-                # Создаем элемент для поля DXF
-                dxf_item = QtWidgets.QTableWidgetItem(dxf_field)
-                # Делаем только для чтения
-                dxf_item.setFlags(dxf_item.flags() & ~Qt.ItemIsEditable)
-                
-                # Создаем комбобокс для поля таблицы
-                combo = QtWidgets.QComboBox()
-                combo.addItems([''] + table_fields)
-                
-                # Автоматически выбираем совпадающие имена полей
-                if dxf_field in table_fields:
-                    combo.setCurrentText(dxf_field)
-                    self.field_mappings[dxf_field] = dxf_field
-                
-                combo.currentTextChanged.connect(
-                    lambda text, field=dxf_field: self.on_mapping_changed(field, text)
-                )
-
-        except Exception as e:
-            Logger.log_error(f"Не удалось загрузить сопоставление полей: {str(e)}")
-
-    def on_mapping_changed(self, dxf_field, table_field):
-        """Обновление сопоставления полей при изменении выбора"""
-        if table_field:
-            self.field_mappings[dxf_field] = table_field
-        else:
-            self.field_mappings.pop(dxf_field, None)
 
     def on_cancel_clicked(self):
         """Обработка нажатия кнопки Отмена"""
@@ -1217,4 +1014,3 @@ class ExportDialog(QDialog):
             }
         else:
                 mappings.pop(dxf_handle, None)
-

@@ -740,6 +740,32 @@ class ExportDialog(QDialog):
             self.geom_mapping_table.setRowCount(0)
             self.nongeom_mapping_table.setRowCount(0)
             
+            # Сбрасываем состояние пагинации при смене слоя
+            if hasattr(self, 'pagination_widget_geom'):
+                # Полностью скрываем элементы пагинации при смене слоя
+                self.pagination_widget_geom.setVisible(False)
+                self.pagination_widget_nongeom.setVisible(False)
+                
+                # Сбрасываем страницы
+                self.current_page_geom = 1
+                self.current_page_nongeom = 1
+                
+                # Очищаем сохраненные данные от предыдущего слоя
+                self.all_geom_dxf = []
+                self.all_nongeom_dxf = []
+                self.all_geom_db_entities = []
+                self.all_nongeom_db_entities = []
+                
+                # Обновляем текст лейблов пагинации
+                self.page_label_geom.setText(self.lm.get_string("EXPORT_DIALOG", "page_label", 1, 1))
+                self.page_label_nongeom.setText(self.lm.get_string("EXPORT_DIALOG", "page_label", 1, 1))
+                
+                # Отключаем кнопки пагинации
+                self.prev_page_geom.setEnabled(False)
+                self.next_page_geom.setEnabled(False)
+                self.prev_page_nongeom.setEnabled(False)
+                self.next_page_nongeom.setEnabled(False)
+            
             # Пре-фильтрация сущностей DXF
             geom_dxf = []
             nongeom_dxf = []
@@ -981,6 +1007,12 @@ class ExportDialog(QDialog):
             self.current_page_geom = 1
             self.current_page_nongeom = 1
             
+            # Инициализируем пустые списки для данных
+            self.all_geom_dxf = []
+            self.all_nongeom_dxf = []
+            self.all_geom_db_entities = []
+            self.all_nongeom_db_entities = []
+            
             # Подключаем обработчики
             self.prev_page_geom.clicked.connect(lambda: self._change_page('geom', -1))
             self.next_page_geom.clicked.connect(lambda: self._change_page('geom', 1))
@@ -988,12 +1020,22 @@ class ExportDialog(QDialog):
             self.next_page_nongeom.clicked.connect(lambda: self._change_page('nongeom', 1))
         
         # Обновляем видимость и состояние элементов пагинации
-        self.pagination_widget_geom.setVisible(True)
-        self.pagination_widget_nongeom.setVisible(True)
+        self.pagination_widget_geom.setVisible(False)  # Изначально скрываем, покажем только если данных много
+        self.pagination_widget_nongeom.setVisible(False)
         
         # Сбрасываем текущие страницы
         self.current_page_geom = 1
         self.current_page_nongeom = 1
+        
+        # Обновляем текст лейблов пагинации
+        self.page_label_geom.setText(self.lm.get_string("EXPORT_DIALOG", "page_label", 1, 1))
+        self.page_label_nongeom.setText(self.lm.get_string("EXPORT_DIALOG", "page_label", 1, 1))
+        
+        # Отключаем кнопки пагинации до загрузки данных
+        self.prev_page_geom.setEnabled(False)
+        self.next_page_geom.setEnabled(False)
+        self.prev_page_nongeom.setEnabled(False)
+        self.next_page_nongeom.setEnabled(False)
 
     def _change_page(self, table_type, direction):
         """
@@ -1003,18 +1045,28 @@ class ExportDialog(QDialog):
         :param direction: Направление изменения (1 - вперед, -1 - назад)
         """
         if table_type == 'geom':
+            # Проверяем наличие данных
+            if not self.all_geom_dxf:
+                return
+                
             new_page = self.current_page_geom + direction
-            max_pages = (len(self.all_geom_dxf) + self.page_size - 1) // self.page_size
+            max_pages = max(1, (len(self.all_geom_dxf) + self.page_size - 1) // self.page_size)
             
+            # Проверяем валидность новой страницы
             if 1 <= new_page <= max_pages:
                 self.current_page_geom = new_page
                 self._update_page_label('geom')
                 self._load_page_data('geom')
                 
         elif table_type == 'nongeom':
+            # Проверяем наличие данных
+            if not self.all_nongeom_dxf:
+                return
+                
             new_page = self.current_page_nongeom + direction
-            max_pages = (len(self.all_nongeom_dxf) + self.page_size - 1) // self.page_size
+            max_pages = max(1, (len(self.all_nongeom_dxf) + self.page_size - 1) // self.page_size)
             
+            # Проверяем валидность новой страницы
             if 1 <= new_page <= max_pages:
                 self.current_page_nongeom = new_page
                 self._update_page_label('nongeom')
@@ -1023,20 +1075,46 @@ class ExportDialog(QDialog):
     def _update_page_label(self, table_type):
         """Обновление метки с номером текущей страницы"""
         if table_type == 'geom':
-            total_pages = (len(self.all_geom_dxf) + self.page_size - 1) // self.page_size
-            self.page_label_geom.setText(self.lm.get_string("EXPORT_DIALOG", "page_label", self.current_page_geom, total_pages))
+            # Если у нас нет данных, установим 0 страниц
+            if not self.all_geom_dxf:
+                total_pages = 1
+                self.page_label_geom.setText(self.lm.get_string("EXPORT_DIALOG", "page_label", 1, 1))
+                self.prev_page_geom.setEnabled(False)
+                self.next_page_geom.setEnabled(False)
+                self.pagination_widget_geom.setVisible(False)
+                return
+            
+            total_pages = max(1, (len(self.all_geom_dxf) + self.page_size - 1) // self.page_size)
+            self.page_label_geom.setText(self.lm.get_string("EXPORT_DIALOG", "page_label", 
+                min(self.current_page_geom, total_pages), total_pages))
             
             # Обновляем состояние кнопок
             self.prev_page_geom.setEnabled(self.current_page_geom > 1)
             self.next_page_geom.setEnabled(self.current_page_geom < total_pages)
             
+            # Обновляем видимость элементов пагинации
+            self.pagination_widget_geom.setVisible(len(self.all_geom_dxf) > self.page_size)
+            
         elif table_type == 'nongeom':
-            total_pages = (len(self.all_nongeom_dxf) + self.page_size - 1) // self.page_size
-            self.page_label_nongeom.setText(self.lm.get_string("EXPORT_DIALOG", "page_label", self.current_page_nongeom, total_pages))
+            # Если у нас нет данных, установим 0 страниц
+            if not self.all_nongeom_dxf:
+                total_pages = 1
+                self.page_label_nongeom.setText(self.lm.get_string("EXPORT_DIALOG", "page_label", 1, 1))
+                self.prev_page_nongeom.setEnabled(False)
+                self.next_page_nongeom.setEnabled(False)
+                self.pagination_widget_nongeom.setVisible(False)
+                return
+                
+            total_pages = max(1, (len(self.all_nongeom_dxf) + self.page_size - 1) // self.page_size)
+            self.page_label_nongeom.setText(self.lm.get_string("EXPORT_DIALOG", "page_label", 
+                min(self.current_page_nongeom, total_pages), total_pages))
             
             # Обновляем состояние кнопок
             self.prev_page_nongeom.setEnabled(self.current_page_nongeom > 1)
             self.next_page_nongeom.setEnabled(self.current_page_nongeom < total_pages)
+            
+            # Обновляем видимость элементов пагинации
+            self.pagination_widget_nongeom.setVisible(len(self.all_nongeom_dxf) > self.page_size)
 
     def _load_current_page(self):
         """Загружает текущую страницу для обеих таблиц"""
@@ -1054,13 +1132,24 @@ class ExportDialog(QDialog):
         table_optimizer = MappingTableOptimizer(self)
         
         if table_type == 'geom':
-            start_idx = (self.current_page_geom - 1) * self.page_size
-            end_idx = min(start_idx + self.page_size, len(self.all_geom_dxf))
-            page_items = self.all_geom_dxf[start_idx:end_idx]
-            
             # Очищаем и настраиваем таблицу для текущей страницы
             self.geom_mapping_table.clearContents()
             self.geom_mapping_table.setRowCount(0)
+            
+            # Проверяем существование данных
+            if not self.all_geom_dxf:
+                return
+                
+            start_idx = (self.current_page_geom - 1) * self.page_size
+            # Проверяем валидность индекса
+            if start_idx >= len(self.all_geom_dxf):
+                # Если текущий индекс за пределами массива, сбрасываем на первую страницу
+                self.current_page_geom = 1
+                start_idx = 0
+                self._update_page_label('geom')
+                
+            end_idx = min(start_idx + self.page_size, len(self.all_geom_dxf))
+            page_items = self.all_geom_dxf[start_idx:end_idx]
             
             if page_items:
                 table_optimizer.setup_mapping_table(
@@ -1071,13 +1160,24 @@ class ExportDialog(QDialog):
                 )
         
         elif table_type == 'nongeom':
-            start_idx = (self.current_page_nongeom - 1) * self.page_size
-            end_idx = min(start_idx + self.page_size, len(self.all_nongeom_dxf))
-            page_items = self.all_nongeom_dxf[start_idx:end_idx]
-            
             # Очищаем и настраиваем таблицу для текущей страницы
             self.nongeom_mapping_table.clearContents()
             self.nongeom_mapping_table.setRowCount(0)
+            
+            # Проверяем существование данных
+            if not self.all_nongeom_dxf:
+                return
+                
+            start_idx = (self.current_page_nongeom - 1) * self.page_size
+            # Проверяем валидность индекса
+            if start_idx >= len(self.all_nongeom_dxf):
+                # Если текущий индекс за пределами массива, сбрасываем на первую страницу
+                self.current_page_nongeom = 1
+                start_idx = 0
+                self._update_page_label('nongeom')
+                
+            end_idx = min(start_idx + self.page_size, len(self.all_nongeom_dxf))
+            page_items = self.all_nongeom_dxf[start_idx:end_idx]
             
             if page_items:
                 table_optimizer.setup_mapping_table(

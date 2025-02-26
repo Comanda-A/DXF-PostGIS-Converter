@@ -343,6 +343,25 @@
     <attribute name="title">
      <string>Settings</string>
     </attribute>
+    <widget class="QCheckBox" name="enable_logging_checkbox">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>20</y>
+       <width>200</width>
+       <height>30</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Calibri</family>
+       <pointsize>10</pointsize>
+      </font>
+     </property>
+     <property name="text">
+      <string>Включить логи</string>
+     </property>
+    </widget>
    </widget>
   </widget>
  </widget>

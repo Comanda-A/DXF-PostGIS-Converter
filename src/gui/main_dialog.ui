@@ -309,7 +309,7 @@
       </font>
      </property>
      <property name="text">
-      <string>Database structure</string>
+      <string>Базы данных</string>
      </property>
     </widget>
     <widget class="QTreeWidget" name="db_structure_treewidget">
@@ -343,84 +343,6 @@
     <attribute name="title">
      <string>Settings</string>
     </attribute>
-    <widget class="QLabel" name="settings_dbLabel">
-     <property name="geometry">
-      <rect>
-       <x>10</x>
-       <y>15</y>
-       <width>71</width>
-       <height>16</height>
-      </rect>
-     </property>
-     <property name="font">
-      <font>
-       <family>Calibri</family>
-       <pointsize>10</pointsize>
-      </font>
-     </property>
-     <property name="text">
-      <string>Database</string>
-     </property>
-    </widget>
-    <widget class="QLabel" name="settings_structureLabel">
-     <property name="geometry">
-      <rect>
-       <x>10</x>
-       <y>80</y>
-       <width>221</width>
-       <height>16</height>
-      </rect>
-     </property>
-     <property name="font">
-      <font>
-       <family>Calibri</family>
-       <pointsize>10</pointsize>
-      </font>
-     </property>
-     <property name="text">
-      <string>Database structure</string>
-     </property>
-    </widget>
-    <widget class="QTreeWidget" name="settings_structureTreeWidget">
-     <property name="geometry">
-      <rect>
-       <x>10</x>
-       <y>110</y>
-       <width>681</width>
-       <height>451</height>
-      </rect>
-     </property>
-     <property name="columnCount">
-      <number>1</number>
-     </property>
-     <attribute name="headerVisible">
-      <bool>false</bool>
-     </attribute>
-     <column>
-      <property name="text">
-       <string notr="true">1</string>
-      </property>
-     </column>
-    </widget>
-    <widget class="QPushButton" name="settings_connect_db_button">
-     <property name="geometry">
-      <rect>
-       <x>90</x>
-       <y>10</y>
-       <width>71</width>
-       <height>28</height>
-      </rect>
-     </property>
-     <property name="font">
-      <font>
-       <family>Calibri</family>
-       <pointsize>10</pointsize>
-      </font>
-     </property>
-     <property name="text">
-      <string>connect</string>
-     </property>
-    </widget>
    </widget>
   </widget>
  </widget>

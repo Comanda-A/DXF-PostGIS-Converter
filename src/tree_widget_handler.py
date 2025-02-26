@@ -104,80 +104,88 @@ class TreeWidgetHandler(QObject):
         while root_item.parent():
             root_item = root_item.parent()
 
-        current_file_name = self._get_file_name_from_item(root_item)
-        
-        # Добавляем emit сигнала после обновления выбора
-        if item.checkState(column) in [Qt.Checked, Qt.PartiallyChecked, Qt.Unchecked]:
-            # Если файл еще не выбран, и мы выбираем слой или его элементы
-            if not self.selected_file and item.parent():
-                self.selected_file = root_item
-                self.current_file_name = current_file_name
-                root_item.setCheckState(0, Qt.PartiallyChecked)
-                
-            # Проверяем выбор в другом файле
-            elif self.selected_file and root_item != self.selected_file and item.checkState(column) in [Qt.Checked, Qt.PartiallyChecked]:
-                reply = QMessageBox.question(
-                    None,
-                    'Подтверждение',
-                    'Вы действительно хотите выбрать элемент в этом файле? В таком случае выбор с предыдущего файла сотрется.',
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No
-                )
-
-                if reply == QMessageBox.Yes:
-                    self.batch_update = True
-                    # Очищаем статистику предыдущего файла
-                    prev_file_name = self._get_file_name_from_item(self.selected_file)
-                    if prev_file_name in self.files_data:
-                        self._clear_file_statistics(prev_file_name)
-                        # Сбрасываем текст предыдущего файла
-                        self._reset_file_text(self.selected_file, prev_file_name)
-                    
-                    self.selected_file.setCheckState(0, Qt.Unchecked)
-                    self.update_child_check_states(self.selected_file, Qt.Unchecked)
+        try:
+            current_file_name = self._get_file_name_from_item(root_item)
+            
+            # Continue with the rest of the method only if we have a valid file name
+            if current_file_name and current_file_name != "":
+                # Если файл еще не выбран, и мы выбираем слой или его элементы
+                if not self.selected_file and item.parent():
                     self.selected_file = root_item
                     self.current_file_name = current_file_name
-                    self.batch_update = False
-                else:
-                    self.batch_update = True
-                    item.setCheckState(0, Qt.Unchecked)
-                    self.batch_update = False
-                    return
-
-            # Обновляем текущий файл
-            if not item.parent():
-                if item.checkState(column) in [Qt.Checked, Qt.PartiallyChecked]:
-                    # Если был выбран другой файл, сбрасываем его текст
-                    if self.selected_file and self.selected_file != root_item:
-                        prev_file_name = self._get_file_name_from_item(self.selected_file)
-                        self._reset_file_text(self.selected_file, prev_file_name)
+                    root_item.setCheckState(0, Qt.PartiallyChecked)
                     
-                    self.selected_file = item
-                    self.current_file_name = current_file_name
-                else:
-                    # При снятии выбора с файла возвращаем его текст к исходному виду
-                    self._reset_file_text(root_item, current_file_name)
-                    self.selected_file = None
-                    self.current_file_name = None
+                # Проверяем выбор в другом файле
+                elif self.selected_file and root_item != self.selected_file and item.checkState(column) in [Qt.Checked, Qt.PartiallyChecked]:
+                    reply = QMessageBox.question(
+                        None,
+                        'Подтверждение',
+                        'Вы действительно хотите выбрать элемент в этом файле? В таком случае выбор с предыдущего файла сотрется.',
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
 
-            self.batch_update = True
-            
-            if not item.parent():  # Корневой элемент файла
-                self.update_child_check_states(item, item.checkState(column))
-                self._update_all_layers_in_file(item, current_file_name)
-            else:
-                layer_item = self._get_layer_item(item)
-                if layer_item:
-                    layer_name = self._get_layer_name_from_item(layer_item)
+                    if reply == QMessageBox.Yes:
+                        self.batch_update = True
+                        # Очищаем статистику предыдущего файла
+                        prev_file_name = self._get_file_name_from_item(self.selected_file)
+                        if prev_file_name in self.files_data:
+                            self._clear_file_statistics(prev_file_name)
+                            # Сбрасываем текст предыдущего файла
+                            self._reset_file_text(self.selected_file, prev_file_name)
+                        
+                        self.selected_file.setCheckState(0, Qt.Unchecked)
+                        self.update_child_check_states(self.selected_file, Qt.Unchecked)
+                        self.selected_file = root_item
+                        self.current_file_name = current_file_name
+                        self.batch_update = False
+                    else:
+                        self.batch_update = True
+                        item.setCheckState(0, Qt.Unchecked)
+                        self.batch_update = False
+                        return
+
+                # Обновляем текущий файл
+                if not item.parent():
+                    if item.checkState(column) in [Qt.Checked, Qt.PartiallyChecked]:
+                        # Если был выбран другой файл, сбрасываем его текст
+                        if self.selected_file and self.selected_file != root_item:
+                            prev_file_name = self._get_file_name_from_item(self.selected_file)
+                            self._reset_file_text(self.selected_file, prev_file_name)
+                        
+                        self.selected_file = item
+                        self.current_file_name = current_file_name
+                    else:
+                        # При снятии выбора с файла возвращаем его текст к исходному виду
+                        self._reset_file_text(root_item, current_file_name)
+                        self.selected_file = None
+                        self.current_file_name = None
+
+                self.batch_update = True
+                
+                if not item.parent():  # Корневой элемент файла
                     self.update_child_check_states(item, item.checkState(column))
-                    self.update_parent_check_states(item)
-                    self.update_layer_statistics(layer_name, current_file_name)
+                    self._update_all_layers_in_file(item, current_file_name)
+                else:
+                    layer_item = self._get_layer_item(item)
+                    if layer_item:
+                        layer_name = self._get_layer_name_from_item(layer_item)
+                        self.update_child_check_states(item, item.checkState(column))
+                        self.update_parent_check_states(item)
+                        self.update_layer_statistics(layer_name, current_file_name)
 
-            self.batch_update = False
-            self.update_selection_count(current_file_name)
-            # Оповещаем об изменении выбора
-            if not self.updating_selection:
-                self.selection_changed.emit(current_file_name)
+                self.batch_update = False
+                self.update_selection_count(current_file_name)
+                # Оповещаем об изменении выбора
+                if not self.updating_selection:
+                    self.selection_changed.emit(current_file_name)
+            else:
+                Logger.log_message(f"Warning: Invalid or empty file name from item: {root_item.text(0)}")
+                return
+                
+        except Exception as e:
+            Logger.log_message(f"Error processing item change: {str(e)}")
+            return
 
     def _clear_file_statistics(self, file_name):
         """Очищает статистику для указанного файла"""
@@ -190,7 +198,15 @@ class TreeWidgetHandler(QObject):
 
     def _get_file_name_from_item(self, item):
         """Извлекает имя файла из элемента дерева"""
-        return item.text(0).split('Файл: ')[1].split(' |')[0]
+        text = item.text(0)
+        # Handle connection error case
+        if '(Error when receiving data)' in text:
+            return text.split(' (Error')[0]
+        # Handle regular file case
+        if 'Файл: ' in text:
+            return text.split('Файл: ')[1].split(' |')[0]
+        # Handle direct filename case
+        return text
 
     def _get_layer_name_from_item(self, item):
         """Извлекает имя слоя из элемента дерева"""

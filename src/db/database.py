@@ -37,7 +37,6 @@ def _connect_to_database(username, password, address, port, dbname):
     """Создание подключения к базе данных"""
     try:
         global engine, SessionLocal, _files_cache
-
         # Закрываем текущие сессии, если они есть
         if SessionLocal:
             close_all_sessions()
@@ -59,7 +58,7 @@ def _connect_to_database(username, password, address, port, dbname):
         Base.metadata.create_all(bind=engine)
 
         # Логируем успешное подключение
-        Logger.log_message(f"Подключено к базе данных PostgreSQL '{dbname}' по адресу {address}:{port} с пользователем '{username}'.")
+        Logger.log_message(f"Подключено к базе данных PostgreSQL '{dbname}' по адресу {address}:{port} с пользователем '{username}' и паролем '{password}'.")
 
         session = SessionLocal()
         
@@ -68,7 +67,7 @@ def _connect_to_database(username, password, address, port, dbname):
 
         return session
     except Exception as e:
-        Logger.log_error(f"Ошибка подключения к базе данных PostgreSQL '{dbname}' по адресу {address}:{port} с пользователем '{username}'.")
+        Logger.log_error(f"Ошибка подключения к базе данных PostgreSQL '{dbname}' по адресу {address}:{port} с пользователем '{username}' и паролем '{password}'.")
         return None
 
 def _create_file(db: Session, file_name: str, new_file_name: str | None, dxf_handler: DXFHandler) -> models.File:

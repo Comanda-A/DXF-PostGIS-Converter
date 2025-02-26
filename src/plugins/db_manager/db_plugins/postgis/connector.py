@@ -237,7 +237,8 @@ class PostGisDBConnector(DBConnector):
         # self.user = uri.username() or os.environ.get('USER')
         # self.passwd = uri.password()
         self.host = uri.host()
-
+        self.port = uri.port()
+        self.password = uri.password()
         md = QgsProviderRegistry.instance().providerMetadata(connection.providerName())
         # QgsAbstractDatabaseProviderConnection instance
         self.core_connection = md.findConnection(connection.connectionName())

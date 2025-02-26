@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
                            QHeaderView, QTreeWidgetItem, QProgressDialog)
 from qgis.core import QgsSettings
 
-from ..db.saved_connections_manager import *
+from ..db.connections_manager import ConnectionsManager
 from ..tree_widget_handler import TreeWidgetHandler
 from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler
@@ -16,6 +16,7 @@ from .info_dialog import InfoDialog
 from ..config.help_content import EXPORT_DIALOG_HELP
 from PyQt5.QtCore import QTimer
 from PyQt5.QtCore import QThread, pyqtSignal
+from .credentials_dialog import CredentialsDialog
 
 
 class ExportThread(QThread):
@@ -61,7 +62,8 @@ class ExportDialog(QDialog):
         self.geom_mappings = {}
         self.nongeom_mappings = {}
         self.import_mode = 'overwrite'  # Меняем режим по умолчанию на "Overwrite"
-        self.dlg = None 
+        self.dlg = None
+        self.connection_manager = ConnectionsManager()
 
         # Параметры БД
         self.address = 'none'
@@ -395,6 +397,9 @@ class ExportDialog(QDialog):
 
     def on_select_db_button_clicked(self):
         from .providers_dialog import ProvidersDialog
+        from qgis.core import QgsProviderRegistry, QgsDataSourceUri
+        from qgis._core import QgsApplication, QgsAuthMethodConfig
+        import os
 
         if self.dlg is None:
             self.dlg = ProvidersDialog()
@@ -403,15 +408,103 @@ class ExportDialog(QDialog):
 
             if result and self.dlg.db_tree.currentSchema() is not None:
                 self.address = self.dlg.db_tree.currentDatabase().connection().db.connector.host
+                self.port = self.dlg.db_tree.currentDatabase().connection().db.connector.port
                 self.dbname = self.dlg.db_tree.currentDatabase().connection().db.connector.dbname
                 self.username = self.dlg.db_tree.currentDatabase().connection().db.connector.user
+
+                # Создаем уникальный идентификатор подключения на основе host, port и database
+                conn_display_name = f"{self.address}:{self.port}/{self.dbname}"
+                
+                # Сначала пробуем найти сохраненные учетные данные по уникальному ключу
+                conn = self.connection_manager.get_connection(conn_display_name)
+                if conn:
+                    self.username = conn['username']
+                    self.password = conn['password']
+                    Logger.log_message(f"Используем сохраненные учетные данные для {conn_display_name}")
+                else:
+                    # Если нет сохраненных данных, пробуем извлечь учетные данные из QGIS
+                    conn_metadata = None
+                    uri = None
+                    # Ищем соответствующее подключение в QGIS
+                    for name, metadata in QgsProviderRegistry.instance().providerMetadata('postgres').connections().items():
+                        try:
+                            uri_check = QgsDataSourceUri(metadata.uri())
+                            if (uri_check.host() == self.address and 
+                                uri_check.port() == self.port and 
+                                uri_check.database() == self.dbname):
+                                conn_metadata = metadata
+                                uri = uri_check
+                                break
+                        except Exception as e:
+                            Logger.log_error(f"Ошибка при проверке соединения {name}: {str(e)}")
+                            continue
+                    
+                    # Пробуем получить пароль из URI или AuthConfig
+                    password = None
+                    if uri:
+                        # Проверяем наличие прямого пароля
+                        if uri.password():
+                            password = uri.password()
+                        # Проверяем auth_config
+                        elif uri.authConfigId():
+                            auth_mgr = QgsApplication.authManager()
+                            if auth_mgr:
+                                auth_cfg = QgsAuthMethodConfig()
+                                if auth_mgr.loadAuthenticationConfig(uri.authConfigId(), auth_cfg, True):
+                                    password = auth_cfg.config('password', '')
+                                    # Если имя пользователя в auth конфиге отличается от URI
+                                    username_auth = auth_cfg.config('username', '')
+                                    if username_auth:
+                                        self.username = username_auth
+                        # Проверяем наличие сервиса PostgreSQL
+                        elif uri.service():
+                            # Пробуем прочитать файл конфигурации сервисов PostgreSQL
+                            pgservicefile = os.path.expanduser("~/.pg_service.conf")
+                            if os.path.exists(pgservicefile):
+                                try:
+                                    with open(pgservicefile, 'r') as f:
+                                        current_service = None
+                                        for line in f:
+                                            line = line.strip()
+                                            if line.startswith('[') and line.endswith(']'):
+                                                current_service = line[1:-1]
+                                            elif current_service == uri.service() and '=' in line:
+                                                key, value = line.split('=', 1)
+                                                key = key.strip()
+                                                value = value.strip()
+                                                if key == 'password':
+                                                    password = value
+                                                elif key == 'user' and not self.username:
+                                                    self.username = value
+                                except Exception as e:
+                                    Logger.log_error(f"Ошибка при чтении pg_service.conf: {str(e)}")
+
+                    # Если не смогли получить пароль, запрашиваем у пользователя
+                    if not password:
+                        username, password = CredentialsDialog.get_credentials_for_connection(
+                            conn_display_name, self, default_username=self.username)
+                        if username and password:
+                            self.username = username
+                            self.password = password
+                            # Сохраняем новые учетные данные
+                            self.connection_manager.save_connection(conn_display_name, username, password)
+                            Logger.log_message(f"Учетные данные для '{conn_display_name}' успешно сохранены")
+                        else:
+                            Logger.log_message(f"Пользователь отменил ввод учетных данных для {conn_display_name}")
+                            return
+                    else:
+                        # Если смогли извлечь пароль из QGIS, используем его
+                        self.password = password
+                        # И сохраняем для будущего использования
+                        self.connection_manager.save_connection(conn_display_name, self.username, password)
+                        Logger.log_message(f"Учетные данные для '{conn_display_name}' получены из QGIS и сохранены")
+                        
                 self.schemaname = self.dlg.db_tree.currentSchema().name
-                conn = get_connection(self.dbname)
-                self.password = conn['password'] if conn is not None else self.password
                 self.save_current_connection()
 
             self.refresh_data_dialog()
             self.load_available_tables()
+            self.dlg = None
 
     def load_available_tables(self):
         """Загрузка доступных файлов из БД"""
@@ -947,8 +1040,7 @@ class ExportDialog(QDialog):
 
     def on_ok_clicked(self):
         """Обработка нажатия кнопки OK"""
-        add_connection(self.dbname, self.username, self.password)
-        
+
         file_name = self.new_file_name.text().strip() if self.is_new_file else None
         if self.is_new_file:
             if not file_name:

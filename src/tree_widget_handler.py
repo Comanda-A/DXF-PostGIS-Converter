@@ -417,7 +417,7 @@ class TreeWidgetHandler(QObject):
             'POINT': ["location"],
             'CIRCLE': ["center", "radius"],
             'ARC': ["center", "radius", "start_angle", "end_angle"],
-            'ELLIPSE': ["center", "major_axis", "extrusion", "ratio", "start_param", "end_param", "start_point", "end_point", "minor_axis"],
+            'ELLIPSE': ["center", "major_axis", "extrusion", "ratio", "start_param", "end_param"],
             'SPLINE': ["degree"],
             'INSERT': ["name", "insert", "xscale", "yscale", "zscale", "rotation", "row_count", "row_spacing", "column_count", "column_spacing"],
             '3DSOLID': ["history_handle"],

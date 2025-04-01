@@ -1,3 +1,4 @@
+from typing import Union
 from ezdxf.render import ConnectionSide
 from shapely.geometry import Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection
 from shapely.geometry.base import BaseGeometry
@@ -574,7 +575,7 @@ def _convert_arc_to_postgis(entity: Arc) -> tuple[BaseGeometry, dict]:
     extra_data = _attributes_to_dict(entity)
     return arc, extra_data
 
-def _convert_multileader_to_postgis(entity: MultiLeader, dxf_handler : DXFHandler) -> tuple[Polygon | Point, dict]:
+def _convert_multileader_to_postgis(entity: MultiLeader, dxf_handler: DXFHandler) -> tuple[Union[Polygon, Point], dict]:
     extra_data = _attributes_to_dict(entity)
     #Logger.log_message(f'MULTILEADER: {extra_data}')
     text_style_entity = dxf_handler.get_entity_db(extra_data['attributes']['text_style_handle'])

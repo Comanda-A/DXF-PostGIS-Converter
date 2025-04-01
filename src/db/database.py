@@ -1,3 +1,4 @@
+from typing import Union
 from sqlalchemy.orm import declarative_base
 Base = declarative_base()
 
@@ -81,7 +82,7 @@ def _update_files_cache(db: Session):
 # Методы создания сущностей
 # ----------------------
 
-def _create_file(db: Session, file_name: str, new_file_name: str | None, dxf_handler: DXFHandler) -> models.File:
+def _create_file(db: Session, file_name: str, new_file_name: Union[str, None], dxf_handler: DXFHandler) -> models.File:
     """Создание записи файла в базе данных"""
     # Используем new_file_name если он задан, иначе используем исходное имя файла
     actual_filename = new_file_name if new_file_name else file_name
@@ -94,10 +95,12 @@ def _create_file(db: Session, file_name: str, new_file_name: str | None, dxf_han
     meta = dxf_handler.get_file_metadata(file_name)
     styles_meta = dxf_handler.extract_styles(file_name)
     blocks_meta = dxf_handler.extract_blocks_from_dxf(file_name)
+    #ltype_meta = dxf_handler.extract_linetypes(file_name)
     
     # Объединяем метаданные
     meta["blocks"] = blocks_meta
     meta["styles"] = styles_meta
+    #meta["linetypes"] = ltype_meta
     
     # Конвертируем объекты Vec3 в списки
     meta = _replace_vec3_to_list(meta)
@@ -200,7 +203,7 @@ def export_dxf(username: str, password: str, address: str, port: str, dbname: st
     finally:
         db.close()
 
-def _handle_existing_file(db: Session, table_info: dict, username: str, password: str, address: str, port: str, dbname: str) -> tuple[Session, str | None]:
+def _handle_existing_file(db: Session, table_info: dict, username: str, password: str, address: str, port: str, dbname: str) -> tuple[Session, Union[str, None]]:
     """Обработка существующего файла в зависимости от режима импорта"""
     if table_info['import_mode'] == 'overwrite':
         file_id = table_info['file_id']

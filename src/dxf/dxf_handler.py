@@ -10,6 +10,7 @@ import os
 
 from ..logger.logger import Logger
 from PyQt5.QtCore import  pyqtSignal, QObject, Qt
+from ..localization.localization_manager import LocalizationManager
 
 def get_selected_file(tree_widget_handler):
     """
@@ -33,6 +34,7 @@ class DXFHandler(QObject):
         self.type_selection = type_selection
         self.tree_widget_handler = tree_widget_handler
         self.selected_entities = {}
+        self.localization = LocalizationManager.instance()
         if self.tree_widget_handler is not None:
             self.tree_widget_handler.selection_changed.connect(self.update_selected_entities)
 
@@ -136,31 +138,35 @@ class DXFHandler(QObject):
         Выбирает сущности в указанной области в зависимости от типа выделения.
         :param args: Параметры для фигуры (координаты, центральная точка, радиус и т.д.).
         """
+        ui = self.localization.strings.UI
+        
         # Соответствие типов выделения функциям выбора
         selection_functions = {
-            'inside': select.bbox_inside,
-            'outside': select.bbox_outside,
-            'overlap': select.bbox_overlap
+            ui["selection_inside"]: select.bbox_inside,
+            ui["selection_outside"]: select.bbox_outside,
+            ui["selection_intersect"]: select.bbox_overlap
         }
 
-        if self.type_selection.currentText() not in selection_functions:
-            raise ValueError(f"Unsupported selection type: {self.type_selection.currentText()}")
+        selection_type = self.type_selection.currentText()
+        if selection_type not in selection_functions:
+            raise ValueError(f"Unsupported selection type: {selection_type}")
 
         # Соответствие типов фигур функциям создания
         shape_creators = {
-            'rect': lambda x_min, x_max, y_min, y_max: select.Window((x_min, y_min), (x_max, y_max)),
-            'circle': lambda center_point, radius: select.Circle(center_point, radius),
-            'polygon': lambda points: select.Polygon(points)
+            ui["shape_rectangle"]: lambda x_min, x_max, y_min, y_max: select.Window((x_min, y_min), (x_max, y_max)),
+            ui["shape_circle"]: lambda center_point, radius: select.Circle(center_point, radius),
+            ui["shape_polygon"]: lambda points: select.Polygon(points)
         }
 
-        if self.type_shape.currentText() not in shape_creators:
-            raise ValueError(f"Unsupported shape type: {self.type_shape.currentText()}")
+        shape_type = self.type_shape.currentText()
+        if shape_type not in shape_creators:
+            raise ValueError(f"Unsupported shape type: {shape_type}")
 
         # Создаем объект фигуры
-        shape_obj = shape_creators[self.type_shape.currentText()](*args)
+        shape_obj = shape_creators[shape_type](*args)
 
         # Получаем соответствующую функцию выбора
-        selection_func = selection_functions[self.type_selection.currentText()]
+        selection_func = selection_functions[selection_type]
         Logger.log_message(self.tree_widget_handler)
         active_layer = get_selected_file(self.tree_widget_handler)
         if active_layer:

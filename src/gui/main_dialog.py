@@ -9,7 +9,7 @@ from functools import partial
 
 from .preview_components import PreviewDialog, PreviewWidgetFactory
 from ..logger.logger import Logger
-from ..dxf.dxf_handler import DXFHandler
+from ..dxf.dxf_handler import DXFHandler, get_selected_file
 from ..tree_widget_handler import TreeWidgetHandler
 from ..db.database import get_all_files_from_db, import_dxf, delete_dxf
 from .info_dialog import InfoDialog
@@ -108,7 +108,16 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.select_area_button.setText(self.lm.get_string("UI", "select_area_button"))
         self.export_to_db_button.setText(self.lm.get_string("UI", "export_to_db_button"))
         
-  
+
+    def check_selected_file(self):
+        active_layer = get_selected_file(self.dxf_tree_widget_handler)
+        if active_layer:
+            Logger.log_message(f"Активный файл: {active_layer}")
+            return True
+        else:
+            Logger.log_warning("Файл не выбран. Пожалуйста, выберите файл в дереве.")
+            return False
+
     def toggle_logging(self, state):
         """
         Включение или отключение логирования при изменении состояния чекбокса.

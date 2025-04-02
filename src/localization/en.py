@@ -334,7 +334,7 @@ UI = {
     "shape_polygon": "polygon",
     "selection_inside": "inside",
     "selection_outside": "outside",
-    "selection_intersect": "intersection",
+    "selection_intersect": "overlap",
     "databases_label": "Databases",
     "enable_logs": "Enable Logs",
     "interface_language": "Interface Language"

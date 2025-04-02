@@ -1,4 +1,3 @@
-
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
@@ -7,8 +6,8 @@ from qgis.core import Qgis
 from ..src.draw.DrawRect import RectangleMapTool
 from ..src.draw.DrawCircle import CircleMapTool
 from ..src.draw.DrawPolygon import PolygonMapTool
-from ..src.logger.logger import Logger
 from ..src.plugins.dxf_tools.clsADXF2Shape import clsADXF2Shape
+from ..src.localization.localization_manager import LocalizationManager
 
 from .gui.main_dialog import ConverterDialog
 from .. import resources
@@ -30,6 +29,7 @@ class DxfPostGISConverter:
         self.iface = iface
         self.canvas = self.iface.mapCanvas()
         self.subplugin = None
+        self.localization = LocalizationManager.instance()
 
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -167,18 +167,37 @@ class DxfPostGISConverter:
 
 
     def selectArea(self):
-        self.dlg.hide()
-        if self.dlg.type_shape.currentText() == 'rect':
-            self.rect = RectangleMapTool(self.canvas, self.dlg)
-            self.iface.mapCanvas().setMapTool(self.rect)
-        elif self.dlg.type_shape.currentText() == 'circle':
-            self.circle = CircleMapTool(self.canvas, self.dlg)
-            self.iface.mapCanvas().setMapTool(self.circle)
-        elif self.dlg.type_shape.currentText() == 'polygon':
-            self.polygon = PolygonMapTool(self.canvas, self.dlg)
-            self.iface.mapCanvas().setMapTool(self.polygon)
 
-        self.iface.messageBar().pushMessage("Подсказка", "Выделите желаемую область для импорта", level=Qgis.Info, duration=5)
+        ui = self.localization.strings.UI
+        common = self.localization.strings.COMMON
+
+        if self.dlg.check_selected_file():
+            self.dlg.hide()
+            shape_type = self.dlg.type_shape.currentText()
+
+            if shape_type == ui["shape_rectangle"]:
+                self.rect = RectangleMapTool(self.canvas, self.dlg)
+                self.iface.mapCanvas().setMapTool(self.rect)
+            elif shape_type == ui["shape_circle"]:
+                self.circle = CircleMapTool(self.canvas, self.dlg)
+                self.iface.mapCanvas().setMapTool(self.circle)
+            elif shape_type == ui["shape_polygon"]:
+                self.polygon = PolygonMapTool(self.canvas, self.dlg)
+                self.iface.mapCanvas().setMapTool(self.polygon)
+
+            self.iface.messageBar().pushMessage(
+                common["info"],
+                "Выделите желаемую область для импорта",
+                level=Qgis.Info,
+                duration=5
+            )
+        else:
+            self.iface.messageBar().pushMessage(
+                common["warning"],
+                "Файл не выбран, выберите файл в дереве",
+                level=Qgis.Warning,
+                duration=5
+            )
         #self.iface.messageBar().pushMessage("Предупреждение", "Выделение работает с ПЕРВОЙ АКТИВНОЙ группой слоев", level=Qgis.Warning, duration=3)
 
     def run_subplugin(self):

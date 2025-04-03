@@ -1,8 +1,10 @@
 from typing import Union
+
+from ezdxf.acis.entities import Vertex
 from ezdxf.render import ConnectionSide
 from shapely.geometry import Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection
 from shapely.geometry.base import BaseGeometry
-from ezdxf.entities import DXFEntity, Point as DXFPoint, Line, Polyline, LWPolyline, Circle, Arc, MultiLeader, Insert, Solid3d, Spline, Ellipse
+from ezdxf.entities import DXFEntity, Point as DXFPoint, Line, Polyline, LWPolyline, Circle, Arc, MultiLeader, Insert, Solid3d, Spline, Ellipse, AttDef, Attrib
 from ezdxf.entities import MText, Solid, Face3d, Trace, Body, Region, Mesh, Hatch, Leader, Shape, Viewport, ImageDef, Image
 from ezdxf.entities import Dimension, Ray, XLine, SeqEnd, Helix, XRecord
 from ezdxf.entities import factory
@@ -51,8 +53,10 @@ def convert_dxf_to_postgis(entity: DXFEntity, dxf_handler) -> tuple[str, BaseGeo
         'DIMENSION': _convert_dimension_to_postgis,
         'RAY': _convert_ray_to_postgis,
         'XLINE': _convert_xline_to_postgis,
+        #'ATTRIB': _convert_attrib_to_postgis,
         'SEQEND': _convert_seqend_to_postgis,
         'HELIX': _convert_helix_to_postgis,
+        #'VERTEX': _convert_vertex_to_postgis,
     }
 
     if geom_type in conversion_functions:
@@ -159,6 +163,17 @@ def insert_blocks_to_new_file(doc, blocks_data):
                     new_hatch = new_block.add_hatch(dxfattribs=dxfattribs)
                     # Использование render_hatches для добавления границ
                     path.render_hatches(new_block, entity['paths'], dxfattribs=dxfattribs)
+                elif entity_type == "TEXT":
+                    text = dxfattribs.pop("text", None)
+                    height = dxfattribs.pop("text", None)
+                    rotation = dxfattribs.pop("text", None)
+                    new_block.add_text(text=text, height=height, rotation=rotation,dxfattribs=dxfattribs)
+                #elif entity_type == "MTEXT":
+                elif entity_type == "INSERT":
+                    name = dxfattribs.pop('name', None)
+                    insert = dxfattribs.pop('insert', None)
+
+                    new_block.add_blockref(name=name, insert=insert, dxfattribs=dxfattribs)
 
                 else:
                     entity_obj = factory.create_db_entry(entity_type, dxfattribs, doc=doc)
@@ -306,6 +321,13 @@ def convert_postgis_to_dxf(
             start_angle = attribs['start_angle']
             end_angle = attribs['end_angle']
             msp.add_arc(center, radius, start_angle, end_angle, dxfattribs=attribs)
+        elif geom_type == 'ELLIPSE':
+            center = tuple(attribs['center'])
+            major_axis = tuple(attribs['major_axis'])
+            ratio = attribs['ratio']
+            start_param = attribs['start_param']
+            end_param = attribs['end_param']
+            msp.add_ellipse(center, major_axis, ratio, start_param, end_param, dxfattribs=attribs)
 
         elif geom_type == 'MULTILEADER':
             attributes = geom_object.extra_data.get('attributes', {})
@@ -419,6 +441,8 @@ def convert_postgis_to_dxf(
                 entity.sat = acis_data
             except Exception as e:
                 Logger.log_error("convert_postgis_to_dxf() geom_type == '3DSOLID' ERROR. e: " + str(e))
+        else:
+            Logger.log_error(f'postgis to dxf. dxf type = "{non_geom_object}" not supported.')
 
    
     doc.audit()
@@ -650,7 +674,8 @@ def _convert_ellipse_to_postgis(entity: Ellipse) -> tuple[BaseGeometry, dict]:
     """ELLIPSE в DXF представляет собой эллипс. В Shapely можно аппроксимировать эллипс точками."""
     center = (entity.dxf.center.x, entity.dxf.center.y, entity.dxf.center.z)
     major_axis = (entity.dxf.major_axis.x, entity.dxf.major_axis.y, entity.dxf.major_axis.z)
-    ratio = entity.dxf.axis_ratio
+    ratio = entity.dxf.ratio
+    extrusion = entity.dxf.extrusion
     start_param = entity.dxf.start_param
     end_param = entity.dxf.end_param
 
@@ -853,15 +878,15 @@ def _convert_xline_to_postgis(entity: XLine) -> tuple[BaseGeometry, dict]:
     extra_data['start_point'] = start_point
     extra_data['unit_vector'] = unit_vector
     return Point(start_point), extra_data
-
-'''
+def _convert_attrib_to_postgis(entity: Attrib):
+    pass
 def _convert_vertex_to_postgis(entity: Vertex) -> tuple[BaseGeometry, dict]:
     #`VERTEX` в DXF представляет собой вершину. В Shapely нет прямого эквивалента, но можно сохранить данные о вершине.
-    location = (entity.dxf.location.x, entity.dxf.location.y, entity.dxf.location.z)
+    location = (entity.point.location.x, entity.point.location.y, entity.point.location.z)
     extra_data = _attributes_to_dict(entity)
     extra_data['location'] = location
     return Point(location), extra_data
-'''
+
 
 def _convert_seqend_to_postgis(entity: SeqEnd) -> tuple[BaseGeometry, dict]:
     '''`SEQEND` в DXF представляет собой конец последовательности. В Shapely нет прямого эквивалента, но можно сохранить данные о последовательности.'''

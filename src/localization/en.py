@@ -14,6 +14,7 @@ COMMON = {
     "help": "Help",
     "confirm": "Confirm",
     "new_file": "New file",
+    "success": "Success",
 }
 
 # Main dialog strings
@@ -56,7 +57,19 @@ MAIN_DIALOG = {
     # Errors
     "error_processing_dxf": "Error processing DXF files: {0}",
     "error_executing_task": "Error executing task: {0}",
-    "error_displaying_connection": "Error displaying connection info for {0}: {1}"
+    "error_displaying_connection": "Error displaying connection info for {0}: {1}",
+    
+    # Export to file
+    "no_file_selected": "No file selected. Please select a DXF file first.",
+    "no_entities_selected": "No entities selected. Please select entities to export.",
+    "export_file_as": "Export file as",
+    "export_method_title": "Export Method",
+    "export_method_question": "How would you like to export the selected entities?",
+    "export_simple": "Simple export",
+    "export_with_resources": "Export with resources",
+    "export_successful": "Selected entities were successfully exported to {}",
+    "export_error": "Failed to export selected entities",
+    "export_exception": "Error during export: {}",
 }
 
 # Logging
@@ -326,6 +339,7 @@ UI = {
     "open_dxf_button": "Open DXF",
     "select_area_button": "Select Area",
     "export_to_db_button": "Export to DB",
+    "export_to_file_button": "Export to File",
     "file_not_selected": "No file selected :(",
     "type_shape": "Shape Type",
     "type_selection": "Selection Rule",

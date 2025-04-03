@@ -46,6 +46,9 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # нажатие по кнопке export_to_db_button
         self.export_to_db_button.clicked.connect(self.export_to_db_button_click)
+        
+        # нажатие по кнопке export_to_file_button
+        self.export_to_file_button.clicked.connect(self.export_to_file_button_click)
     
         # нажатие по другой вкладке tabWidget
         self.tabWidget.currentChanged.connect(self.handle_tab_change)
@@ -80,6 +83,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         # Перемещаем кнопку в правый верхний угол
         self.info_button.move(self.width() - 35, 10)
         self.info_button.clicked.connect(self.show_help)
+
     def setupUiText(self):
         """Обновляет текст элементов пользовательского интерфейса согласно выбранному языку"""
         # Заголовок окна
@@ -508,3 +512,86 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         # Optionally, trigger UI re-translation if needed
         # For example: self.retranslateUi(self)
         self.setupUiText()
+
+    def export_to_file_button_click(self):
+        """
+        Обработка нажатия кнопки экспорта выбранных объектов в файл.
+        Использует DXFExporter для экспорта выбранных сущностей в новый DXF-файл.
+        """
+        from ..dxf.dxf_handler import DXFExporter
+        
+        # Проверяем, выбран ли файл
+        active_file = get_selected_file(self.dxf_tree_widget_handler)
+        if not active_file:
+            QMessageBox.warning(self, self.lm.get_string("COMMON", "warning"), 
+                               self.lm.get_string("MAIN_DIALOG", "no_file_selected"))
+            return
+        
+        # Проверяем, выбраны ли объекты
+        if active_file not in self.dxf_handler.selected_entities or not self.dxf_handler.selected_entities[active_file]:
+            QMessageBox.warning(self, self.lm.get_string("COMMON", "warning"), 
+                               self.lm.get_string("MAIN_DIALOG", "no_entities_selected"))
+            return
+            
+        # Открываем диалог для выбора пути сохранения файла
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, 
+            self.lm.get_string("MAIN_DIALOG", "export_file_as"), 
+            f"{os.path.splitext(active_file)[0]}_export.dxf",
+            "DXF файлы (*.dxf);;Все файлы (*)", 
+            options=options
+        )
+        
+        if not file_path:
+            return
+            
+        # Создаем экспортер и выполняем два метода экспорта
+        exporter = DXFExporter(self.dxf_handler)
+        
+        # Показываем диалог с выбором метода экспорта
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Question)
+        msg_box.setWindowTitle(self.lm.get_string("MAIN_DIALOG", "export_method_title"))
+        msg_box.setText(self.lm.get_string("MAIN_DIALOG", "export_method_question"))
+        
+        simple_button = msg_box.addButton(self.lm.get_string("MAIN_DIALOG", "export_simple"), QMessageBox.YesRole)
+        #resources_button = msg_box.addButton(self.lm.get_string("MAIN_DIALOG", "export_with_resources"), QMessageBox.NoRole)
+        cancel_button = msg_box.addButton(self.lm.get_string("COMMON", "cancel"), QMessageBox.RejectRole)
+        
+        msg_box.exec_()
+        
+        try:
+            result = False
+            if msg_box.clickedButton() == simple_button:
+                # Простой экспорт с использованием write_block
+                Logger.log_message(f"Выполняется простой экспорт в файл: {file_path}")
+                result = exporter.export_selected_entities(active_file, file_path)
+            elif msg_box.clickedButton() == resources_button:
+                # Экспорт с дополнительными ресурсами
+                Logger.log_message(f"Выполняется экспорт с ресурсами в файл: {file_path}")
+                result = exporter.export_with_resources(active_file, file_path)
+            else:
+                # Отмена операции
+                return
+                
+            # Проверяем результат экспорта
+            if result:
+                QMessageBox.information(
+                    self, 
+                    self.lm.get_string("COMMON", "success"),
+                    self.lm.get_string("MAIN_DIALOG", "export_successful", file_path)
+                )
+            else:
+                QMessageBox.warning(
+                    self, 
+                    self.lm.get_string("COMMON", "error"),
+                    self.lm.get_string("MAIN_DIALOG", "export_error")
+                )
+        except Exception as e:
+            Logger.log_error(f"Ошибка при экспорте в файл: {str(e)}")
+            QMessageBox.critical(
+                self, 
+                self.lm.get_string("COMMON", "error"),
+                self.lm.get_string("MAIN_DIALOG", "export_exception", str(e))
+            )

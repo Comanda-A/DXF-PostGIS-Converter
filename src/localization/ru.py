@@ -14,6 +14,7 @@ COMMON = {
     "help": "Справка",
     "confirm": "Подтвердить",
     "new_file" : "Новый файл",
+    "success": "Успех",
 }
 
 # Строки для основного диалога
@@ -56,7 +57,19 @@ MAIN_DIALOG = {
     # Ошибки
     "error_processing_dxf": "Ошибка при обработке DXF файлов: {0}",
     "error_executing_task": "Ошибка при выполнении задачи: {0}",
-    "error_displaying_connection": "Ошибка при отображении информации о подключении {0}: {1}"
+    "error_displaying_connection": "Ошибка при отображении информации о подключении {0}: {1}",
+    
+    # Экспорт в файл
+    "no_file_selected": "Файл не выбран. Сначала выберите DXF файл.",
+    "no_entities_selected": "Не выбраны объекты для экспорта. Выберите объекты.",
+    "export_file_as": "Экспорт файла как",
+    "export_method_title": "Метод экспорта",
+    "export_method_question": "Как вы хотите экспортировать выбранные объекты?",
+    "export_simple": "Простой экспорт",
+    "export_with_resources": "Экспорт с ресурсами",
+    "export_successful": "Выбранные объекты успешно экспортированы в файл {}",
+    "export_error": "Не удалось экспортировать выбранные объекты",
+    "export_exception": "Ошибка при экспорте: {}",
 }
 
 # Логирование 
@@ -333,6 +346,7 @@ UI = {
     "open_dxf_button": "Открыть DXF",
     "select_area_button": "Выбрать область",
     "export_to_db_button": "Экспорт в БД",
+    "export_to_file_button": "Экспорт в файл",
     "file_not_selected": "Файл не выбран :(",
     "type_shape": "Тип фигуры",
     "type_selection": "Правило выбора",

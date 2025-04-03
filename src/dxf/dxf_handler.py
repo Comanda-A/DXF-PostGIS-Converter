@@ -1,15 +1,18 @@
 import ezdxf
 from ezdxf import select
-from ezdxf.entities import EdgeType
+from ezdxf.entities import EdgeType, DXFEntity
 from ezdxf.layouts.layout import Modelspace, Paperspace
 from ezdxf.document import Drawing
 from ezdxf.addons.drawing import Frontend, RenderContext
 from ezdxf.addons.drawing import layout, svg
+import ezdxf.xref as xref
 
 import os
 
+from ezdxf.xref import ConflictPolicy
+
 from ..logger.logger import Logger
-from PyQt5.QtCore import  pyqtSignal, QObject, Qt
+from PyQt5.QtCore import pyqtSignal, QObject, Qt
 from ..localization.localization_manager import LocalizationManager
 
 def get_selected_file(tree_widget_handler):
@@ -77,6 +80,9 @@ class DXFHandler(QObject):
         """
         return os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dxf', filename)
 
+    def checkObjects(self, file_name):
+        return self.msps[file_name].query('CIRCLE')
+
     @staticmethod
     def save_svg_preview(doc, msp, filename):
         """
@@ -114,9 +120,11 @@ class DXFHandler(QObject):
         try:
             fn = os.path.basename(file_name)
             self.dxf[fn] = ezdxf.readfile(file_name)
+            self.dxf[fn].audit()
             msp = self.dxf[fn].modelspace()
             self.msps[fn] = msp
             self.file_is_open = True
+            layout_names = [name for name in self.dxf[fn].layout_names() if name != "Model"]
 
             self.process_entities(msp)
             Logger.log_message(f"Файл {fn} успешно прочитан.")
@@ -332,6 +340,9 @@ class DXFHandler(QObject):
 
             blocks_data = []
             
+            # Словарь для хранения статистики типов сущностей
+            entity_types_stats = {}
+            
             # Определяем, есть ли выбранные сущности
             selected_entities = self.selected_entities.get(filename, [])
             
@@ -361,11 +372,28 @@ class DXFHandler(QObject):
                 }
 
                 for entity in block:
+                    entity_type = entity.dxftype()
+                    
+                    # Обновляем статистику типов сущностей
+                    if entity_type not in entity_types_stats:
+                        entity_types_stats[entity_type] = {
+                            "count": 0,
+                            "attributes": set()
+                        }
+                    
+                    entity_types_stats[entity_type]["count"] += 1
+                    
+                    # Добавляем атрибуты в набор
+                    if hasattr(entity, 'dxf'):
+                        for attr in entity.dxf.all_existing_dxf_attribs():
+                            entity_types_stats[entity_type]["attributes"].add(attr)
+                    
                     entity_data = {
-                        "type": entity.dxftype(),
+                        "type": entity_type,
                         "handle": entity.dxf.handle,
                         "layer": entity.dxf.layer,
                     }
+
                     if hasattr(entity, 'dxf'):
                         entity_data.update({attr: getattr(entity.dxf, attr, None) 
                                         for attr in entity.dxf.all_existing_dxf_attribs()})
@@ -406,7 +434,7 @@ class DXFHandler(QObject):
 
                     block_info["entities"].append(entity_data)
                 blocks_data.append(block_info)
-
+            #blocks_data.append(entity_types_stats)  # Добавляем статистику типов сущностей в конец списка блоков
             return blocks_data
 
         except Exception as e:
@@ -626,4 +654,138 @@ class DXFHandler(QObject):
         doc = self.dxf[self.filename]
         mleader_style = doc.entitydb.get(handle)
         return mleader_style
+
+class DXFExporter:
+    """
+    Экспортирует выбранные сущности в новый DXF файл.
+    """
+    def __init__(self, handler: DXFHandler):
+        self.handler = handler
+
+    def export_selected_entities(self, filename: str, output_file: str):
+        """
+        Экспортирует выбранные сущности в новый DXF файл.
+        
+        :param filename: Имя исходного DXF файла.
+        :param output_file: Имя выходного DXF файла.
+        """
+        if filename not in self.handler.selected_entities:
+            Logger.log_error(f"Нет выбранных сущностей для файла {filename}.")
+            return
+
+        selected_entities = self.handler.selected_entities[filename]
+        if not selected_entities:
+            Logger.log_error(f"Нет выбранных сущностей для экспорта из файла {filename}.")
+            return
+
+        try:
+            # Используем функцию write_block из модуля xref для создания нового документа
+            # с выбранными сущностями. Эта функция также копирует все необходимые ресурсы,
+            # такие как слои, типы линий, стили текста и т.д.
+            new_doc = xref.write_block(selected_entities, origin=(0, 0, 0))
+
+            layout_names = [name for name in self.handler.dxf[filename].layout_names() if name != "Model"]
+            try:
+                for layout_name in layout_names:
+                    xref.load_paperspace(self.handler.dxf[filename].paperspace(layout_name), new_doc, conflict_policy=ConflictPolicy.NUM_PREFIX)
+            except Exception as e:
+                Logger.log_error(f"Ошибка при загрузке layout {layout_name}: {e}")
+            new_doc.delete_layout('Layout1')
+
+            # Сохраняем новый документ
+            new_doc.saveas(output_file)
+            Logger.log_message(f"Выбранные сущности успешно экспортированы в файл {output_file}.")
+            return True
+
+        except Exception as e:
+            Logger.log_error(f"Ошибка при экспорте сущностей: {e}")
+            return False
+            
+    def export_with_resources(self, filename: str, output_file: str):
+        """
+        Экспортирует выбранные сущности в новый DXF файл, включая все связанные ресурсы.
+        
+        Использует низкоуровневый интерфейс загрузки Loader для полного контроля над процессом
+        экспорта ресурсов, связанных с выбранными сущностями.
+        
+        :param filename: Имя исходного DXF файла.
+        :param output_file: Имя выходного DXF файла.
+        """
+        if filename not in self.handler.selected_entities:
+            Logger.log_error(f"Нет выбранных сущностей для файла {filename}.")
+            return False
+
+        selected_entities = self.handler.selected_entities[filename]
+        if not selected_entities:
+            Logger.log_error(f"Нет выбранных сущностей для экспорта из файла {filename}.")
+            return False
+
+        try:
+            # Получаем исходный документ
+            source_doc = self.handler.dxf[filename]
+            
+            # Создаем новый документ
+            target_doc = ezdxf.new(dxfversion=source_doc.dxfversion)
+            
+            # Создаем загрузчик для управления передачей ресурсов
+            loader = xref.Loader(source_doc, target_doc, conflict_policy=xref.ConflictPolicy.KEEP)
+            
+            # Определяем слои, используемые в выбранных сущностях
+            used_layers = set(entity.dxf.layer for entity in selected_entities if hasattr(entity, 'dxf'))
+            
+            # Загружаем слои, типы линий, стили текста и размерные стили
+            loader.load_layers(used_layers)
+            
+            # Определяем используемые типы линий
+            used_linetypes = set()
+            for entity in selected_entities:
+                if hasattr(entity, 'dxf') and hasattr(entity.dxf, 'linetype'):
+                    used_linetypes.add(entity.dxf.linetype)
+            
+            # Загружаем типы линий
+            loader.load_linetypes(used_linetypes)
+            
+            # Определяем используемые стили текста
+            used_textstyles = set()
+            for entity in selected_entities:
+                if entity.dxftype() == "TEXT" or entity.dxftype() == "MTEXT":
+                    if hasattr(entity.dxf, 'style'):
+                        used_textstyles.add(entity.dxf.style)
+            
+            # Загружаем стили текста
+            loader.load_text_styles(used_textstyles)
+            
+            # Определяем используемые размерные стили
+            used_dimstyles = set()
+            for entity in selected_entities:
+                if entity.dxftype() == "DIMENSION":
+                    if hasattr(entity.dxf, 'dimstyle'):
+                        used_dimstyles.add(entity.dxf.dimstyle)
+            
+            # Загружаем размерные стили
+            loader.load_dim_styles(used_dimstyles)
+            
+            # Загружаем выбранные сущности в модельное пространство нового документа
+            target_msp = target_doc.modelspace()
+            
+            # Функция фильтрации - оставляем только выбранные сущности
+            filter_fn = lambda entity: entity in selected_entities
+            
+            loader.load_modelspace(source_doc.modelspace(), filter_fn)
+
+            # Загружаем сущности с применением фильтра
+            loader.load_paperspace_layout(source_doc.paperspace())
+            
+            # Выполняем все команды загрузки
+            loader.execute(xref_prefix=filename)
+            
+            # Сохраняем результат
+            target_doc.saveas(output_file)
+            
+            Logger.log_message(f"Выбранные сущности с ресурсами успешно экспортированы в файл {output_file}.")
+            return True
+            
+        except Exception as e:
+            Logger.log_error(f"Ошибка при экспорте сущностей с ресурсами: {e}")
+            return False
 

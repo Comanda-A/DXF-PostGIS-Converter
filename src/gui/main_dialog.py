@@ -1,22 +1,103 @@
 import os
+import tempfile
 
 from qgis.PyQt import uic, QtWidgets
-from qgis.PyQt.QtWidgets import QMessageBox, QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView, QFileDialog
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtWidgets import QMessageBox, QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView, QFileDialog, QProgressDialog
+from qgis.PyQt.QtCore import Qt, QThread, pyqtSignal, QTimer
 
 from qgis.core import QgsProviderRegistry, QgsDataSourceUri, QgsSettings
 from functools import partial
 
 from .preview_components import PreviewDialog, PreviewWidgetFactory
+from ..db.database import get_all_dxf_files, delete_dxf_file, get_dxf_file_by_id
 from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler, get_selected_file
 from ..tree_widget_handler import TreeWidgetHandler
-from ..db.database import get_all_files_from_db, import_dxf, delete_dxf
 from .info_dialog import InfoDialog
 from ..workers.dxf_worker import DXFWorker
 from ..workers.long_task_worker import LongTaskWorker
 from ..db.connections_manager import ConnectionsManager
 from ..localization.localization_manager import LocalizationManager
+
+class PreviewGeneratorThread(QThread):
+    """
+    Поток для генерации превью DXF файла.
+    Работает отдельно от основного потока интерфейса, чтобы не блокировать UI.
+    """
+    finished = pyqtSignal(bool, str, str)  # Сигнал: успех/неуспех, сообщение, путь к превью
+    progress_update = pyqtSignal(int, str)  # Сигнал обновления прогресса: процент, сообщение
+    
+    def __init__(self, dxf_handler, file_content, filename, plugin_root_dir):
+        """
+        Инициализация потока генерации превью.
+        
+        :param dxf_handler: Обработчик DXF-файлов
+        :param file_content: Содержимое DXF-файла в бинарном формате
+        :param filename: Имя DXF-файла
+        :param plugin_root_dir: Корневая директория плагина
+        """
+        super().__init__()
+        self.dxf_handler = dxf_handler
+        self.file_content = file_content
+        self.filename = filename
+        self.plugin_root_dir = plugin_root_dir
+        self.lm = LocalizationManager.instance()
+        self.temp_file_path = None
+
+    def run(self):
+        """
+        Основной метод потока. Выполняет генерацию превью и отправляет сигнал о результате.
+        """
+        try:
+            Logger.log_message(self.lm.get_string("MAIN_DIALOG", "preview_generation_started", self.filename))
+            
+            self.progress_update.emit(0, self.lm.get_string("MAIN_DIALOG", "creating_temp_file"))
+            
+            # Создаем временный файл
+            temp_dir = tempfile.gettempdir()
+            self.temp_file_path = os.path.join(temp_dir, self.filename)
+            
+            # Записываем содержимое файла во временный файл
+            with open(self.temp_file_path, 'wb') as f:
+                f.write(self.file_content)
+            
+            self.progress_update.emit(30, self.lm.get_string("MAIN_DIALOG", "reading_dxf_file"))
+            
+            # Создаем SVG превью
+            doc = self.dxf_handler.simle_read_dxf_file(self.temp_file_path)
+            
+            self.progress_update.emit(60, self.lm.get_string("MAIN_DIALOG", "generating_svg"))
+            
+            preview_path = self.dxf_handler.save_svg_preview(doc, doc.modelspace(), self.filename)
+            
+            self.progress_update.emit(90, self.lm.get_string("MAIN_DIALOG", "cleaning_temp_files"))
+            
+            # Удаляем временный файл
+            try:
+                os.remove(self.temp_file_path)
+                self.temp_file_path = None
+            except Exception as e:
+                Logger.log_warning(f"Не удалось удалить временный файл {self.temp_file_path}: {str(e)}")
+            
+            if preview_path:
+                Logger.log_message(self.lm.get_string("MAIN_DIALOG", "preview_generation_success", preview_path))
+                self.finished.emit(True, self.lm.get_string("MAIN_DIALOG", "preview_generation_complete"), preview_path)
+            else:
+                Logger.log_error("Генерация превью не удалась")
+                self.finished.emit(False, self.lm.get_string("MAIN_DIALOG", "preview_generation_error"), "")
+                
+        except Exception as e:
+            Logger.log_error(f"Ошибка при генерации превью: {str(e)}")
+            self.finished.emit(False, str(e), "")
+            
+    def cleanup(self):
+        """Очистка временных файлов при прерывании работы потока"""
+        if self.temp_file_path and os.path.exists(self.temp_file_path):
+            try:
+                os.remove(self.temp_file_path)
+                Logger.log_message(f"Временный файл удален при очистке: {self.temp_file_path}")
+            except Exception as e:
+                Logger.log_error(f"Ошибка при удалении временного файла при очистке: {str(e)}")
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'main_dialog.ui'))
@@ -46,10 +127,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # нажатие по кнопке export_to_db_button
         self.export_to_db_button.clicked.connect(self.export_to_db_button_click)
-        
-        # нажатие по кнопке export_to_file_button
-        self.export_to_file_button.clicked.connect(self.export_to_file_button_click)
-    
+
         # нажатие по другой вкладке tabWidget
         self.tabWidget.currentChanged.connect(self.handle_tab_change)
 
@@ -204,7 +282,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
     def export_to_db_button_click(self):
         from .export_dialog import ExportDialog
 
-        has_selection = any(self.dxf_handler.selected_entities.values())
+        has_selection = len(self.dxf_handler.selected_entities[self.dxf_tree_widget_handler.get_selected_file_name()]) != self.dxf_handler.len_entities_file[self.dxf_tree_widget_handler.get_selected_file_name()]
         
         if has_selection:
             msg_box = QMessageBox()
@@ -309,7 +387,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             conn_item.takeChildren()
             
             # Тестируем подключение и получаем файлы
-            files = get_all_files_from_db(username, password, uri.host(), 
+            files = get_all_dxf_files(username, password, uri.host(),
                                         uri.port(), uri.database())
             
             if files is None or len(files) == 0:
@@ -348,14 +426,26 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                 buttons_layout = QHBoxLayout(buttons_widget)
                 buttons_layout.setContentsMargins(20, 0, 0, 0)
 
-                # Создаем виджет предпросмотра
-                preview_widget = self.preview_factory.create_preview_widget(
-                    file['filename'],
-                    self.plugin_root_dir,
-                    self.show_full_preview
-                )
-                if preview_widget:
-                    buttons_layout.addWidget(preview_widget)
+                # Проверяем наличие файла предпросмотра
+                preview_path = os.path.join(self.plugin_root_dir, 'previews', f"{os.path.splitext(file['filename'])[0]}.svg")
+                has_preview = os.path.exists(preview_path)
+                
+                # Создаем виджет предпросмотра если файл существует
+                if has_preview:
+                    preview_widget = self.preview_factory.create_preview_widget(
+                        file['filename'],
+                        self.plugin_root_dir,
+                        self.show_full_preview
+                    )
+                    if preview_widget:
+                        buttons_layout.addWidget(preview_widget)
+                else:
+                    # Добавляем кнопку для генерации предпросмотра
+                    load_preview_button = QPushButton(self.lm.get_string("MAIN_DIALOG", "load_preview_button"))
+                    load_preview_button.setFixedSize(100, 20)
+                    load_preview_button.clicked.connect(
+                        partial(self.generate_preview_for_file, conn_display_name, uri.database(), uri.host(), uri.port(), file['id'], file['filename']))
+                    buttons_layout.addWidget(load_preview_button)
 
                 # Добавляем кнопки
                 import_button = QPushButton(self.lm.get_string("MAIN_DIALOG", "import_button"))
@@ -414,8 +504,9 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             # Очищаем кеш перед удалением файла
             preview_path = os.path.join(self.plugin_root_dir, 'previews', f"{os.path.splitext(file_name)[0]}.svg")
             self.preview_factory.remove_from_cache(preview_path)
-            
-            delete_dxf(saved_conn['username'], saved_conn['password'], host, port, database, file_id)
+            if os.path.exists(preview_path):
+                os.remove(preview_path)
+            delete_dxf_file(saved_conn['username'], saved_conn['password'], host, port, database, file_id)
             self.refresh_db_structure_treewidget()
             
 
@@ -482,8 +573,18 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                 QMessageBox.warning(None, self.lm.get_string("COMMON", "error"), 
                                    self.lm.get_string("MAIN_DIALOG", "saved_credentials_error"))
                 return
-                
-            import_dxf(conn['username'], conn['password'], host, port, dbname, file_id, file_path)
+            file = get_dxf_file_by_id(conn['username'], conn['password'], host, port, dbname, file_id)
+            file_content = file.file_content
+            with open(file_path, 'wb') as f:
+                try:
+                    f.write(file_content)
+
+                    QMessageBox.information(None, self.lm.get_string("COMMON", "success"),
+                                            self.lm.get_string("MAIN_DIALOG", "file_saved_successfully", file_path))
+                except Exception as e:
+                    Logger.log_message(self.lm.get_string("MAIN_DIALOG", "error_saving_file", str(e)))
+                    QMessageBox.critical(None, self.lm.get_string("COMMON", "error"),
+                                        self.lm.get_string("MAIN_DIALOG", "error_saving_file", str(e)))
         else:
             QMessageBox.warning(None, self.lm.get_string("COMMON", "warning"), 
                                self.lm.get_string("MAIN_DIALOG", "file_path_error"))
@@ -509,89 +610,124 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         """Обработка смены языка через переключатель"""
         self.lm.set_language(new_lang)
         Logger.log_message(f"Язык изменен на {new_lang}")
-        # Optionally, trigger UI re-translation if needed
-        # For example: self.retranslateUi(self)
         self.setupUiText()
 
-    def export_to_file_button_click(self):
+    def generate_preview_for_file(self, conn_display_name, database, host, port, file_id, filename):
         """
-        Обработка нажатия кнопки экспорта выбранных объектов в файл.
-        Использует DXFExporter для экспорта выбранных сущностей в новый DXF-файл.
+        Генерирует превью для файла из базы данных
+        
+        Args:
+            conn_display_name: Имя подключения для получения сохраненных учетных данных
+            database: Имя базы данных
+            host: Хост базы данных
+            port: Порт базы данных
+            file_id: ID файла
+            filename: Имя файла
         """
-        from ..dxf.dxf_handler import DXFExporter
-        
-        # Проверяем, выбран ли файл
-        active_file = get_selected_file(self.dxf_tree_widget_handler)
-        if not active_file:
-            QMessageBox.warning(self, self.lm.get_string("COMMON", "warning"), 
-                               self.lm.get_string("MAIN_DIALOG", "no_file_selected"))
-            return
-        
-        # Проверяем, выбраны ли объекты
-        if active_file not in self.dxf_handler.selected_entities or not self.dxf_handler.selected_entities[active_file]:
-            QMessageBox.warning(self, self.lm.get_string("COMMON", "warning"), 
-                               self.lm.get_string("MAIN_DIALOG", "no_entities_selected"))
-            return
-            
-        # Открываем диалог для выбора пути сохранения файла
-        options = QFileDialog.Options()
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, 
-            self.lm.get_string("MAIN_DIALOG", "export_file_as"), 
-            f"{os.path.splitext(active_file)[0]}_export.dxf",
-            "DXF файлы (*.dxf);;Все файлы (*)", 
-            options=options
-        )
-        
-        if not file_path:
-            return
-            
-        # Создаем экспортер и выполняем два метода экспорта
-        exporter = DXFExporter(self.dxf_handler)
-        
-        # Показываем диалог с выбором метода экспорта
-        msg_box = QMessageBox()
-        msg_box.setIcon(QMessageBox.Question)
-        msg_box.setWindowTitle(self.lm.get_string("MAIN_DIALOG", "export_method_title"))
-        msg_box.setText(self.lm.get_string("MAIN_DIALOG", "export_method_question"))
-        
-        simple_button = msg_box.addButton(self.lm.get_string("MAIN_DIALOG", "export_simple"), QMessageBox.YesRole)
-        #resources_button = msg_box.addButton(self.lm.get_string("MAIN_DIALOG", "export_with_resources"), QMessageBox.NoRole)
-        cancel_button = msg_box.addButton(self.lm.get_string("COMMON", "cancel"), QMessageBox.RejectRole)
-        
-        msg_box.exec_()
-        
         try:
-            result = False
-            if msg_box.clickedButton() == simple_button:
-                # Простой экспорт с использованием write_block
-                Logger.log_message(f"Выполняется простой экспорт в файл: {file_path}")
-                result = exporter.export_selected_entities(active_file, file_path)
-            elif msg_box.clickedButton() == resources_button:
-                # Экспорт с дополнительными ресурсами
-                Logger.log_message(f"Выполняется экспорт с ресурсами в файл: {file_path}")
-                result = exporter.export_with_resources(active_file, file_path)
-            else:
-                # Отмена операции
+            # Получаем сохраненные учетные данные из ConnectionsManager
+            conn = self.connections_manager.get_connection(conn_display_name)
+            if not conn:
+                QMessageBox.warning(None, self.lm.get_string("COMMON", "error"), 
+                                   self.lm.get_string("MAIN_DIALOG", "saved_credentials_error"))
                 return
-                
-            # Проверяем результат экспорта
-            if result:
-                QMessageBox.information(
-                    self, 
-                    self.lm.get_string("COMMON", "success"),
-                    self.lm.get_string("MAIN_DIALOG", "export_successful", file_path)
-                )
-            else:
-                QMessageBox.warning(
-                    self, 
-                    self.lm.get_string("COMMON", "error"),
-                    self.lm.get_string("MAIN_DIALOG", "export_error")
-                )
-        except Exception as e:
-            Logger.log_error(f"Ошибка при экспорте в файл: {str(e)}")
-            QMessageBox.critical(
-                self, 
-                self.lm.get_string("COMMON", "error"),
-                self.lm.get_string("MAIN_DIALOG", "export_exception", str(e))
+            
+            # Получаем файл из базы данных
+            file = get_dxf_file_by_id(conn['username'], conn['password'], host, port, database, file_id)
+            if not file:
+                QMessageBox.warning(None, self.lm.get_string("COMMON", "error"),
+                                   self.lm.get_string("MAIN_DIALOG", "file_not_found_error", file_id))
+                return
+            
+            # Создаем и настраиваем диалог прогресса
+            self.progress_dialog = QProgressDialog(self.lm.get_string("MAIN_DIALOG", "generating_preview"), None, 0, 0, self)
+            self.progress_dialog.setWindowModality(Qt.WindowModal)
+            self.progress_dialog.setWindowTitle(self.lm.get_string("MAIN_DIALOG", "preview_generation_title"))
+            self.progress_dialog.setAutoClose(True)
+            self.progress_dialog.setCancelButton(None)
+            self.progress_dialog.setMinimumDuration(0)
+            
+            # Добавляем анимацию точек
+            self.dots = 0
+            self.timer = QTimer()
+            self.timer.timeout.connect(self.update_progress_dialog_text)
+            self.timer.start(500)
+            
+            # Создаем поток для генерации превью
+            self.preview_generator = PreviewGeneratorThread(
+                self.dxf_handler,
+                file.file_content,
+                filename,
+                self.plugin_root_dir
             )
+            
+            # Подключаем сигналы
+            self.preview_generator.progress_update.connect(self.update_preview_progress)
+            self.preview_generator.finished.connect(self.on_preview_generation_finished)
+            
+            # Запускаем поток
+            self.preview_generator.start()
+            
+            # Показываем диалог прогресса
+            self.progress_dialog.show()
+            
+        except Exception as e:
+            Logger.log_error(f"Ошибка при начале генерации превью для файла {filename}: {str(e)}")
+            QMessageBox.critical(None, self.lm.get_string("COMMON", "error"),
+                                self.lm.get_string("MAIN_DIALOG", "preview_generation_error_with_details", str(e)))
+    
+    def update_preview_progress(self, percent, message):
+        """
+        Обновляет индикатор прогресса и сообщение для генерации превью
+        
+        :param percent: Процент выполнения (0-100)
+        :param message: Сообщение о текущем этапе
+        """
+        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+            self.progress_dialog.setLabelText(message)
+            if percent > 0:  # Если передан конкретный процент
+                self.progress_dialog.setMaximum(100)
+                self.progress_dialog.setValue(percent)
+            else:  # Если процент не определен, показываем бесконечный прогресс
+                self.progress_dialog.setMaximum(0)
+    
+    def update_progress_dialog_text(self):
+        """Обновление текста в окне прогресса (анимация точек)"""
+        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+            self.dots = (self.dots + 1) % 4
+            # Получаем базовый текст без точек
+            base_text = self.progress_dialog.labelText().rstrip('.')
+            # Добавляем нужное количество точек
+            animated_text = base_text + '.' * self.dots
+            self.progress_dialog.setLabelText(animated_text)
+    
+    def on_preview_generation_finished(self, success, message, preview_path):
+        """
+        Обработка завершения генерации превью
+        
+        :param success: Флаг успешности операции
+        :param message: Сообщение о результате
+        :param preview_path: Путь к созданному файлу превью
+        """
+        # Останавливаем таймер анимации точек
+        if hasattr(self, 'timer') and self.timer.isActive():
+            self.timer.stop()
+        
+        # Закрываем диалог прогресса
+        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+            self.progress_dialog.close()
+        
+        if success:
+            QMessageBox.information(None, self.lm.get_string("COMMON", "success"),
+                                  self.lm.get_string("MAIN_DIALOG", "preview_generated_successfully", preview_path))
+            
+            # Обновляем отображение в дереве
+            self.refresh_db_structure_treewidget()
+        else:
+            QMessageBox.warning(None, self.lm.get_string("COMMON", "error"),
+                              self.lm.get_string("MAIN_DIALOG", "preview_generation_error_with_details", message))
+        
+        # Очищаем ссылку на поток
+        if hasattr(self, 'preview_generator'):
+            self.preview_generator.cleanup()  # Очищаем временные файлы если они остались
+            self.preview_generator = None

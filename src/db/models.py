@@ -1,64 +1,59 @@
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, DateTime, Text, Table, MetaData, LargeBinary
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from geoalchemy2 import Geometry
 from .database import Base
+from ..logger.logger import Logger
 
 
-
-class File(Base):
-    ''' Таблица с файлами. '''
-
-    __tablename__ = 'files'
-
+# Schema для файлов DXF
+class DxfFile(Base):
+    """ Таблица для хранения целых DXF файлов """
+    
+    __tablename__ = 'dxf_files'
+    __table_args__ = {'schema': 'file_schema'}
+    
     id = Column(Integer, primary_key=True)
-    filename = Column(String, nullable=False)
-    file_metadata = Column(JSONB, nullable=False)
+    filename = Column(String, nullable=False, unique=True)
+    file_content = Column(LargeBinary, nullable=False)  # Хранение самого файла в бинарном формате
     upload_date = Column(DateTime)
     update_date = Column(DateTime)
 
-    layers = relationship('Layer', back_populates='file', cascade='all, delete-orphan')
 
-
-class Layer(Base):
-    ''' Таблица со слоями. '''
-
-    __tablename__ = 'layers'
-
+# Базовый класс для слоев DXF - будет использоваться для создания таблиц для каждого слоя
+class DxfLayerBase:
+    """ Базовый класс для создания таблиц слоев DXF """
+    
     id = Column(Integer, primary_key=True)
-    file_id = Column(Integer, ForeignKey('files.id'), nullable=False)
-    name = Column(String, nullable=False)
-    color = Column(String, nullable=True)
-    description = Column(String, nullable=False)
-    layer_metadata = Column(JSONB, nullable=False)
-
-    file = relationship('File', back_populates='layers')
-    geometric_objects = relationship('GeometricObject', back_populates='layer_relationship', cascade='all, delete-orphan')
-    non_geometric_objects = relationship('NonGeometricObject', back_populates='layer', cascade='all, delete-orphan')
-
-
-class NonGeometricObject(Base):
-    ''' Таблица с не геом. объектами. ''' # которые не поддерживают postgis
-    __tablename__ = 'non_geometric_objects'
-
-    id = Column(Integer, primary_key=True)
-    file_id = Column(Integer, ForeignKey('files.id'), nullable=False)
-    layer_id = Column(Integer, ForeignKey('layers.id'), nullable=False)
+    file_id = Column(Integer, ForeignKey('file_schema.dxf_files.id', ondelete='CASCADE'), nullable=False)
+    geometry = Column(Geometry('GEOMETRYZ', srid=4326), nullable=False)
     geom_type = Column(String, nullable=False)
-    extra_data = Column(JSONB, nullable=False)  # просто в json
+    notes = Column(Text, nullable=True, comment='Примечание к элементу (связанные негеометрические объекты)')
+    extra_data = Column(JSONB, nullable=True)
 
-    layer = relationship('Layer', back_populates='non_geometric_objects')
 
+# Функция для динамического создания таблицы слоя
+def create_layer_table(layer_name):
+    """
+    Создает класс таблицы для указанного слоя DXF
+    
+    Args:
+        layer_name: Имя слоя, для которого создается таблица
+        
+    Returns:
+        Класс таблицы SQLAlchemy для данного слоя
+    """
+    # Заменяем пробелы и дефисы на подчеркивания
+    tablename = layer_name.replace(' ', '_').replace('-', '_')
 
-class GeometricObject(Base):
-    ''' Таблица с геом. объектами. ''' # которые поддерживают postgis
-    __tablename__ = 'geometric_objects'
-
-    id = Column(Integer, primary_key=True)
-    file_id = Column(Integer, ForeignKey('files.id'), nullable=False)
-    layer_id = Column(Integer, ForeignKey('layers.id'), nullable=False)
-    geom_type = Column(String, nullable=False)
-    geometry = Column(Geometry('GEOMETRYZ', srid=4326), nullable=False)  # PostGIS тип GEOMETRYZ
-    extra_data = Column(JSONB, nullable=False)  # доп данные в json
-
-    layer_relationship  = relationship('Layer', back_populates='geometric_objects')
+    # Добавим отладочную информацию о длине имени таблицы
+    Logger.log_message(f"Creating table for layer '{layer_name}' with tablename '{tablename}' (win1251 length: {len(tablename.encode('cp1251'))}, char length: {len(tablename)})")
+    
+    return type(
+        f"{layer_name}",
+        (Base, DxfLayerBase),
+        {
+            '__tablename__': tablename,
+            '__table_args__': {'schema': 'layer_schema', 'extend_existing': True}
+        }
+    )

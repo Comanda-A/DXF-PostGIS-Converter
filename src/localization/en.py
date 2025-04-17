@@ -50,6 +50,8 @@ MAIN_DIALOG = {
     # Import from DB
     "save_file_as": "Save file as",
     "file_path_error": "Please select a path to save the file.",
+"file_saved_successfully": "File successfully saved to {0}",
+    "error_saving_file": "Error saving file: {0}",
     
     # Help dialog
     "help_dialog_title": "Help - DXF-PostGIS Converter",
@@ -70,6 +72,22 @@ MAIN_DIALOG = {
     "export_successful": "Selected entities were successfully exported to {}",
     "export_error": "Failed to export selected entities",
     "export_exception": "Error during export: {}",
+    
+    # Preview generation
+    "preview_generation_started": "Starting preview generation for {0}",
+    "creating_temp_file": "Creating temporary file...",
+    "reading_dxf_file": "Reading DXF file...",
+    "generating_svg": "Generating SVG preview...",
+    "cleaning_temp_files": "Cleaning temporary files...",
+    "preview_generation_success": "Preview successfully generated at {0}",
+    "preview_generation_complete": "Preview generation complete",
+    "preview_generation_error": "Failed to generate preview",
+    "preview_generation_title": "Generating Preview",
+    "generating_preview": "Generating preview...",
+    "preview_generation_error_with_details": "Error generating preview: {0}",
+    "preview_generated_successfully": "Preview successfully generated",
+    "load_preview_button": "Load Preview",
+    "file_not_found_error": "File with ID {0} not found"
 }
 
 # Logging
@@ -145,6 +163,47 @@ TREE_WIDGET_HANDLER = {
 EXPORT_DIALOG = {
     "title": "Export to Database",
     "export_thread_start": "Starting DXF export to database",
+    "export_thread_connecting": "Connecting to database...",
+    "export_thread_success": "Export completed successfully",
+    "export_thread_complete": "Export completed successfully!",
+    "export_thread_failed": "Failed to complete export",
+    "progress_dialog_title": "Export",
+    "progress_text": "Exporting objects to database{0}",
+    "success_title": "Success",
+    "error_title": "Error",
+    "export_error": "Failed to complete export: {0}",
+    "warning_title": "Warning",
+    "select_file_warning": "Please select a file to export",
+    "export_progress": "Exporting file to database",
+    "export_title": "DXF Export",
+    "export_button": "Export",
+    
+    # Groups and labels
+    "dxf_objects_group": "DXF Objects",
+    "db_connection_group": "Database Connection",
+    "file_info_group": "File Information",
+    "export_settings_group": "Export Settings",
+    "mapping_info": "During export, geometry and notes fields of layer tables will be compared. The file will be overwritten in the database.",
+    
+    # Layer mapping modes
+    "mapping_mode_label": "Layer mapping mode:",
+    "mapping_mode_always_overwrite": "Always overwrite",
+    "mapping_mode_geometry": "Map by geometry",
+    "mapping_mode_notes": "Map by notes",
+    "mapping_mode_both": "Map by geometry and notes",
+    
+    # Mapping mode descriptions
+    "desc_always_overwrite": "All existing objects in the database will be replaced with new ones. Use this mode when you want to completely update layers.",
+    "desc_geometry": "Objects with identical geometry will be updated, unique objects will be added. Convenient for preserving object hierarchy.",
+    "desc_notes": "Objects with identical notes will be updated. Useful when notes are used as unique identifiers.",
+    "desc_both": "Comparison will be done by both geometry and notes. The most strict matching option.",
+    
+    # Temporary file operations
+    "creating_temp_file": "Creating temporary file for export...",
+    "temp_file_created": "Temporary file created, performing export...",
+    "temp_file_error": "Failed to create temporary DXF file for export",
+    
+    # The rest of the existing keys without changes
     "export_thread_success": "Export completed successfully",
     "export_thread_complete": "Export completed successfully!",
     "progress_dialog_title": "Export",

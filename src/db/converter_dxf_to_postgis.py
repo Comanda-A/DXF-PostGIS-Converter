@@ -1,26 +1,32 @@
-from typing import Union
+from typing import Union, Dict, Optional
 
 from ezdxf.acis.entities import Vertex
-from ezdxf.render import ConnectionSide
-from shapely.geometry import Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection
+from shapely.geometry import Point, LineString, Polygon, MultiPolygon
 from shapely.geometry.base import BaseGeometry
 from ezdxf.entities import DXFEntity, Point as DXFPoint, Line, Polyline, LWPolyline, Circle, Arc, MultiLeader, Insert, Solid3d, Spline, Ellipse, AttDef, Attrib
 from ezdxf.entities import MText, Solid, Face3d, Trace, Body, Region, Mesh, Hatch, Leader, Shape, Viewport, ImageDef, Image
 from ezdxf.entities import Dimension, Ray, XLine, SeqEnd, Helix, XRecord
-from ezdxf.entities import factory
 from ezdxf.entities.text import Text
-from ezdxf import path
 
-from ezdxf.math import Vec3, Vec2
-from . import models
-import ezdxf
+from ezdxf.math import Vec3
+
 import numpy as np
 
 from ..dxf.dxf_handler import DXFHandler
 from ..logger.logger import Logger
 
+from geoalchemy2 import WKTElement
 
-def convert_dxf_to_postgis(entity: DXFEntity, dxf_handler) -> tuple[str, BaseGeometry, dict]:
+def convert_entity_to_postgis(entity: DXFEntity) -> Optional[Dict]:
+    """
+    Преобразует DXF сущность в формат PostGIS
+    
+    Args:
+        entity: DXF сущность
+        
+    Returns:
+        Словарь с информацией о геометрии, типе и дополнительных данных или None в случае ошибки
+    """
     geom_type = entity.dxftype()
     geometry, extra_data = None, {}
 
@@ -34,7 +40,7 @@ def convert_dxf_to_postgis(entity: DXFEntity, dxf_handler) -> tuple[str, BaseGeo
         'ARC': _convert_arc_to_postgis,
         'MULTILEADER': _convert_multileader_to_postgis,
         'INSERT': _convert_insert_to_postgis,
-        '3DSOLID': _convert_3dsolid_to_postgis,
+        #'3DSOLID': _convert_3dsolid_to_postgis,
         'SPLINE': _convert_spline_to_postgis,
         'ELLIPSE': _convert_ellipse_to_postgis,
         'MTEXT': _convert_mtext_to_postgis,
@@ -53,422 +59,32 @@ def convert_dxf_to_postgis(entity: DXFEntity, dxf_handler) -> tuple[str, BaseGeo
         'DIMENSION': _convert_dimension_to_postgis,
         'RAY': _convert_ray_to_postgis,
         'XLINE': _convert_xline_to_postgis,
-        #'ATTRIB': _convert_attrib_to_postgis,
+        'ATTRIB': _convert_attrib_to_postgis,
         'SEQEND': _convert_seqend_to_postgis,
         'HELIX': _convert_helix_to_postgis,
         #'VERTEX': _convert_vertex_to_postgis,
     }
 
     if geom_type in conversion_functions:
-        if geom_type == 'MULTILEADER':
-            geometry, extra_data = conversion_functions[geom_type](entity, dxf_handler)
-        else:
-            geometry, extra_data = conversion_functions[geom_type](entity)
+        geometry, extra_data = conversion_functions[geom_type](entity)
     else:
         Logger.log_error(f'dxf type = "{geom_type}" not supported')
+        return None
 
-    return geom_type, geometry, _verify_extra_data(extra_data)
+    # Convert the Shapely geometry to a format PostGIS can understand if it exists
+    if geometry is not None:
+        # Convert to WKTElement for proper PostGIS storage with SRID 4326
+        # Explicitly convert the Shapely geometry to WKT string format first
+        wkt_str = geometry.wkt
+        geometry = WKTElement(wkt_str, srid=4326)
 
-def insert_blocks_to_new_file(doc, blocks_data):
-    """
-    Вставка блоков в новый файл DXF из словаря блоков.
-    """
-    _list_to_vec3(blocks_data)  # Convert all lists to Vec3
-    Logger.log_message("Starting block insertion")
-    msp = doc.modelspace()
-    
-    for block in blocks_data:
-        block_name = block.get("name")
-        Logger.log_message(f"Processing block: {block_name}")
-        
-        # Получаем базовую точку блока и преобразуем её в Vec3
-        base_point = Vec3(block.get("base_point", (0, 0, 0)))
-        
-        try:
-            # Создаем новый блок с правильной базовой точкой
-            new_block = doc.blocks.new(name=block_name, base_point=base_point)
-            Logger.log_message(f"Created new block: {block_name} at {base_point}")
-        except ezdxf.DXFValueError:
-            Logger.log_warning(f"Block '{block_name}' already exists. Skipping.")
-            continue
-
-        for entity in block.get("entities", []):
-            entity_type = entity.get("type")
-            if entity_type == "MULTILEADER":
-                Logger.log_message(entity_type)
-            # Pass along all keys except 'type', 'handle', and 'layer'.
-            dxfattribs = {k: v for k, v in entity.items() if k not in ("type", "handle", "layer", "boundary_paths")}
-
-            try:
-                if entity_type == "LWPOLYLINE":
-                    closed = dxfattribs.pop("closed", False)
-                    points = dxfattribs.pop("points", [])
-                    new_block.add_lwpolyline(points, dxfattribs=dxfattribs, close=closed)
-                #TODO: вроде как вставка работает, но не видно в Blocks Section
-                elif entity_type == "3DSOLID":
-                    try:
-                        acis_data = dxfattribs.pop("acis_data", None)
-                        new_entity = new_block.add_3dsolid(dxfattribs)
-                        new_entity.sat = acis_data
-                        Logger.log_message(f"Inserted 3DSOLID in block: {block_name}")
-                    except Exception as e:
-                        Logger.log_error(f"Error inserting 3DSOLID in block {block_name}: {e}")
-                elif entity_type == "HATCH" and "boundary_paths" in entity:
-                    hatch = new_block.add_hatch(color=dxfattribs.pop("color", 7), dxfattribs=dxfattribs)
-                    for bpath in entity["boundary_paths"]:
-                        flag = bpath.get("path_type_flags", 0)
-                        edges = bpath.get("edges", [])
-                        if edges and "vertices" in edges[0]:
-                            pts_list = edges[0]["vertices"]
-                            pts = [tuple(pt) for pt in pts_list]
-                            Logger.log_message(f"Adding polyline path to hatch: {pts}")
-                            is_closed = edges[0].get("is_closed", True)
-                            hatch.paths.add_polyline_path(pts, is_closed=is_closed)
-                        else:
-                            edge_path = hatch.paths.add_edge_path()
-                            for edge in edges:
-                                etype = edge.get("type")
-                                if etype == "LINE":
-                                    edge_path.add_line(tuple(edge["start"]), tuple(edge["end"]))
-                                elif etype == "ARC":
-                                    edge_path.add_arc(
-                                        center=tuple(edge["center"]),
-                                        radius=edge["radius"],
-                                        start_angle=edge["start_angle"],
-                                        end_angle=edge["end_angle"],
-                                        ccw=edge.get("ccw", False),
-                                    )
-                                elif etype == "ELLIPSE":
-                                    edge_path.add_ellipse(
-                                        center=edge["center"],
-                                        major_axis=edge["major_axis"],
-                                        ratio=edge["ratio"],
-                                        start_param=edge["start_param"],
-                                        end_param=edge["end_param"],
-                                        ccw=edge.get("ccw", True),
-                                    )
-                                elif etype == "SPLINE":
-                                    edge_path.add_spline(
-                                        degree=edge["degree"],
-                                        control_points=edge["control_points"],
-                                        fit_points=edge["fit_points"],
-                                        knot_values=edge["knot_values"],
-                                        weights=edge["weights"],
-                                        periodic=edge.get("periodic", 0),
-                                        start_tangent=edge.get("start_tangent", (0, 0)),
-                                        end_tangent=edge.get("end_tangent", (0, 0)),
-                                    )
-                elif entity_type == "HATCH" and "hatch_data" in entity:
-                    # Создание нового HATCH-объекта
-                    new_hatch = new_block.add_hatch(dxfattribs=dxfattribs)
-                    # Использование render_hatches для добавления границ
-                    path.render_hatches(new_block, entity['paths'], dxfattribs=dxfattribs)
-                elif entity_type == "TEXT":
-                    text = dxfattribs.pop("text", None)
-                    height = dxfattribs.pop("text", None)
-                    rotation = dxfattribs.pop("text", None)
-                    new_block.add_text(text=text, height=height, rotation=rotation,dxfattribs=dxfattribs)
-                #elif entity_type == "MTEXT":
-                elif entity_type == "INSERT":
-                    name = dxfattribs.pop('name', None)
-                    insert = dxfattribs.pop('insert', None)
-
-                    new_block.add_blockref(name=name, insert=insert, dxfattribs=dxfattribs)
-
-                else:
-                    entity_obj = factory.create_db_entry(entity_type, dxfattribs, doc=doc)
-                    new_block.add_entity(entity_obj)
-            except Exception as e:
-                Logger.log_error(f"Error adding entity '{entity_type}' to block '{block_name}': {e}")
-
-    Logger.log_message("Completed block insertion")
-
-
-def create_linetypes(doc, linetypes_data: dict):
-    """
-    Создаёт новые типы линий в таблице LTYPE DXF-документа на основе предоставленных данных.
-    """
-    for name, data in linetypes_data.items():
-        description = data.get('description', '')
-        pattern = data.get('pattern', [])
-
-        # Проверяем, существует ли уже тип линии с таким именем
-        if name in doc.linetypes:
-            Logger.log_warning(f"Тип линии '{name}' уже существует в документе.")
-            continue
-
-        # Добавляем новый тип линии в таблицу LTYPE
-        doc.linetypes.new(name=name, dxfattribs={
-            'description': description,
-            'pattern': pattern
-        })
-        Logger.log_message(f"Добавлен новый тип линии: {name}")
-
-
-def insert_styles_to_new_file(doc, styles: dict):
-    """
-    Внедряет стили в новый документ DXF.
-    """
-    for style_name, style_data in styles.items():
-        if not doc.styles.has_entry(style_name):
-            try:
-                # Создаем стиль с заданными атрибутами
-                doc.styles.add(style_name,font=style_data.pop("font") , dxfattribs=style_data.get("dxfattribs", {}))
-
-                Logger.log_message(f"Стиль '{style_name}' внедрен.")
-            except Exception as e:
-                Logger.log_error(f"Ошибка при внедрении стиля '{style_name}': {e}")
-        else:
-            Logger.log_message(f"Стиль '{style_name}' уже существует.")
-
-def convert_postgis_to_dxf(
-    file_metadata: str,
-    layers: list[models.Layer],
-    geom_objects: list[models.GeometricObject],
-    non_geom_objects: list[models.NonGeometricObject],
-    path: str
-):
-    # Создаем новый документ DXF
-    doc = ezdxf.new()
-
-    # Получаем заголовок документа
-    header = doc.header
-    
-    # Добавляем данные из file_metadata в заголовок
-    headers = file_metadata.get('file_metadata', {}).get('headers', {})
-    for key, value in headers.items():
-        if isinstance(value, list) and all(isinstance(v, (int, float)) for v in value):
-            # Если значение — это список чисел (например, координаты), оставляем его как есть
-            header[key] = value
-        else:
-            # Если значение обычное, просто добавляем его в заголовок
-            header[key] = str(value)  # Преобразуем в строку только если это не список чисел
-    
-    # Добавляем версию в заголовок
-    version = file_metadata.get('file_metadata', {}).get('version', '')
-    if version:
-        header['$ACADVER'] = version
-
-    #Добавление стилей
-    styles = file_metadata.get('styles', {})
-    insert_styles_to_new_file(doc, styles)
-    # Добавление типов линий
-    #linetypes = file_metadata.get('linetypes', {})
-    #create_linetypes(doc, linetypes)
-
-    # Добавляем слои и объекты в DXF
-    for layer in layers:
-        Logger.log_message(f'Layer: {layer.name}')
-        # Извлекаем метаданные для текущего слоя
-        layer_metadata = layer.layer_metadata
-
-        # Проверяем, существует ли слой
-        if not doc.layers.has_entry(layer.name):  
-            # Создаем новый слой
-            #Logger.log_message(f'Creating new layer: {layer.name}')
-            new_layer = doc.layers.new(name=layer.name)
-
-            # Устанавливаем атрибуты для слоя из метаданных
-            allowed_keys = ['color', 'plot', 'lineweight', 'is_frozen', 'is_locked', 'linetype', 'is_off']
-            for key in allowed_keys:
-                if key in layer_metadata:
-                    setattr(new_layer, key, layer_metadata[key])
-
-    # Добавляем блоки
-    blocks_data = file_metadata.get('blocks', {})
-    insert_blocks_to_new_file(doc, blocks_data)
-
-    # Добавление геометрических объектов
-    msp = doc.modelspace()
-    for geom_object in geom_objects:
-        layer_name = geom_object.layer_relationship.name
-        geom_type = geom_object.geom_type
-
-        attribs = _verify_attributes(geom_object.extra_data.get('attributes', {}))
-        
-        if geom_type == 'POINT':
-            location = tuple(attribs['location'])
-            msp.add_point(
-                location,
-                dxfattribs=attribs
-            )
-
-        elif geom_type == 'LINE':
-            start = tuple(attribs['start'])
-            end = tuple(attribs['end'])
-            msp.add_line(start, end, dxfattribs=attribs)
-            
-        elif geom_type == 'POLYLINE':
-            points = geom_object.extra_data['points']
-            closed = attribs.pop("is_closed", False)
-            msp.add_lwpolyline(points, dxfattribs=attribs, close=closed)
-
-
-        elif geom_type == 'LWPOLYLINE':
-            points = [tuple(point) for point in geom_object.extra_data['points']]
-            closed = attribs.pop("is_closed", False)
-            msp.add_lwpolyline(points, dxfattribs=attribs, close=closed)
-
-
-        elif geom_type == 'CIRCLE':
-            center = tuple(attribs['center'])
-            radius = attribs['radius']
-            msp.add_circle(center, radius, dxfattribs=attribs)
-
-        elif geom_type == 'ARC':
-            center = tuple(attribs['center'])
-            radius = attribs['radius']
-            start_angle = attribs['start_angle']
-            end_angle = attribs['end_angle']
-            msp.add_arc(center, radius, start_angle, end_angle, dxfattribs=attribs)
-        elif geom_type == 'ELLIPSE':
-            center = tuple(attribs['center'])
-            major_axis = tuple(attribs['major_axis'])
-            ratio = attribs['ratio']
-            start_param = attribs['start_param']
-            end_param = attribs['end_param']
-            msp.add_ellipse(center, major_axis, ratio, start_param, end_param, dxfattribs=attribs)
-
-        elif geom_type == 'MULTILEADER':
-            attributes = geom_object.extra_data.get('attributes', {})
-            leader_lines = geom_object.extra_data.get('leader_lines', [])
-            text = geom_object.extra_data.get('text', "")
-            style = geom_object.extra_data.get('text_style', "Standard")
-            char_height = geom_object.extra_data.get('char_height', 1.0)
-            base_point = geom_object.extra_data.get('base_point', (0, 0, 0))
-            
-            #Logger.log_message(f'MULTILEADER: {attributes}')
-            # Create MULTILEADER entity and apply all extra attributes if supported
-            if text:
-                ml_builder = msp.add_multileader_mtext(dxfattribs=attribs)
-                ml_builder.set_content(content=text, alignment=attributes.get('text_attachment_point', 0), style=style, char_height=char_height)
-                #Logger.log_message(geom_object.extra_data.get('rotation', 0))
-                ml_builder.context.mtext.rotation = geom_object.extra_data.get('rotation', 0)
-                if leader_lines:
-                    ml_builder.add_leader_line(side=ConnectionSide.left, vertices=leader_lines[0])
-
-                # Установка свойств стрелки
-                arrow_head_size = attributes.get('arrow_head_size', 0.5)
-                ml_builder.set_arrow_properties(size=arrow_head_size)
-
-                # Установка свойств соединения
-                landing_gap = attributes.get('landing_gap', 0.0)
-                dogleg_length = attributes.get('dogleg_length', 8.0)
-                ml_builder.set_connection_properties(landing_gap=landing_gap, dogleg_length=dogleg_length)
-
-                ml_builder.set_connection_types(left=attribs.get('text_left_attachment_type', 0), right=attribs.get('text_right_attachment_type', 0), bottom=attribs.get('text_bottom_attachment_type', 0), top=attribs.get('text_top_attachment_type', 0))
-
-                # Установка свойств линии-указателя
-                leader_line_color = 1#attributes.get('leader_line_color', None)
-                leader_linetype = attributes.get('linetype', 'BYBLOCK')[0]
-                leader_lineweight = attributes.get('leader_lineweight', -1)
-                leader_type = attributes.get('leader_type', 1)
-                ml_builder.set_leader_properties(
-                    color=leader_line_color,
-                    linetype=leader_linetype,
-                    lineweight=leader_lineweight,
-                    leader_type=leader_type
-                )
-                for key, value in attributes.items():
-                    try:
-                        setattr(ml_builder.dxf, key, value)
-                    except AttributeError:
-                        #Logger.log_message(f'Error: {key} {value}')
-                        pass
-
-
-                ml_builder.build(insert=Vec2(base_point[:2]))
-            elif 'block_attributes' in geom_object.extra_data:
-                ml_builder = msp.add_multileader_block(style, dxfattribs=attribs)
-                block_attrs = geom_object.extra_data.get('block_attributes', {})
-                block_name = block_attrs.get('name', "Unknown")
-                ml_builder.set_content(name=block_name, alignment=attributes.get('text_attachment_point', 0))
-                # Установка свойств стрелки
-                arrow_head_size = attributes.get('arrow_head_size', 0.5)
-                ml_builder.set_arrow_properties(size=arrow_head_size)
-
-                # Установка цвета линии-указателя
-                leader_line_color = attributes.get('leader_line_color', None)
-                if leader_line_color is not None:
-                    ml_builder.mleader.dxf.leader_line_color = leader_line_color
-
-                for key, value in attributes.items():
-                    try:
-                        setattr(ml_builder.dxf, key, value)
-                    except AttributeError:
-                        pass
-                if leader_lines:
-                    ml_builder.add_leader_line(0, leader_lines[0])
-                
-                ml_builder.build(insert=Vec2(base_point[:2]))
-            else:
-                Logger.log_error('MULTILEADER entity missing text or block attributes')
-            
-        elif geom_type == 'INSERT':
-            insertion_point = tuple(attribs['insert'])
-            block_name = geom_object.extra_data['block_name']
-            #Logger.log_message(geom_object.extra_data)
-            msp.add_blockref(block_name, insertion_point, dxfattribs=attribs)
-
-        else:
-            Logger.log_error(f'postgis to dxf. dxf type = "{geom_type}" not supported.')
-
-    # Добавление негеометрических объектов
-    for non_geom_object in non_geom_objects:
-        layer_name = non_geom_object.layer.name
-        geom_type = non_geom_object.geom_type
-        attribs = _verify_attributes(non_geom_object.extra_data.get('attributes', {}))
-
-        # Пример добавления текстового объекта
-        if geom_type == 'TEXT':
-            text = attribs['text']
-            location = tuple(attribs['insert'])
-            height=attribs['height'] if 'height' in attribs else 0
-            rotation=attribs['rotation'] if 'rotation' in attribs else 0
-            msp.add_text(text, height=height, rotation=rotation, dxfattribs=attribs)
-
-        elif geom_type == '3DSOLID':
-            try:
-                # Получаем ACIS данные из extra_data
-                acis_data = non_geom_object.extra_data.get('acis_data', None)
-                if not acis_data:
-                    raise ValueError("ACIS data is missing")
-                
-                # Создаем объект Solid3d
-                entity = msp.add_3dsolid(attribs)
-                
-                # Устанавливаем ACIS данные в объект Solid3d
-                entity.sat = acis_data
-            except Exception as e:
-                Logger.log_error("convert_postgis_to_dxf() geom_type == '3DSOLID' ERROR. e: " + str(e))
-        else:
-            Logger.log_error(f'postgis to dxf. dxf type = "{non_geom_object}" not supported.')
-
-   
-    doc.audit()
-    # Сохраняем DXF файл
-    doc.saveas(path)
-
-
-def _verify_attributes(attributes: dict) -> dict:
-    """
-    атрибуты из dict переводим в типы понятные ezdxf
-    """
-    attribs = {}
-
-    for key, value in attributes.items():
-        # Проверяем и добавляем атрибуты, если они имеют корректные значения
-        if key in ['location', 'insert']:
-            attribs[key] = tuple(value)  # Преобразуем список в кортеж
-
-        elif key in ['ltscale', 'linetype', 'invisible', 'lineweight', 'true_color'] and isinstance(value, list):
-            attribs[key] = value[0]  # Берем первый элемент, если это список
-
-        elif value is not None:
-            attribs[key] = value
-    
-    return attribs
-
+    # Return as a dictionary for easier access
+    return {
+        'geometry': geometry, 
+        'geom_type': geom_type, 
+        'extra_data': _verify_extra_data(extra_data),
+        'notes': extra_data.get('text', None)  # Add notes field from text if available
+    }
 
 def _replace_vec3_to_list(data):
     if isinstance(data, dict):
@@ -560,8 +176,8 @@ def _convert_lwpolyline_to_postgis(entity: LWPolyline) -> tuple[BaseGeometry, di
     
 def _convert_text_to_postgis(entity: Text) -> tuple[BaseGeometry, dict]:
     extra_data = _attributes_to_dict(entity)
-    #Logger.log_message(F"TEXT: {extra_data}")
-    return None, extra_data
+
+    return Point(entity.dxf.insert.x, entity.dxf.insert.y, entity.dxf.insert.z), extra_data
 
 def _convert_circle_to_postgis(entity: Circle) -> tuple[BaseGeometry, dict]:
     center = (entity.dxf.center.x, entity.dxf.center.y, entity.dxf.center.z)
@@ -651,7 +267,14 @@ def _convert_insert_to_postgis(entity: Insert) -> tuple[BaseGeometry, dict]:
 
 def _convert_3dsolid_to_postgis(entity: Solid3d) -> tuple[Point, dict]:
     try:
-        # Экспорт данных ACIS из объекта 3DSOLID
+# Экспорт данных ACIS из объекта 3DSOLID
+        acis_data = entity.acis_data  # Получаем двоичные данные ACIS
+    except Exception as e:
+        Logger.log_error("_convert_3dsolid_to_postgis() ERROR. e: " + str(e))
+        return None, {}
+    
+    # Собираем дополнительные данные, такие как объем, если он доступен
+# Экспорт данных ACIS из объекта 3DSOLID
         acis_data = entity.acis_data  # Получаем двоичные данные ACIS
     except Exception as e:
         Logger.log_error("_convert_3dsolid_to_postgis() ERROR. e: " + str(e))
@@ -879,6 +502,8 @@ def _convert_xline_to_postgis(entity: XLine) -> tuple[BaseGeometry, dict]:
     extra_data['unit_vector'] = unit_vector
     return Point(start_point), extra_data
 def _convert_attrib_to_postgis(entity: Attrib):
+    '''`ATTRIB` в DXF представляет собой атрибут блока. В Shapely нет прямого эквивалента, но можно сохранить данные об атрибуте.'''
+    return Point(entity.dxf.insert.x, entity.dxf.insert.y, entity.dxf.insert.z), _attributes_to_dict(entity)
     pass
 def _convert_vertex_to_postgis(entity: Vertex) -> tuple[BaseGeometry, dict]:
     #`VERTEX` в DXF представляет собой вершину. В Shapely нет прямого эквивалента, но можно сохранить данные о вершине.

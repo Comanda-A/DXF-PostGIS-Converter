@@ -1,4 +1,4 @@
-from qgis.PyQt.QtWidgets import QTreeWidgetItem, QProgressDialog, QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView, QMessageBox
+from qgis.PyQt.QtWidgets import QProgressDialog, QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView, QMessageBox
 from qgis.PyQt.QtCore import Qt, pyqtSignal, QObject
 
 from qgis.core import QgsApplication

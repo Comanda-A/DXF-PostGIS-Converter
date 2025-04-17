@@ -1,25 +1,23 @@
 import ezdxf
 from ezdxf import select
-from ezdxf.entities import EdgeType, DXFEntity
 from ezdxf.layouts.layout import Modelspace, Paperspace
 from ezdxf.document import Drawing
 from ezdxf.addons.drawing import Frontend, RenderContext
 from ezdxf.addons.drawing import layout, svg
-import ezdxf.xref as xref
 
 import os
-
-from ezdxf.xref import ConflictPolicy
 
 from ..logger.logger import Logger
 from PyQt5.QtCore import pyqtSignal, QObject, Qt
 from ..localization.localization_manager import LocalizationManager
+
 
 def get_selected_file(tree_widget_handler):
     """
     Получает имя выбранного файла из TreeWidgetHandler.
     """
     return tree_widget_handler.get_selected_file_name()
+
 
 class DXFHandler(QObject):
     """
@@ -32,11 +30,13 @@ class DXFHandler(QObject):
         self.msps: dict[str, Modelspace] = {}
         self.paper_space: dict[str, Paperspace] = {}
         self.dxf: dict[str, Drawing] = {}
+        self.file_paths: dict[str, str] = {}
         self.file_is_open = False
         self.type_shape = type_shape
         self.type_selection = type_selection
         self.tree_widget_handler = tree_widget_handler
         self.selected_entities = {}
+        self.len_entities_file = {}
         self.localization = LocalizationManager.instance()
         if self.tree_widget_handler is not None:
             self.tree_widget_handler.selection_changed.connect(self.update_selected_entities)
@@ -54,10 +54,10 @@ class DXFHandler(QObject):
             return
 
         selected_entities = []
-        
+
         # Получаем все слои из файла
         layers = self.msps[file_name].groupby(dxfattrib="layer")
-        
+
         # Для каждого слоя проверяем выбранные сущности
         for layer_name, entities in layers.items():
             if file_name in self.tree_widget_handler.tree_items:
@@ -78,10 +78,7 @@ class DXFHandler(QObject):
         """
         Возвращает полный путь к файлу.
         """
-        return os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dxf', filename)
-
-    def checkObjects(self, file_name):
-        return self.msps[file_name].query('CIRCLE')
+        return self.file_paths.get(filename, None)
 
     @staticmethod
     def save_svg_preview(doc, msp, filename):
@@ -119,18 +116,18 @@ class DXFHandler(QObject):
         """
         try:
             fn = os.path.basename(file_name)
+            self.file_paths[fn] = file_name
             self.dxf[fn] = ezdxf.readfile(file_name)
             self.dxf[fn].audit()
             msp = self.dxf[fn].modelspace()
             self.msps[fn] = msp
             self.file_is_open = True
-            layout_names = [name for name in self.dxf[fn].layout_names() if name != "Model"]
 
             self.process_entities(msp)
             Logger.log_message(f"Файл {fn} успешно прочитан.")
             # Получаем все сущности, сгруппированные по слоям
             layers_entities = msp.groupby(dxfattrib="layer")
-
+            self.len_entities_file[fn] = sum(len(v) for v in layers_entities.values())
             return layers_entities, fn
 
         except IOError:
@@ -147,7 +144,7 @@ class DXFHandler(QObject):
         :param args: Параметры для фигуры (координаты, центральная точка, радиус и т.д.).
         """
         ui = self.localization.strings.UI
-        
+
         # Соответствие типов выделения функциям выбора
         selection_functions = {
             ui["selection_inside"]: select.bbox_inside,
@@ -184,21 +181,13 @@ class DXFHandler(QObject):
             return []
 
         entities = list(selection_func(shape_obj, self.msps[active_layer]))
-        
+
         # Store selected entities for the active file
         self.selected_entities[active_layer] = entities
 
         self.process_entities(entities)
         return entities
 
-    def get_entities_for_export(self, filename):
-        """
-        Возвращает список сущностей для экспорта в базу данных.
-        Если есть выбранные сущности - возвращает их, иначе все сущности файла.
-        """
-        if filename in self.selected_entities and self.selected_entities[filename]:
-            return self.selected_entities[filename]
-        return self.msps[filename].groupby(dxfattrib="layer") if filename in self.msps else []
 
     def clear_selection(self, filename=None):
         """
@@ -220,572 +209,29 @@ class DXFHandler(QObject):
             progress = int((i + 1) / total_entities * 100)
             self.progressChanged.emit(progress)
 
-    def get_layers(self, filename=None) -> dict:
+    def get_entities_for_export(self, filename) -> dict:
         """
-        Возвращает словарь с именами слоёв и списком сущностей на каждом слое.
+        Возвращает словарь сущностей для экспорта в базу данных, сгруппированных по слоям.
+        Если есть выбранные сущности - возвращает их сгруппированными по слоям, иначе все сущности файла.
         """
-        if filename is None:
-            filename = next(iter(self.dxf))
-
-        if filename in self.msps:
-            return self.msps[filename].groupby(dxfattrib="layer")
-        else:
-            return {} 
-    
-    def get_file_metadata(self, filename: str) -> dict:
-        """
-        Извлекает все доступные метаданные из DXF файла.
-        """
-        if filename not in self.dxf:
-            Logger.log_error(f'DXF файл {filename} не загружен.')
+        if filename not in self.msps:
+            Logger.log_warning(f"Файл {filename} не найден в загруженных файлах")
             return {}
+            
+        # Если есть выбранные сущности, группируем их по слоям
+        if filename in self.selected_entities and self.selected_entities[filename]:
+            layers_entities = {}
+            for entity in self.selected_entities[filename]:
+                layer_name = entity.dxf.layer
+                if layer_name not in layers_entities:
+                    layers_entities[layer_name] = []
+                layers_entities[layer_name].append(entity)
+            return layers_entities
+        return self.msps[filename].groupby(dxfattrib="layer") if filename in self.msps else []
 
-        drawing = self.dxf[filename]
-        # Список заголовков файла
-        headers_list = list(drawing.header.varnames())
-        headers_dict = {h: drawing.header.get(h, None) for h in headers_list}
-
-        # Заголовки файла (headers)
-        file_metadata = {
-            "headers": headers_dict,
-            "version": drawing.dxfversion,
-        }
-
-        # Составляем итоговую структуру
-        return {
-            "file_metadata": file_metadata
-        }
-
-    def get_layer_metadata(self, filename: str, layer_name: str) -> dict:
-        """
-        Извлекает все доступные метаданные слоя DXF-файла.
-        
-        :param filename: Имя DXF-файла.
-        :param layer_name: Имя слоя, для которого извлекаются метаданные.
-        :return: Словарь с метаданными слоя.
-        """
-        # Проверяем, загружен ли файл
-        dxf_file = self.dxf.get(filename)
-        if not dxf_file:
-            Logger.log_error(f"Файл {filename} не найден в DXFHandler.")
-            return {"error": f"Файл {filename} не найден."}
-        
-        # Проверяем существование слоя
-        layer = dxf_file.layers.get(layer_name)
-        if not layer:
-            Logger.log_error(f"Слой {layer_name} не найден в файле {filename}.")
-            return {"error": f"Слой {layer_name} не найден."}
-
-        # Основные свойства слоя
-        layer_metadata = {
-            "name": layer.dxf.name,
-            "color": layer.dxf.color,
-            "linetype": layer.dxf.linetype,
-            "is_off": layer.is_off(),
-            "is_frozen": layer.is_frozen(),
-            "is_locked": layer.is_locked(),
-            "plot": layer.dxf.plot,
-            "lineweight": layer.dxf.lineweight,
-        }
-
-
-        return layer_metadata
-
-    def get_tables(self, filename: str) -> dict:
-        """
-        Извлекает таблицы из DXF файла.
-        Возвращает словарь с именами таблиц и списком их записей.
-        """
-        if filename not in self.dxf:
-            Logger.log_error(f"DXF файл {filename} не загружен.")
-            return {"error": f"DXF файл {filename} не загружен."}
-
-        drawing = self.dxf[filename]
-        tables_info = {}
-        # Маппинг стандартных таблиц DXF к именам атрибутов в ezdxf
-        table_mapping = {
-            'APPID': 'appid',
-            'BLOCK_RECORD': 'block_record',
-            'DIMSTYLE': 'dimstyle',
-            'LAYER': 'layer',
-            'LTYPE': 'linetype',
-            'STYLE': 'style',
-            'UCS': 'ucs',
-            'VIEW': 'view',
-            'VPORT': 'vport'
-        }
-        for name, attr_name in table_mapping.items():
-            table = getattr(drawing.tables, attr_name, None)
-            if table is None:
-                continue
-            records = []
-            for record in table:
-                records.append(record.dxfattribs())
-            tables_info[name] = records
-
-        return {"tables": tables_info}
     def simle_read_dxf_file(self, file_name):
         """
         Читает DXF файл и возвращает объект Drawing.
         """
         doc = ezdxf.readfile(file_name)
         return doc
-    def extract_blocks_from_dxf(self, filename: str) -> list:
-        """
-        Извлекает блоки из DXF-файла и возвращает список блоков с их содержимым.
-        Если есть выбранные сущности, извлекает только блоки, связанные с этими сущностями.
-        """
-        try:
-            doc = self.dxf[filename]
-
-            blocks_data = []
-            
-            # Словарь для хранения статистики типов сущностей
-            entity_types_stats = {}
-            
-            # Определяем, есть ли выбранные сущности
-            selected_entities = self.selected_entities.get(filename, [])
-            
-            # Если есть выбранные сущности, собираем список используемых блоков
-            used_block_names = set()
-            if selected_entities:
-                for entity in selected_entities:
-                    # Проверяем, является ли сущность вставкой блока
-                    if entity.dxftype() == 'INSERT':
-                        used_block_names.add(entity.dxf.name)
-                    # Проверяем наличие вложенных блоков
-                    if hasattr(entity, 'virtual_entities'):
-                        for virtual_entity in entity.virtual_entities():
-                            if virtual_entity.dxftype() == 'INSERT':
-                                used_block_names.add(virtual_entity.dxf.name)
-
-            # Обрабатываем блоки
-            for block in doc.blocks:
-                # Пропускаем блок, если есть выбранные сущности и блок не используется
-                if selected_entities and block.name not in used_block_names:
-                    continue
-
-                block_info = {
-                    "name": block.name,
-                    "base_point": tuple(block.base_point),
-                    "entities": []
-                }
-
-                for entity in block:
-                    entity_type = entity.dxftype()
-                    
-                    # Обновляем статистику типов сущностей
-                    if entity_type not in entity_types_stats:
-                        entity_types_stats[entity_type] = {
-                            "count": 0,
-                            "attributes": set()
-                        }
-                    
-                    entity_types_stats[entity_type]["count"] += 1
-                    
-                    # Добавляем атрибуты в набор
-                    if hasattr(entity, 'dxf'):
-                        for attr in entity.dxf.all_existing_dxf_attribs():
-                            entity_types_stats[entity_type]["attributes"].add(attr)
-                    
-                    entity_data = {
-                        "type": entity_type,
-                        "handle": entity.dxf.handle,
-                        "layer": entity.dxf.layer,
-                    }
-
-                    if hasattr(entity, 'dxf'):
-                        entity_data.update({attr: getattr(entity.dxf, attr, None) 
-                                        for attr in entity.dxf.all_existing_dxf_attribs()})
-
-                    # Специальная обработка различных типов сущностей
-                    if entity.dxftype() == 'LWPOLYLINE':
-                        entity_data["points"] = list(entity.get_points(format='xy'))
-                        entity_data["closed"] = entity.is_closed
-                    elif entity.dxftype() == '3DSOLID':
-                        try:
-                            entity_data["acis_data"] = entity.acis_data
-                        except Exception as e:
-                            entity_data["acis_error"] = str(e)
-                    elif entity.dxftype() == 'HATCH':
-                        try:
-                            boundary_paths = []
-                            for path in entity.paths:
-                                path_data = {
-                                    "path_type": path.path_type_flags,
-                                    "edges": []
-                                }
-                                if entity.paths.has_edge_paths:
-                                    for edge in path.edges:
-                                        edge_data = self._process_hatch_edge(edge)
-                                        if edge_data:
-                                            path_data["edges"].append(edge_data)
-                                else:
-                                    vertices = [(v[0], v[1], v[2]) for v in path.vertices]
-                                    path_data["edges"].append({
-                                        "type": "POLYLINE",
-                                        "vertices": vertices,
-                                        "is_closed": path.is_closed
-                                    })
-                                boundary_paths.append(path_data)
-                            entity_data["boundary_paths"] = boundary_paths
-                        except Exception as e:
-                            Logger.log_error(f"HATCH processing error: {e}")
-
-                    block_info["entities"].append(entity_data)
-                blocks_data.append(block_info)
-            #blocks_data.append(entity_types_stats)  # Добавляем статистику типов сущностей в конец списка блоков
-            return blocks_data
-
-        except Exception as e:
-            Logger.log_error(f"Ошибка при извлечении блоков из DXF файла: {e}")
-            return []
-
-    def _process_hatch_edge(self, edge):
-        """
-        Вспомогательный метод для обработки рёбер штриховки.
-        """
-        if edge.type == EdgeType.LINE:
-            return {
-                "type": "LINE",
-                "start": (edge.start[0], edge.start[1]),
-                "end": (edge.end[0], edge.end[1])
-            }
-        elif edge.type == EdgeType.ARC:
-            return {
-                "type": "ARC",
-                "center": (edge.center[0], edge.center[1]),
-                "radius": edge.radius,
-                "start_angle": edge.start_angle,
-                "end_angle": edge.end_angle,
-                "ccw": edge.ccw
-            }
-        elif edge.type == EdgeType.ELLIPSE:
-            return {
-                "type": "ELLIPSE",
-                "center": (edge.center[0], edge.center[1]),
-                "major_axis": (edge.major_axis[0], edge.major_axis[1]),
-                "ratio": edge.ratio,
-                "start_param": edge.start_param,
-                "end_param": edge.end_param,
-                "ccw": edge.ccw
-            }
-        elif edge.type == EdgeType.SPLINE:
-            return {
-                "type": "SPLINE",
-                "degree": edge.degree,
-                "control_points": [(p[0], p[1]) for p in edge.control_points],
-                "fit_points": [(p[0], p[1]) for p in edge.fit_points],
-                "knot_values": edge.knot_values,
-                "weights": edge.weights,
-                "periodic": edge.periodic,
-                "start_tangent": (edge.start_tangent[0], edge.start_tangent[1]),
-                "end_tangent": (edge.end_tangent[0], edge.end_tangent[1])
-            }
-        return None
-
-    def extract_object_section(self, filename: str) -> dict:
-        """
-        Извлекает различные объекты из секции OBJECTS DXF файла.
-        
-        Включает:
-        - XRECORD объекты
-        - Dictionary объекты
-        - DictionaryVar объекты
-        - DictionaryWithDefault объекты
-        
-        Returns:
-            dict: Словарь с информацией о различных объектах
-        """
-        if filename not in self.dxf:
-            Logger.log_error(f"DXF файл {filename} не загружен.")
-            return {}
-        
-        doc = self.dxf[filename]
-        result = {
-            "xrecords": {
-                "objects": [],
-                "entity": {}
-            },
-            "dictionaries": {},
-            "dictionary_vars": [],
-            "dictionary_with_default": []
-        }
-
-        def process_dictionary(dictionary, parent_handle=None):
-            """
-            Рекурсивно обрабатывает словари, включая вложенные, и добавляет их в результат.
-
-            Args:
-                dictionary: Текущий обрабатываемый словарь.
-                parent_handle: Handle родительского словаря, если имеется.
-            """
-            dictionary_info = {
-                "type": dictionary.dxftype(),
-                "hard_owned": getattr(dictionary.dxf, "hard_owned", None),
-                "cloning": getattr(dictionary.dxf, "cloning", None),
-                "entries": {},
-                "parent_handle": parent_handle
-            }
-            try:
-                for key, value in dictionary.items():
-                    if isinstance(value, str):
-                        # Если значение - строка, это handle объекта
-                        referenced_obj = doc.entitydb.get(value)
-                        if referenced_obj:
-                            value_info = {
-                                "type": referenced_obj.dxftype(),
-                                "handle": value
-                            }
-                            if referenced_obj.dxftype() in ("DICTIONARY", "ACDBDICTIONARYWDFLT"):
-                                process_dictionary(referenced_obj, parent_handle=dictionary.dxf.handle)
-                        else:
-                            value_info = {
-                                "type": "Unknown",
-                                "handle": value
-                            }
-                    else:
-                        value_info = {
-                            "type": value.dxftype(),
-                            "handle": value.dxf.handle
-                        }
-                        if value.dxftype() in ("DICTIONARY", "ACDBDICTIONARYWDFLT"):
-                            process_dictionary(value, parent_handle=dictionary.dxf.handle)
-                    dictionary_info["entries"][key] = value_info
-            except Exception as e:
-                Logger.log_error(f"Ошибка при извлечении записей словаря с handle {dictionary.dxf.handle}: {e}")
-            result["dictionaries"][dictionary.dxf.handle] = dictionary_info
-
-        # Обработка XRECORD объектов в секции OBJECTS
-        for obj in doc.objects:
-            if obj.dxftype() == "XRECORD":
-                xrecord_data = {}
-                for tag in obj.tags:
-                    xrecord_data[tag.code] = tag.value
-                result["xrecords"]["objects"].append({
-                    "handle": obj.dxf.handle,
-                    "data": xrecord_data
-                })
-            
-            # Обработка Dictionary объектов
-            elif obj.dxftype() in ("DICTIONARY", "ACDBDICTIONARYWDFLT"):
-                process_dictionary(obj)
-            
-            # Обработка DictionaryVar объектов
-            elif obj.dxftype() == "DICTIONARYVAR":
-                var_info = {
-                    "handle": obj.dxf.handle,
-                    "schema": getattr(obj.dxf, "schema", None),
-                    "value": getattr(obj.dxf, "value", None),
-                    "propertyvalue": obj.propertyvalue if hasattr(obj, "propertyvalue") else None
-                }
-                result["dictionary_vars"].append(var_info)
-            
-            # Обработка DictionaryWithDefault объектов
-            elif obj.dxftype() == "ACDBDICTIONARYWDFLT":
-                dwd_info = {
-                    "handle": obj.dxf.handle,
-                    "default": getattr(obj.dxf, "default", None)
-                }
-                result["dictionary_with_default"].append(dwd_info)
-
-        # Поиск XRECORD объектов в extension dictionaries графических объектов
-        msp = doc.modelspace()
-        for entity in msp:
-            if entity.has_extension_dict:
-                xdict = entity.get_extension_dict()
-                for key, obj in xdict.items():
-                    if obj.dxftype() == "XRECORD":
-                        if entity.dxf.handle not in result["xrecords"]["entity"]:
-                            result["xrecords"]["entity"][entity.dxf.handle] = []
-                        xrecord_data = {}
-                        for tag in obj.tags:
-                            xrecord_data[tag.code] = tag.value
-                        result["xrecords"]["entity"][entity.dxf.handle].append({
-                            "handle": obj.dxf.handle,
-                            "data": xrecord_data
-                        })
-
-        return result
-
-    def extract_linetypes(self, filename: str) -> dict:
-        """
-        Извлекает информацию о типах линий из секции TABLES DXF-файла.
-
-        Args:
-            filename (str): Путь к DXF-файлу.
-
-        Returns:
-            dict: Словарь с информацией о типах линий, где ключи — имена типов линий,
-                  а значения — их описания и паттерны.
-        """
-        if filename not in self.dxf:
-            Logger.log_error(f"DXF файл {filename} не загружен.")
-            return {}
-
-        doc = self.dxf[filename]
-        linetypes = {}
-        for linetype in doc.linetypes:
-            pattern_values = []
-            for tag in linetype.pattern_tags.tags:
-                if tag.code == 49:  # Код группы 49 соответствует элементам паттерна
-                    pattern_values.append(tag.value)
-            linetypes[linetype.dxf.name] = {
-                "description": linetype.dxf.description,
-                "pattern": pattern_values
-            }
-        return linetypes
-
-    def extract_styles(self, filename: str) -> dict:
-        """
-        Извлекает стили из DXF файла.
-        """
-        self.filename = filename
-        doc = self.dxf[filename]
-        styles = {}
-        for style in doc.styles:
-            styles[style.dxf.name] = style.dxfattribs()
-        Logger.log_message(f"Извлечены стили: {styles}")
-        return styles
-    def get_entity_db(self, handle):
-        """
-        Возвращает сущность из базы данных по указанному handle.
-        """
-        doc = self.dxf[self.filename]
-        mleader_style = doc.entitydb.get(handle)
-        return mleader_style
-
-class DXFExporter:
-    """
-    Экспортирует выбранные сущности в новый DXF файл.
-    """
-    def __init__(self, handler: DXFHandler):
-        self.handler = handler
-
-    def export_selected_entities(self, filename: str, output_file: str):
-        """
-        Экспортирует выбранные сущности в новый DXF файл.
-        
-        :param filename: Имя исходного DXF файла.
-        :param output_file: Имя выходного DXF файла.
-        """
-        if filename not in self.handler.selected_entities:
-            Logger.log_error(f"Нет выбранных сущностей для файла {filename}.")
-            return
-
-        selected_entities = self.handler.selected_entities[filename]
-        if not selected_entities:
-            Logger.log_error(f"Нет выбранных сущностей для экспорта из файла {filename}.")
-            return
-
-        try:
-            # Используем функцию write_block из модуля xref для создания нового документа
-            # с выбранными сущностями. Эта функция также копирует все необходимые ресурсы,
-            # такие как слои, типы линий, стили текста и т.д.
-            new_doc = xref.write_block(selected_entities, origin=(0, 0, 0))
-
-            layout_names = [name for name in self.handler.dxf[filename].layout_names() if name != "Model"]
-            try:
-                for layout_name in layout_names:
-                    xref.load_paperspace(self.handler.dxf[filename].paperspace(layout_name), new_doc, conflict_policy=ConflictPolicy.NUM_PREFIX)
-            except Exception as e:
-                Logger.log_error(f"Ошибка при загрузке layout {layout_name}: {e}")
-            new_doc.delete_layout('Layout1')
-
-            # Сохраняем новый документ
-            new_doc.saveas(output_file)
-            Logger.log_message(f"Выбранные сущности успешно экспортированы в файл {output_file}.")
-            return True
-
-        except Exception as e:
-            Logger.log_error(f"Ошибка при экспорте сущностей: {e}")
-            return False
-            
-    def export_with_resources(self, filename: str, output_file: str):
-        """
-        Экспортирует выбранные сущности в новый DXF файл, включая все связанные ресурсы.
-        
-        Использует низкоуровневый интерфейс загрузки Loader для полного контроля над процессом
-        экспорта ресурсов, связанных с выбранными сущностями.
-        
-        :param filename: Имя исходного DXF файла.
-        :param output_file: Имя выходного DXF файла.
-        """
-        if filename not in self.handler.selected_entities:
-            Logger.log_error(f"Нет выбранных сущностей для файла {filename}.")
-            return False
-
-        selected_entities = self.handler.selected_entities[filename]
-        if not selected_entities:
-            Logger.log_error(f"Нет выбранных сущностей для экспорта из файла {filename}.")
-            return False
-
-        try:
-            # Получаем исходный документ
-            source_doc = self.handler.dxf[filename]
-            
-            # Создаем новый документ
-            target_doc = ezdxf.new(dxfversion=source_doc.dxfversion)
-            
-            # Создаем загрузчик для управления передачей ресурсов
-            loader = xref.Loader(source_doc, target_doc, conflict_policy=xref.ConflictPolicy.KEEP)
-            
-            # Определяем слои, используемые в выбранных сущностях
-            used_layers = set(entity.dxf.layer for entity in selected_entities if hasattr(entity, 'dxf'))
-            
-            # Загружаем слои, типы линий, стили текста и размерные стили
-            loader.load_layers(used_layers)
-            
-            # Определяем используемые типы линий
-            used_linetypes = set()
-            for entity in selected_entities:
-                if hasattr(entity, 'dxf') and hasattr(entity.dxf, 'linetype'):
-                    used_linetypes.add(entity.dxf.linetype)
-            
-            # Загружаем типы линий
-            loader.load_linetypes(used_linetypes)
-            
-            # Определяем используемые стили текста
-            used_textstyles = set()
-            for entity in selected_entities:
-                if entity.dxftype() == "TEXT" or entity.dxftype() == "MTEXT":
-                    if hasattr(entity.dxf, 'style'):
-                        used_textstyles.add(entity.dxf.style)
-            
-            # Загружаем стили текста
-            loader.load_text_styles(used_textstyles)
-            
-            # Определяем используемые размерные стили
-            used_dimstyles = set()
-            for entity in selected_entities:
-                if entity.dxftype() == "DIMENSION":
-                    if hasattr(entity.dxf, 'dimstyle'):
-                        used_dimstyles.add(entity.dxf.dimstyle)
-            
-            # Загружаем размерные стили
-            loader.load_dim_styles(used_dimstyles)
-            
-            # Загружаем выбранные сущности в модельное пространство нового документа
-            target_msp = target_doc.modelspace()
-            
-            # Функция фильтрации - оставляем только выбранные сущности
-            filter_fn = lambda entity: entity in selected_entities
-            
-            loader.load_modelspace(source_doc.modelspace(), filter_fn)
-
-            # Загружаем сущности с применением фильтра
-            loader.load_paperspace_layout(source_doc.paperspace())
-            
-            # Выполняем все команды загрузки
-            loader.execute(xref_prefix=filename)
-            
-            # Сохраняем результат
-            target_doc.saveas(output_file)
-            
-            Logger.log_message(f"Выбранные сущности с ресурсами успешно экспортированы в файл {output_file}.")
-            return True
-            
-        except Exception as e:
-            Logger.log_error(f"Ошибка при экспорте сущностей с ресурсами: {e}")
-            return False
-

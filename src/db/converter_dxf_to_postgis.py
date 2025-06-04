@@ -1,4 +1,4 @@
-from typing import Union, Dict, Optional
+from typing import Union, Dict, Optional, Tuple
 
 from ezdxf.acis.entities import Vertex
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
@@ -139,18 +139,18 @@ def _attributes_to_dict(entity: DXFEntity, data: dict = None) -> dict:
 
     return data
     
-def _convert_point_to_postgis(entity: DXFPoint) -> tuple[BaseGeometry, dict]:
+def _convert_point_to_postgis(entity: DXFPoint) -> Tuple[BaseGeometry, Dict]:
     extra_data = _attributes_to_dict(entity)
     return Point(entity.dxf.location.x, entity.dxf.location.y, entity.dxf.location.z), extra_data
 
-def _convert_line_to_postgis(entity: Line) -> tuple[BaseGeometry, dict]:
+def _convert_line_to_postgis(entity: Line) -> Tuple[BaseGeometry, Dict]:
     extra_data = _attributes_to_dict(entity)
 
     start = (entity.dxf.start.x, entity.dxf.start.y, entity.dxf.start.z)
     end = (entity.dxf.end.x, entity.dxf.end.y, entity.dxf.end.z)
     return LineString([start, end]), extra_data
 
-def _convert_polyline_to_postgis(entity: Polyline) -> tuple[BaseGeometry, dict]:
+def _convert_polyline_to_postgis(entity: Polyline) -> Tuple[BaseGeometry, dict]:
     points = [(v.x, v.y, v.z) for v in entity.points()]
     
     extra_data = _attributes_to_dict(entity)
@@ -162,7 +162,7 @@ def _convert_polyline_to_postgis(entity: Polyline) -> tuple[BaseGeometry, dict]:
     else:
         return LineString(points), extra_data
     
-def _convert_lwpolyline_to_postgis(entity: LWPolyline) -> tuple[BaseGeometry, dict]:
+def _convert_lwpolyline_to_postgis(entity: LWPolyline) -> Tuple[BaseGeometry, dict]:
     points = [(v.x, v.y, v.z) for v in entity.vertices_in_ocs()]
     
     extra_data = _attributes_to_dict(entity)
@@ -174,12 +174,12 @@ def _convert_lwpolyline_to_postgis(entity: LWPolyline) -> tuple[BaseGeometry, di
     else:
         return LineString(points), extra_data
     
-def _convert_text_to_postgis(entity: Text) -> tuple[BaseGeometry, dict]:
+def _convert_text_to_postgis(entity: Text) -> Tuple[BaseGeometry, dict]:
     extra_data = _attributes_to_dict(entity)
 
     return Point(entity.dxf.insert.x, entity.dxf.insert.y, entity.dxf.insert.z), extra_data
 
-def _convert_circle_to_postgis(entity: Circle) -> tuple[BaseGeometry, dict]:
+def _convert_circle_to_postgis(entity: Circle) -> Tuple[BaseGeometry, dict]:
     center = (entity.dxf.center.x, entity.dxf.center.y, entity.dxf.center.z)
     radius = entity.dxf.radius
 
@@ -196,7 +196,7 @@ def _convert_circle_to_postgis(entity: Circle) -> tuple[BaseGeometry, dict]:
     extra_data = _attributes_to_dict(entity)
     return circle, extra_data
 
-def _convert_arc_to_postgis(entity: Arc) -> tuple[BaseGeometry, dict]:
+def _convert_arc_to_postgis(entity: Arc) -> Tuple[BaseGeometry, dict]:
     center = (entity.dxf.center.x, entity.dxf.center.y, entity.dxf.center.z)  # Убедитесь, что Z-координаты присутствуют
     radius = entity.dxf.radius  # Получение радиуса
     angle_start = entity.dxf.start_angle
@@ -215,7 +215,7 @@ def _convert_arc_to_postgis(entity: Arc) -> tuple[BaseGeometry, dict]:
     extra_data = _attributes_to_dict(entity)
     return arc, extra_data
 
-def _convert_multileader_to_postgis(entity: MultiLeader, dxf_handler: DXFHandler) -> tuple[Union[Polygon, Point], dict]:
+def _convert_multileader_to_postgis(entity: MultiLeader, dxf_handler: DXFHandler) -> Tuple[Union[Polygon, Point], dict]:
     extra_data = _attributes_to_dict(entity)
     #Logger.log_message(f'MULTILEADER: {extra_data}')
     text_style_entity = dxf_handler.get_entity_db(extra_data['attributes']['text_style_handle'])
@@ -253,7 +253,7 @@ def _convert_multileader_to_postgis(entity: MultiLeader, dxf_handler: DXFHandler
     geometry = Point(*base_point) if base_point else None
     return geometry, extra_data
 
-def _convert_insert_to_postgis(entity: Insert) -> tuple[BaseGeometry, dict]:
+def _convert_insert_to_postgis(entity: Insert) -> Tuple[BaseGeometry, dict]:
     insertion_point = (entity.dxf.insert.x, entity.dxf.insert.y, entity.dxf.insert.z)
 
     # Получаем имя блока
@@ -265,7 +265,7 @@ def _convert_insert_to_postgis(entity: Insert) -> tuple[BaseGeometry, dict]:
     # Возвращаем точку как представление вставки
     return Point(insertion_point), extra_data  # Используем точку как геометрию, можно изменить на нужный тип
 
-def _convert_3dsolid_to_postgis(entity: Solid3d) -> tuple[Point, dict]:
+def _convert_3dsolid_to_postgis(entity: Solid3d) -> Tuple[Point, dict]:
     try:
 # Экспорт данных ACIS из объекта 3DSOLID
         acis_data = entity.acis_data  # Получаем двоичные данные ACIS
@@ -286,14 +286,14 @@ def _convert_3dsolid_to_postgis(entity: Solid3d) -> tuple[Point, dict]:
 
     return None, extra_data
 
-def _convert_spline_to_postgis(entity: Spline) -> tuple[BaseGeometry, dict]:
+def _convert_spline_to_postgis(entity: Spline) -> Tuple[BaseGeometry, dict]:
     """SPLINE в DXF представляет собой кривую Безье или Б-сплайн. В Shapely нет прямого эквивалента, но можно аппроксимировать кривую точками."""
     points = [tuple(v) for v in entity.flattening(0.01)]
     extra_data = _attributes_to_dict(entity)
     extra_data['points'] = points
     return LineString(points), extra_data
 
-def _convert_ellipse_to_postgis(entity: Ellipse) -> tuple[BaseGeometry, dict]:
+def _convert_ellipse_to_postgis(entity: Ellipse) -> Tuple[BaseGeometry, dict]:
     """ELLIPSE в DXF представляет собой эллипс. В Shapely можно аппроксимировать эллипс точками."""
     center = (entity.dxf.center.x, entity.dxf.center.y, entity.dxf.center.z)
     major_axis = (entity.dxf.major_axis.x, entity.dxf.major_axis.y, entity.dxf.major_axis.z)
@@ -316,14 +316,14 @@ def _convert_ellipse_to_postgis(entity: Ellipse) -> tuple[BaseGeometry, dict]:
     extra_data = _attributes_to_dict(entity)
     return LineString(ellipse_points), extra_data
 
-def _convert_mtext_to_postgis(entity: MText) -> tuple[BaseGeometry, dict]:
+def _convert_mtext_to_postgis(entity: MText) -> Tuple[BaseGeometry, dict]:
     """MTEXT в DXF представляет собой многострочный текст. В Shapely нет прямого эквивалента, но можно сохранить текст и его позицию."""
     extra_data = _attributes_to_dict(entity)
     extra_data['text'] = entity.text
     Logger.log_message(extra_data)
     return None, extra_data
 
-def _convert_solid_to_postgis(entity: Solid) -> tuple[BaseGeometry, dict]:
+def _convert_solid_to_postgis(entity: Solid) -> Tuple[BaseGeometry, dict]:
     """`SOLID` в DXF представляет собой четырехугольник. В Shapely можно представить его как `Polygon`."""
     points = [
         (entity.dxf.vtx0.x, entity.dxf.vtx0.y, entity.dxf.vtx0.z),
@@ -335,7 +335,7 @@ def _convert_solid_to_postgis(entity: Solid) -> tuple[BaseGeometry, dict]:
     extra_data['points'] = points
     return Polygon(points), extra_data
 
-def _convert_trace_to_postgis(entity: Trace) -> tuple[BaseGeometry, dict]:
+def _convert_trace_to_postgis(entity: Trace) -> Tuple[BaseGeometry, dict]:
     """`TRACE` в DXF также представляет собой четырехугольник. Обработка аналогична `SOLID`."""
     points = [
         (entity.dxf.vtx0.x, entity.dxf.vtx0.y, entity.dxf.vtx0.z),
@@ -347,7 +347,7 @@ def _convert_trace_to_postgis(entity: Trace) -> tuple[BaseGeometry, dict]:
     extra_data['points'] = points
     return Polygon(points), extra_data
 
-def _convert_3dface_to_postgis(entity: Face3d) -> tuple[BaseGeometry, dict]:
+def _convert_3dface_to_postgis(entity: Face3d) -> Tuple[BaseGeometry, dict]:
     '''`3DFACE` в DXF представляет собой треугольник или четырехугольник. В Shapely можно представить его как `Polygon`.'''
     points = [
         (entity.dxf.vtx0.x, entity.dxf.vtx0.y, entity.dxf.vtx0.z),
@@ -362,7 +362,7 @@ def _convert_3dface_to_postgis(entity: Face3d) -> tuple[BaseGeometry, dict]:
     extra_data['points'] = points
     return Polygon(points), extra_data
 
-def _convert_region_to_postgis(entity: Region) -> tuple[BaseGeometry, dict]:
+def _convert_region_to_postgis(entity: Region) -> Tuple[BaseGeometry, dict]:
     '''`REGION` в DXF представляет собой трехмерный регион. В Shapely нет прямого эквивалента, но можно сохранить ACIS данные.'''
     try:
         acis_data = entity.acis_data
@@ -375,7 +375,7 @@ def _convert_region_to_postgis(entity: Region) -> tuple[BaseGeometry, dict]:
 
     return None, extra_data
 
-def _convert_body_to_postgis(entity: Body) -> tuple[BaseGeometry, dict]:
+def _convert_body_to_postgis(entity: Body) -> Tuple[BaseGeometry, dict]:
     '''`BODY` в DXF представляет собой трехмерное тело. В Shapely нет прямого эквивалента, но можно сохранить ACIS данные.'''
     try:
         acis_data = entity.acis_data
@@ -388,7 +388,7 @@ def _convert_body_to_postgis(entity: Body) -> tuple[BaseGeometry, dict]:
 
     return None, extra_data
 
-def _convert_mesh_to_postgis(entity: Mesh) -> tuple[BaseGeometry, dict]:
+def _convert_mesh_to_postgis(entity: Mesh) -> Tuple[BaseGeometry, dict]:
     '''`MESH` в DXF представляет собой сетку. В Shapely нет прямого эквивалента, но можно сохранить вершины и грани.'''
     vertices = [tuple(v) for v in entity.vertices()]
     faces = [tuple(f) for f in entity.faces()]
@@ -397,7 +397,7 @@ def _convert_mesh_to_postgis(entity: Mesh) -> tuple[BaseGeometry, dict]:
     extra_data['faces'] = faces
     return None, extra_data
 
-def _convert_hatch_to_postgis(entity: Hatch) -> tuple[BaseGeometry, dict]:
+def _convert_hatch_to_postgis(entity: Hatch) -> Tuple[BaseGeometry, dict]:
     '''`HATCH` в DXF представляет собой заливку. В Shapely можно представить его как `Polygon`.'''
     Logger.log_message(f'HATCH: {entity.dxf.pattern_name}')
     polygons = []
@@ -410,7 +410,7 @@ def _convert_hatch_to_postgis(entity: Hatch) -> tuple[BaseGeometry, dict]:
     else:
         return MultiPolygon(polygons), extra_data
 
-def _convert_leader_to_postgis(entity: Leader) -> tuple[BaseGeometry, dict]:
+def _convert_leader_to_postgis(entity: Leader) -> Tuple[BaseGeometry, dict]:
     '''`LEADER` в DXF представляет собой линию с текстом. В Shapely можно представить его как `LineString` и сохранить текст.'''
     points = [tuple(v) for v in entity.vertices()]
     extra_data = _attributes_to_dict(entity)
@@ -418,7 +418,7 @@ def _convert_leader_to_postgis(entity: Leader) -> tuple[BaseGeometry, dict]:
     return LineString(points), extra_data
 
 '''
-def _convert_ellipsearc_to_postgis(entity: EllipseArc) -> tuple[BaseGeometry, dict]:
+def _convert_ellipsearc_to_postgis(entity: EllipseArc) -> Tuple[BaseGeometry, dict]:
     #`ELLIPSEARC` в DXF представляет собой дугу эллипса. В Shapely можно аппроксимировать дугу точками.
     center = (entity.dxf.center.x, entity.dxf.center.y, entity.dxf.center.z)
     major_axis = (entity.dxf.major_axis.x, entity.dxf.major_axis.y, entity.dxf.major_axis.z)
@@ -441,7 +441,7 @@ def _convert_ellipsearc_to_postgis(entity: EllipseArc) -> tuple[BaseGeometry, di
     return LineString(ellipsearc_points), extra_data
 '''
 
-def _convert_shape_to_postgis(entity: Shape) -> tuple[BaseGeometry, dict]:
+def _convert_shape_to_postgis(entity: Shape) -> Tuple[BaseGeometry, dict]:
     '''`SHAPE` в DXF представляет собой встроенный двумерный объект. В Shapely нет прямого эквивалента, но можно сохранить данные о блоке.'''
     insertion_point = (entity.dxf.insert.x, entity.dxf.insert.y, entity.dxf.insert.z)
     block_name = entity.dxf.name
@@ -449,7 +449,7 @@ def _convert_shape_to_postgis(entity: Shape) -> tuple[BaseGeometry, dict]:
     extra_data['block_name'] = block_name
     return Point(insertion_point), extra_data
 
-def _convert_viewport_to_postgis(entity: Viewport) -> tuple[BaseGeometry, dict]:
+def _convert_viewport_to_postgis(entity: Viewport) -> Tuple[BaseGeometry, dict]:
     '''`VIEWPORT` в DXF представляет собой область просмотра. В Shapely нет прямого эквивалента, но можно сохранить данные о области.'''
     center = (entity.dxf.center.x, entity.dxf.center.y, entity.dxf.center.z)
     width = entity.dxf.width
@@ -459,7 +459,7 @@ def _convert_viewport_to_postgis(entity: Viewport) -> tuple[BaseGeometry, dict]:
     extra_data['height'] = height
     return Point(center), extra_data
 
-def _convert_image_to_postgis(entity: Image) -> tuple[BaseGeometry, dict]:
+def _convert_image_to_postgis(entity: Image) -> Tuple[BaseGeometry, dict]:
     '''`IMAGE` в DXF представляет собой изображение. В Shapely нет прямого эквивалента, но можно сохранить данные о изображении.'''
     insertion_point = (entity.dxf.insert.x, entity.dxf.insert.y, entity.dxf.insert.z)
     u_size = entity.dxf.u_size
@@ -472,19 +472,19 @@ def _convert_image_to_postgis(entity: Image) -> tuple[BaseGeometry, dict]:
     extra_data['image_def_handle'] = image_def_handle
     return Point(insertion_point), extra_data
 
-def _convert_imagedef_to_postgis(entity: ImageDef) -> tuple[BaseGeometry, dict]:
+def _convert_imagedef_to_postgis(entity: ImageDef) -> Tuple[BaseGeometry, dict]:
     '''`IMAGEDEF` в DXF представляет собой определение изображения. В Shapely нет прямого эквивалента, но можно сохранить данные о изображении.'''
     filename = entity.dxf.filename
     extra_data = _attributes_to_dict(entity)
     extra_data['filename'] = filename
     return None, extra_data
 
-def _convert_dimension_to_postgis(entity: Dimension) -> tuple[BaseGeometry, dict]:
+def _convert_dimension_to_postgis(entity: Dimension) -> Tuple[BaseGeometry, dict]:
     '''`DIMENSION` в DXF представляет собой измерение. В Shapely нет прямого эквивалента, но можно сохранить данные об измерении.'''
     extra_data = _attributes_to_dict(entity)
     return None, extra_data
 
-def _convert_ray_to_postgis(entity: Ray) -> tuple[BaseGeometry, dict]:
+def _convert_ray_to_postgis(entity: Ray) -> Tuple[BaseGeometry, dict]:
     '''`RAY` в DXF представляет собой луч. В Shapely нет прямого эквивалента, но можно сохранить данные о луче.'''
     start_point = (entity.dxf.start.x, entity.dxf.start.y, entity.dxf.start.z)
     unit_vector = (entity.dxf.unit_vector.x, entity.dxf.unit_vector.y, entity.dxf.unit_vector.z)
@@ -493,7 +493,7 @@ def _convert_ray_to_postgis(entity: Ray) -> tuple[BaseGeometry, dict]:
     extra_data['unit_vector'] = unit_vector
     return Point(start_point), extra_data
 
-def _convert_xline_to_postgis(entity: XLine) -> tuple[BaseGeometry, dict]:
+def _convert_xline_to_postgis(entity: XLine) -> Tuple[BaseGeometry, dict]:
     '''`XLINE` в DXF представляет собой бесконечную линию. В Shapely нет прямого эквивалента, но можно сохранить данные о линии.'''
     start_point = (entity.dxf.start.x, entity.dxf.start.y, entity.dxf.start.z)
     unit_vector = (entity.dxf.unit_vector.x, entity.dxf.unit_vector.y, entity.dxf.unit_vector.z)
@@ -505,7 +505,7 @@ def _convert_attrib_to_postgis(entity: Attrib):
     '''`ATTRIB` в DXF представляет собой атрибут блока. В Shapely нет прямого эквивалента, но можно сохранить данные об атрибуте.'''
     return Point(entity.dxf.insert.x, entity.dxf.insert.y, entity.dxf.insert.z), _attributes_to_dict(entity)
     pass
-def _convert_vertex_to_postgis(entity: Vertex) -> tuple[BaseGeometry, dict]:
+def _convert_vertex_to_postgis(entity: Vertex) -> Tuple[BaseGeometry, dict]:
     #`VERTEX` в DXF представляет собой вершину. В Shapely нет прямого эквивалента, но можно сохранить данные о вершине.
     location = (entity.point.location.x, entity.point.location.y, entity.point.location.z)
     extra_data = _attributes_to_dict(entity)
@@ -513,13 +513,13 @@ def _convert_vertex_to_postgis(entity: Vertex) -> tuple[BaseGeometry, dict]:
     return Point(location), extra_data
 
 
-def _convert_seqend_to_postgis(entity: SeqEnd) -> tuple[BaseGeometry, dict]:
+def _convert_seqend_to_postgis(entity: SeqEnd) -> Tuple[BaseGeometry, dict]:
     '''`SEQEND` в DXF представляет собой конец последовательности. В Shapely нет прямого эквивалента, но можно сохранить данные о последовательности.'''
     extra_data = _attributes_to_dict(entity)
     return None, extra_data
 
 '''
-def _convert_3dpoint_to_postgis(entity: Point3D) -> tuple[BaseGeometry, dict]:
+def _convert_3dpoint_to_postgis(entity: Point3D) -> Tuple[BaseGeometry, dict]:
     #`3DPOINT` в DXF представляет собой трехмерную точку. В Shapely это можно представить как `Point`.
     location = (entity.dxf.location.x, entity.dxf.location.y, entity.dxf.location.z)
     extra_data = _attributes_to_dict(entity)
@@ -527,7 +527,7 @@ def _convert_3dpoint_to_postgis(entity: Point3D) -> tuple[BaseGeometry, dict]:
     return Point(location), extra_data
 '''
 
-def _convert_helix_to_postgis(entity: Helix) -> tuple[BaseGeometry, dict]:
+def _convert_helix_to_postgis(entity: Helix) -> Tuple[BaseGeometry, dict]:
     '''HELIX в DXF представляет собой спираль. В Shapely можно аппроксимировать спираль точками.'''
     base_point = (entity.dxf.base_point.x, entity.dxf.base_point.y, entity.dxf.base_point.z)
     axis_vector = (entity.dxf.axis_vector.x, entity.dxf.axis_vector.y, entity.dxf.axis_vector.z)

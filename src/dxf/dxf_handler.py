@@ -4,6 +4,7 @@ from ezdxf.layouts.layout import Modelspace, Paperspace
 from ezdxf.document import Drawing
 from ezdxf.addons.drawing import Frontend, RenderContext
 from ezdxf.addons.drawing import layout, svg
+from typing import Dict
 
 import os
 
@@ -22,15 +23,15 @@ def get_selected_file(tree_widget_handler):
 class DXFHandler(QObject):
     """
     Обработчик DXF файлов. Управляет чтением, обработкой и извлечением данных из DXF файлов.
-    """
+    """    
     progressChanged = pyqtSignal(int)
 
     def __init__(self, type_shape, type_selection, tree_widget_handler):
         super().__init__()
-        self.msps: dict[str, Modelspace] = {}
-        self.paper_space: dict[str, Paperspace] = {}
-        self.dxf: dict[str, Drawing] = {}
-        self.file_paths: dict[str, str] = {}
+        self.msps: Dict[str, Modelspace] = {}
+        self.paper_space: Dict[str, Paperspace] = {}
+        self.dxf: Dict[str, Drawing] = {}
+        self.file_paths: Dict[str, str] = {}
         self.file_is_open = False
         self.type_shape = type_shape
         self.type_selection = type_selection

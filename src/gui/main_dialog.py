@@ -282,6 +282,12 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
     def export_to_db_button_click(self):
         from .export_dialog import ExportDialog
 
+        if self.dxf_tree_widget_handler.get_selected_file_name() is None:
+            QMessageBox.warning(None, self.lm.get_string("COMMON", "error"), 
+                                   self.lm.get_string("MAIN_DIALOG", "no_file_selected"))
+            return
+
+
         has_selection = len(self.dxf_handler.selected_entities[self.dxf_tree_widget_handler.get_selected_file_name()]) != self.dxf_handler.len_entities_file[self.dxf_tree_widget_handler.get_selected_file_name()]
         
         if has_selection:
@@ -293,10 +299,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             
             result = msg_box.exec_()
             
-            if result == QMessageBox.Cancel:
+            if result == QMessageBox.Cancel or result == QMessageBox.No:
                 return
-            elif result == QMessageBox.No:
-                self.dxf_handler.clear_selection()
         
         dlg = ExportDialog(self.dxf_tree_widget_handler, self.dxf_handler)
         dlg.show()

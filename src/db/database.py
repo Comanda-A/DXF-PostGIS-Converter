@@ -82,6 +82,81 @@ def _create_schemas():
     except Exception as e:
         Logger.log_error(f"Ошибка при создании схем: {str(e)}")
 
+def get_schemas(username, password, host, port, dbname) -> List[str]:
+    """
+    Получение списка всех схем в базе данных
+    
+    Args:
+        username: Имя пользователя для подключения к БД
+        password: Пароль для подключения к БД
+        host: Адрес сервера БД
+        port: Порт сервера БД
+        dbname: Имя базы данных
+        
+    Returns:
+        Список названий схем
+    """
+    try:
+        session = _connect_to_database(username, password, host, port, dbname)
+        if session is None:
+            Logger.log_message("Не удалось подключиться к базе данных")
+            return []
+            
+        with session.bind.connect() as connection:
+            result = connection.execute(text("""
+                SELECT schema_name 
+                FROM information_schema.schemata 
+                WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'pg_temp_1', 'pg_toast_temp_1')
+                ORDER BY schema_name;
+            """))
+            schemas = [row[0] for row in result]
+            Logger.log_message(f"Найдено схем: {len(schemas)}")
+            return schemas
+    except Exception as e:
+        Logger.log_error(f"Ошибка при получении списка схем: {str(e)}")
+        return []
+
+def create_schema(username, password, host, port, dbname, schema_name: str) -> bool:
+    """
+    Создание новой схемы в базе данных
+    
+    Args:
+        username: Имя пользователя для подключения к БД
+        password: Пароль для подключения к БД
+        host: Адрес сервера БД
+        port: Порт сервера БД
+        dbname: Имя базы данных
+        schema_name: Название схемы для создания
+        
+    Returns:
+        True если схема создана успешно, иначе False
+    """
+    try:
+        session = _connect_to_database(username, password, host, port, dbname)
+        if session is None:
+            Logger.log_error("Не удалось подключиться к базе данных")
+            return False
+            
+        with session.bind.connect() as connection:
+            # Проверяем существование схемы
+            result = connection.execute(text("""
+                SELECT 1 FROM information_schema.schemata 
+                WHERE schema_name = :schema_name
+            """), {"schema_name": schema_name})
+            
+            if result.fetchone():
+                Logger.log_message(f"Схема '{schema_name}' уже существует")
+                return True
+                
+            # Создаем новую схему
+            connection.execute(text(f'CREATE SCHEMA "{schema_name}";'))
+            connection.commit()
+            Logger.log_message(f"Схема '{schema_name}' успешно создана")
+            return True
+    except Exception as e:
+        Logger.log_error(f"Ошибка при создании схемы '{schema_name}': {str(e)}")
+        return False
+
 def get_session() -> Session:
     """Получение сессии базы данных"""
     global SessionLocal
@@ -94,7 +169,7 @@ def get_session() -> Session:
 # Методы создания сущностей
 # ----------------------
 
-def create_file_record(session: Session, filename: str, file_content: bytes) -> Optional[models.DxfFile]:
+def create_file_record(session: Session, filename: str, file_content: bytes, file_schema: str = 'file_schema'):
     """
     Создает запись о DXF файле в базе данных
     
@@ -102,6 +177,7 @@ def create_file_record(session: Session, filename: str, file_content: bytes) -> 
         session: Сессия базы данных
         filename: Имя файла
         file_content: Содержимое файла в бинарном формате
+        file_schema: Схема для размещения таблицы файлов
 
     Returns:
         Экземпляр модели DxfFile или None в случае ошибки
@@ -109,8 +185,14 @@ def create_file_record(session: Session, filename: str, file_content: bytes) -> 
     try:
         now = datetime.now(timezone.utc)
         
+        # Создаем или получаем класс таблицы файлов для указанной схемы
+        file_class = models.create_file_table(file_schema)
+        
+        # Создаем таблицу, если она не существует
+        file_class.__table__.create(engine, checkfirst=True)
+        
         # Проверяем, существует ли файл с таким именем
-        existing_file = session.query(models.DxfFile).filter_by(filename=filename).first()
+        existing_file = session.query(file_class).filter(file_class.filename == filename).first()
         
         if (existing_file):
             # Обновляем существующий файл
@@ -121,7 +203,7 @@ def create_file_record(session: Session, filename: str, file_content: bytes) -> 
             return existing_file
         else:
             # Создаем новую запись
-            new_file = models.DxfFile(
+            new_file = file_class(
                 filename=filename,
                 file_content=file_content,
                 upload_date=now,
@@ -129,20 +211,21 @@ def create_file_record(session: Session, filename: str, file_content: bytes) -> 
             )
             session.add(new_file)
             session.commit()
-            Logger.log_message(f"Файл {filename} добавлен в базу данных.")
+            Logger.log_message(f"Файл {filename} добавлен в базу данных в схему {file_schema}.")
             return new_file
     except Exception as e:
         session.rollback()
         Logger.log_error(f"Ошибка при создании записи файла {filename}: {str(e)}")
         return None
 
-def create_layer_table_if_not_exists(layer_name: str) -> Optional[type]:
+def create_layer_table_if_not_exists(layer_name: str, layer_schema: str = 'layer_schema', file_schema: str = 'file_schema') -> Optional[type]:
     """
     Создает таблицу для слоя, если она не существует
     
     Args:
-        session: Сессия базы данных
         layer_name: Имя слоя
+        layer_schema: Схема для размещения таблицы слоя
+        file_schema: Схема где находится таблица файлов
         
     Returns:
         Класс таблицы для слоя или None в случае ошибки
@@ -153,20 +236,20 @@ def create_layer_table_if_not_exists(layer_name: str) -> Optional[type]:
         
         # Проверяем существование таблицы
         inspector = inspect(engine)
-        table_exists = inspector.has_table(table_name, schema='layer_schema')
+        table_exists = inspector.has_table(table_name, schema=layer_schema)
         
         if not table_exists:
             # Создаем класс таблицы
-            layer_class = models.create_layer_table(layer_name)
+            layer_class = models.create_layer_table(layer_name, layer_schema, file_schema)
             # Создаем таблицу в базе данных
             layer_class.__table__.create(engine, checkfirst=True)
-            Logger.log_message(f"Создана таблица для слоя {layer_name}")
+            Logger.log_message(f"Создана таблица для слоя {layer_name} в схеме {layer_schema}")
             return layer_class
         else:
             # Возвращаем существующий класс таблицы
-            return models.create_layer_table(layer_name)
+            return models.create_layer_table(layer_name, layer_schema, file_schema)
     except Exception as e:
-        Logger.log_error(f"Ошибка при создании таблицы для слоя {layer_name}: {str(e)}")
+        Logger.log_error(f"Ошибка при создании таблицы для слоя {layer_name} в схеме {layer_schema}: {str(e)}")
         return None
 
 
@@ -174,7 +257,9 @@ def create_layer_table_if_not_exists(layer_name: str) -> Optional[type]:
 # Методы экспорта
 # ----------------------
 
-def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: DXFHandler, file_path: str, mapping_mode: str = "always_overwrite") -> bool:
+def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: DXFHandler, file_path: str, 
+                          mapping_mode: str = "always_overwrite", layer_schema: str = 'layer_schema', 
+                          file_schema: str = 'file_schema', export_layers_only: bool = False) -> bool:
     """
     Экспортирует DXF файл в базу данных
     
@@ -187,8 +272,9 @@ def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: 
         dxf_handler: Экземпляр обработчика DXF
         file_path: Путь к DXF файлу
         mapping_mode: Режим маппирования слоев (always_overwrite, geometry, notes, both)
-
-    Returns:
+        layer_schema: Схема для размещения таблиц слоев
+        file_schema: Схема для размещения таблицы файлов
+        export_layers_only: Экспортировать только слои (без сохранения файла)    Returns:
         True в случае успеха, иначе False
     """
     try:
@@ -198,46 +284,52 @@ def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: 
         Logger.log_message(f"Начало экспорта DXF файла {filename} в базу данных...")
         Logger.log_message(f"Путь к файлу: {file_path}")
         Logger.log_message(f"Режим маппирования: {mapping_mode}")
+        Logger.log_message(f"Схема для слоев: {layer_schema}")
+        Logger.log_message(f"Схема для файлов: {file_schema}")
+        Logger.log_message(f"Экспорт только слоев: {export_layers_only}")
         
-        # Читаем содержимое файла
-        with open(file_path, 'rb') as f:
-            file_content = f.read()
-
-        # Создаем запись о файле
-        file_record = create_file_record(session, filename, file_content)
-        if not file_record:
-            return False
+        file_record = None
+        
+        # Создаем запись о файле только если не экспортируем только слои
+        if not export_layers_only:
+            # Читаем содержимое файла
+            with open(file_path, 'rb') as f:
+                file_content = f.read()
+            # Создаем запись о файле в указанной схеме
+            file_record = create_file_record(session, filename, file_content, file_schema)
+            if not file_record:
+                return False
         
         # Получаем слои DXF файла
         layers_entities = dxf_handler.get_entities_for_export(filename)
-
         # Для каждого слоя создаем таблицу и записываем сущности
         for layer_name, entities in layers_entities.items():
-            layer_class = create_layer_table_if_not_exists(layer_name)
+            layer_class = create_layer_table_if_not_exists(layer_name, layer_schema, file_schema)
             if not layer_class:
                 continue
             
+            # Используем file_id только если файл был сохранен
+            file_id = file_record.id if file_record else None
+            
             # В зависимости от режима маппирования выбираем различную стратегию
             if mapping_mode == "always_overwrite":
-                # Удаляем все существующие записи для этого файла и слоя
-                session.query(layer_class).filter_by(file_id=file_record.id).delete()
+                # Удаляем все существующие записи для этого файла и слоя (если файл сохранен)
+                if file_id:
+                    session.query(layer_class).filter_by(file_id=file_id).delete()
+                else:
+                    # Если экспортируем только слои, удаляем все записи в таблице слоя
+                    session.query(layer_class).delete()
                 session.commit()
-                Logger.log_message(f"Все существующие записи для файла {filename} в слое {layer_name} удалены")
+                Logger.log_message(f"Все существующие записи в слое {layer_name} удалены")
                 
                 # Добавляем новые записи
-                _add_new_entities(session, entities, layer_class, file_record.id)
-                
-            elif mapping_mode in ["geometry", "notes", "both"]:
-                # Получаем все существующие сущности для этого файла в данном слое
-                existing_entities = session.query(layer_class).filter_by(file_id=file_record.id).all()
-                
-                # Обрабатываем логику маппирования
-                _process_mapping(session, entities, existing_entities, layer_class, file_record.id, mapping_mode)
-            
+                _add_new_entities(session, entities, layer_class, file_id)
+
             Logger.log_message(f"Экспортирован слой {layer_name} из файла {filename}")
             
-        # Генерируем превью файла
-        _create_output_dxf(file_path, filename, dxf_handler)
+        # Генерируем превью файла только если файл был сохранен
+        if file_record:
+            _create_output_dxf(file_path, filename, dxf_handler)
 
         return True
     except Exception as e:
@@ -251,7 +343,7 @@ def _create_output_dxf(file_path : str, filename: str, dxf_handler: DXFHandler) 
     doc = dxf_handler.simle_read_dxf_file(file_path)
     dxf_handler.save_svg_preview(doc, doc.modelspace(), filename)
 
-def _add_new_entities(session: Session, entities, layer_class, file_id: int) -> None:
+def _add_new_entities(session: Session, entities, layer_class, file_id: Optional[int]) -> None:
     """
     Добавляет новые сущности в таблицу слоя
     
@@ -259,7 +351,7 @@ def _add_new_entities(session: Session, entities, layer_class, file_id: int) -> 
         session: Сессия базы данных
         entities: Список сущностей для добавления
         layer_class: Класс модели таблицы слоя
-        file_id: ID файла
+        file_id: ID файла (может быть None если экспортируем только слои)
     """
     try:
         for entity in entities:
@@ -268,13 +360,18 @@ def _add_new_entities(session: Session, entities, layer_class, file_id: int) -> 
             
             if postgis_entity:
                 # Создаем новый экземпляр модели слоя
-                layer_entity = layer_class(
-                    file_id=file_id,
-                    geom_type=postgis_entity['geom_type'],
-                    geometry=postgis_entity['geometry'],
-                    notes=postgis_entity.get('notes', None),
-                    extra_data=postgis_entity.get('extra_data', None)
-                )
+                # Добавляем file_id только если он существует
+                layer_entity_data = {
+                    'geom_type': postgis_entity['geom_type'],
+                    'geometry': postgis_entity['geometry'],
+                    'notes': postgis_entity.get('notes', None),
+                    'extra_data': postgis_entity.get('extra_data', None)
+                }
+                
+                if file_id is not None:
+                    layer_entity_data['file_id'] = file_id
+                
+                layer_entity = layer_class(**layer_entity_data)
                 session.add(layer_entity)
         
         # Сохраняем изменения в базе данных
@@ -284,20 +381,6 @@ def _add_new_entities(session: Session, entities, layer_class, file_id: int) -> 
         session.rollback()
         Logger.log_error(f"Ошибка при добавлении новых сущностей: {str(e)}")
 
-def _process_mapping(session: Session, new_entities, existing_entities: List,
-                     layer_class, file_id: int, mapping_mode: str) -> None:
-    """
-    Обрабатывает маппирование между существующими и новыми сущностями в соответствии с выбранным режимом
-    
-    Args:
-        session: Сессия базы данных
-        new_entities: Список новых сущностей для добавления/обновления
-        existing_entities: Список существующих сущностей в базе данных
-        layer_class: Класс модели таблицы слоя
-        file_id: ID файла
-        mapping_mode: Режим маппирования (geometry, notes, both)
-    """
-    pass
 
 # ----------------------
 # Метод удаления
@@ -485,148 +568,3 @@ def get_all_layers_for_file(username, password, host, port, dbname, file_id: int
         Logger.log_error(f"Ошибка при получении списка слоев для файла с ID {file_id}: {str(e)}")
         return []
 
-# ----------------------
-# Методы очистки базы данных
-# ----------------------
-
-def drop_all_tables(enginee: Engine) -> Session:
-    """
-    Удаляет все таблицы и схемы, связанные с DXF-PostGIS-Converter
-    
-    Args:
-        session: Сессия базы данных
-        
-    Returns:
-        True в случае успеха, иначе False
-    """
-    try:
-        global SessionLocal
-        global engine
-        engine = enginee
-        # Закрываем все активные сессии
-        close_all_sessions()
-        
-        # Получаем подключение к базе данных
-        connection = engine.connect()
-        
-        # Лог о начале процедуры
-        Logger.log_message("Начало процедуры удаления всех таблиц и схем...")
-        
-        # Удаляем все таблицы в схеме layer_schema
-        try:
-            Logger.log_message("Удаление таблиц слоев...")
-            
-            # Получаем метаданные таблиц в схеме layer_schema
-            metadata = MetaData(schema='layer_schema')
-            metadata.reflect(bind=engine)
-            
-            # Удаляем каждую таблицу
-            for table in reversed(metadata.sorted_tables):
-                Logger.log_message(f"Удаление таблицы {table.name} из схемы layer_schema...")
-                connection.execute(text(f'DROP TABLE IF EXISTS layer_schema."{table.name}" CASCADE;'))
-            
-            connection.commit()
-            Logger.log_message("Таблицы слоев успешно удалены.")
-        except Exception as e:
-            connection.rollback()
-            Logger.log_error(f"Ошибка при удалении таблиц слоев: {str(e)}")
-            # Продолжаем выполнение, чтобы попытаться удалить остальные объекты
-        
-        # Удаляем таблицы в схеме file_schema
-        try:
-            Logger.log_message("Удаление таблиц файлов...")
-            
-            # Получаем метаданные таблиц в схеме file_schema
-            metadata = MetaData(schema='file_schema')
-            metadata.reflect(bind=engine)
-            
-            # Удаляем каждую таблицу
-            for table in reversed(metadata.sorted_tables):
-                Logger.log_message(f"Удаление таблицы {table.name} из схемы file_schema...")
-                connection.execute(text(f'DROP TABLE IF EXISTS file_schema."{table.name}" CASCADE;'))
-            
-            connection.commit()
-            Logger.log_message("Таблицы файлов успешно удалены.")
-        except Exception as e:
-            connection.rollback()
-            Logger.log_error(f"Ошибка при удалении таблиц файлов: {str(e)}")
-            # Продолжаем выполнение, чтобы попытаться удалить остальные объекты
-        
-        # Удаляем схемы
-        try:
-            Logger.log_message("Удаление схем...")
-            connection.execute(text("DROP SCHEMA IF EXISTS layer_schema CASCADE;"))
-            connection.execute(text("DROP SCHEMA IF EXISTS file_schema CASCADE;"))
-            connection.commit()
-            Logger.log_message("Схемы успешно удалены.")
-        except Exception as e:
-            connection.rollback()
-            Logger.log_error(f"Ошибка при удалении схем: {str(e)}")
-            # Продолжаем выполнение
-        
-        # Удаляем все последовательности и функции
-        try:
-            Logger.log_message("Удаление последовательностей и функций...")
-            
-            # Удаляем все последовательности
-            connection.execute(text("""
-                DO $$
-                DECLARE
-                    seq record;
-                BEGIN
-                    FOR seq IN (
-                        SELECT sequence_schema, sequence_name
-                        FROM information_schema.sequences
-                        WHERE sequence_schema IN ('layer_schema', 'file_schema')
-                    )
-                    LOOP
-                        EXECUTE format('DROP SEQUENCE IF EXISTS %I.%I CASCADE', seq.sequence_schema, seq.sequence_name);
-                    END LOOP;
-                END$$;
-            """))
-            
-            # Удаляем все функции
-            connection.execute(text("""
-                DO $$
-                DECLARE
-                    func record;
-                BEGIN
-                    FOR func IN (
-                        SELECT n.nspname as schema_name, p.proname as function_name, 
-                               pg_get_function_identity_arguments(p.oid) as args
-                        FROM pg_proc p
-                        JOIN pg_namespace n ON p.pronamespace = n.oid
-                        WHERE n.nspname IN ('layer_schema', 'file_schema')
-                    )
-                    LOOP
-                        EXECUTE format('DROP FUNCTION IF EXISTS %I.%I(%s) CASCADE', 
-                                      func.schema_name, func.function_name, func.args);
-                    END LOOP;
-                END$$;
-            """))
-            
-            connection.commit()
-            Logger.log_message("Последовательности и функции успешно удалены.")
-        except Exception as e:
-            connection.rollback()
-            Logger.log_error(f"Ошибка при удалении последовательностей и функций: {str(e)}")
-        
-        # Очищаем кэш файлов
-        _files_cache.clear()
-        
-        # Создаем схемы заново, чтобы база была готова к работе
-        _create_schemas()
-        
-        # Создаем таблицы заново
-        Base.metadata.create_all(bind=engine)
-        
-        connection.close()
-        
-        # Создаем новую сессию
-        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-        
-        Logger.log_message("База данных успешно очищена и подготовлена к работе.")
-        return SessionLocal()
-    except Exception as e:
-        Logger.log_error(f"Критическая ошибка при удалении базы данных: {str(e)}")
-        return None

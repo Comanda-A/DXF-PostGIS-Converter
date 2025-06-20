@@ -204,6 +204,20 @@ EXPORT_DIALOG = {
     "temp_file_created": "Временный файл создан, выполняется экспорт...",
     "temp_file_error": "Не удалось создать временный DXF файл для экспорта",
     
+    # Схемы
+    "layer_schema_group": "Настройки схемы для слоев",
+    "file_schema_group": "Настройки схемы для файлов",
+    "layer_schema_label": "Схема для слоев:",
+    "file_schema_label": "Схема для файлов:",
+    "select_existing_schema": "Выбрать существующую схему",
+    "create_new_schema": "Создать новую схему",
+    "new_schema_name": "Имя новой схемы:",
+    "export_layers_only": "Экспортировать только слои (без сохранения файла)",
+    "schema_not_selected": "Схема для слоев не выбрана",
+    "schema_creation_failed": "Не удалось создать схему",
+    "invalid_schema_name": "Недопустимое имя схемы",
+    "schema_exists": "Схема уже существует",
+    
     # Группы и метки
     "dxf_objects_group": "DXF Объекты",
     "db_connection_group": "Подключение к базе данных",

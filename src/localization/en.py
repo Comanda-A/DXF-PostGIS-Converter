@@ -275,7 +275,21 @@ EXPORT_DIALOG = {
     "file_exists_tooltip": "File with this name already exists. Please choose a different name.",
     "file_available_tooltip": "File name available",
     "file_check_error_tooltip": "Error checking file name: {0}",
-    "enter_file_name_tooltip": "Enter file name"
+    "enter_file_name_tooltip": "Enter file name",
+    
+    # Schemas
+    "layer_schema_group": "Layer Schema Settings",
+    "file_schema_group": "File Schema Settings",
+    "layer_schema_label": "Schema for layers:",
+    "file_schema_label": "Schema for files:",
+    "select_existing_schema": "Select existing schema",
+    "create_new_schema": "Create new schema",
+    "new_schema_name": "New schema name:",
+    "export_layers_only": "Export layers only (without saving file)",
+    "schema_not_selected": "Schema for layers not selected",
+    "schema_creation_failed": "Failed to create schema",
+    "invalid_schema_name": "Invalid schema name",
+    "schema_exists": "Schema already exists"
 }
 
 # Help content for dialogs

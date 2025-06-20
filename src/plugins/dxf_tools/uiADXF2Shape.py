@@ -696,6 +696,7 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
             self.lbAktion.show()
             self.pgBar.setValue(0)
             self.AktSchritt = 0
+            
             self.pgDatBar.show()
             self.lbDatAktion.show()
             self.pgDatBar.setValue(0)
@@ -708,10 +709,129 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
             self.pgBar.hide()
             self.lbAktion.hide()
             self.pgDatBar.hide()
-            self.lbDatAktion.hide()
-
+            self.lbDatAktion.hide()    
     def RunMenu(self):
         self.exec_()
         s = QSettings("EZUSoft", fncProgKennung())
         s.setValue("SaveWidth", str(self.width()))
         s.setValue("SaveHeight", str(self.height()))
+
+    def import_dxf_programmatically(self, dxf_file_path):
+        """
+        Программный импорт DXF файла в QGIS с отображением UI прогресса
+        
+        :param dxf_file_path: Путь к DXF файлу
+        :return: True если импорт успешен, False в противном случае
+        """
+        try:
+            # Очищаем список файлов и добавляем наш файл
+            self.listDXFDatNam.clear()
+            self.listDXFDatNam.setEnabled(True)
+            self.listDXFDatNam.addItem(dxf_file_path)
+            self.current_files = [dxf_file_path]
+
+            # Устанавливаем настройки по умолчанию для импорта в QGIS
+            self.chkSHP.setChecked(False)
+            self.chkGPKG.setChecked(False)
+
+            # Настройки форматирования
+            self.chkCol.setChecked(False)  # Включаем цвета
+            self.chkLay.setChecked(True)  # Включаем слои
+            self.chkUseTextFormat.setChecked(True)  # Форматирование текста
+            self.chkUseColor4Point.setChecked(True)  # Цвета для точек
+            self.chkUseColor4Line.setChecked(True)  # Цвета для линий
+            self.chkUseColor4Poly.setChecked(False)  # Цвета для полигонов
+
+            # Настройки трансформации (отключаем)
+            self.chkTransform.setChecked(False)
+
+            # Настройки 3D
+            self.chk3D.setChecked(False)
+
+            # Параметры текста
+            self.txtFaktor.setText('1.3')
+            self.txtErsatz4Tab.setText(' | ')
+
+            # Кодировка
+            self.cbCharSet.setCurrentIndex(0)  # System
+            
+            # Показываем диалог для отображения прогресса
+            self.show()
+            self.raise_()
+            self.activateWindow()
+            
+            # Активируем режим выполнения (показывает только элементы прогресса)
+            self.FormRunning(True)
+            
+            # Принудительно обновляем UI
+            try:
+                from PyQt5.QtWidgets import QApplication
+                QApplication.processEvents()
+            except:
+                try:
+                    from PyQt4.QtGui import QApplication
+                    QApplication.processEvents()
+                except:
+                    pass
+            
+            # Запускаем процесс импорта
+            result = self._execute_import_process()
+            
+            # Деактивируем режим выполнения
+            self.FormRunning(False)
+            
+            # Скрываем диалог после завершения
+            self.hide()
+            
+            return result
+            
+        except Exception as e:
+            # В случае ошибки также восстанавливаем UI и скрываем диалог
+            self.FormRunning(False)
+            self.hide()
+            return False
+    
+    def _execute_import_process(self):
+        """
+        Выполняет процесс импорта DXF в QGIS
+        
+        :return: True если импорт успешен, False в противном случае
+        """
+        try:
+            # Проверяем наличие файла
+            if self.listDXFDatNam.count() == 0:
+                return False
+
+            dxf_file = self.listDXFDatNam.item(0).text()
+            if not os.path.exists(dxf_file):
+                return False
+
+            # Параметры для импорта
+            dblFaktor = float(self.txtFaktor.text().replace(",", "."))
+            DreiPassPunkte = None  # Без трансформации
+
+            # Временная директория для обработки
+            from .fnc4all import EZUTempDir
+            ZielPfad = EZUTempDir()
+            if ZielPfad[-1] != "/" and ZielPfad[-1] != "\\":
+                ZielPfad = ZielPfad + "/"
+
+            # Формат вывода (в памяти для QGIS)
+            out = "GPKG"
+
+            self.iface.read_multiple_dxf([dxf_file])
+
+            # Запускаем DXFImporter
+            Antw = DXFImporter(self, out, self.listDXFDatNam, ZielPfad, self.chkSHP.isChecked() or self.chkGPKG.isChecked(),
+                               self.cbCharSet.currentText(), self.chkCol.isChecked(), self.chkLay.isChecked(),
+                               self.chkUseTextFormat.isChecked(), self.chkUseColor4Point.isChecked(),
+                               self.chkUseColor4Line.isChecked(), self.chkUseColor4Poly.isChecked(), dblFaktor,
+                               self.chkTransform.isChecked(), DreiPassPunkte, self.chk3D.isChecked(),
+                               self.txtErsatz4Tab.text())
+            
+            return True
+            
+        except Exception as e:
+            return False
+
+

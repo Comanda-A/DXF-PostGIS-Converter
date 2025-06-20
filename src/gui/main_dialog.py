@@ -14,6 +14,7 @@ from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler, get_selected_file
 from ..tree_widget_handler import TreeWidgetHandler
 from .info_dialog import InfoDialog
+from .import_destination_dialog import ImportDestinationDialog
 from ..workers.dxf_worker import DXFWorker
 from ..workers.long_task_worker import LongTaskWorker
 from ..db.connections_manager import ConnectionsManager
@@ -564,7 +565,6 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             msg_box.setWindowTitle(self.lm.get_string("MAIN_DIALOG", "db_info_title"))
             msg_box.setText(info_text)
             msg_box.exec_()
-            
         except Exception as e:
             Logger.log_message(self.lm.get_string("MAIN_DIALOG", "error_displaying_connection", conn_name, str(e)))
             QMessageBox.warning(None, self.lm.get_string("COMMON", "error"), 
@@ -574,32 +574,32 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         """
         Обработка нажатия кнопки импорта из базы данных
         """
-        # Открываем диалоговое окно для выбора пути сохранения файла
-        options = QFileDialog.Options()
-        file_path, _ = QFileDialog.getSaveFileName(None, self.lm.get_string("MAIN_DIALOG", "save_file_as"), 
-                                                 f"{file_name}", "DXF файлы (*.dxf);;Все файлы (*)", options=options)
-        
-        if file_path:
+        # Показываем диалог выбора места импорта
+        destination_dialog = ImportDestinationDialog(self)
+        if destination_dialog.exec_() == QtWidgets.QDialog.Accepted:
+            destination = destination_dialog.get_selected_destination()
+            
+            # Получаем подключение и файл из базы данных
             conn = self.connections_manager.get_connection(conn_display_name)
             if not conn:
                 QMessageBox.warning(None, self.lm.get_string("COMMON", "error"), 
                                    self.lm.get_string("MAIN_DIALOG", "saved_credentials_error"))
                 return
+                
             file = get_dxf_file_by_id(conn['username'], conn['password'], host, port, dbname, file_id)
+            if not file:
+                QMessageBox.critical(None, self.lm.get_string("COMMON", "error"),
+                                   self.lm.get_string("MAIN_DIALOG", "file_not_found_error", file_id))
+                return
+                
             file_content = file.file_content
-            with open(file_path, 'wb') as f:
-                try:
-                    f.write(file_content)
-
-                    QMessageBox.information(None, self.lm.get_string("COMMON", "success"),
-                                            self.lm.get_string("MAIN_DIALOG", "file_saved_successfully", file_path))
-                except Exception as e:
-                    Logger.log_message(self.lm.get_string("MAIN_DIALOG", "error_saving_file", str(e)))
-                    QMessageBox.critical(None, self.lm.get_string("COMMON", "error"),
-                                        self.lm.get_string("MAIN_DIALOG", "error_saving_file", str(e)))
-        else:
-            QMessageBox.warning(None, self.lm.get_string("COMMON", "warning"), 
-                               self.lm.get_string("MAIN_DIALOG", "file_path_error"))
+            
+            if destination == "qgis":
+                # Импорт в QGIS через саб-плагин
+                self._import_to_qgis(file_content, file_name)
+            else:
+                # Сохранение в файл на ПК
+                self._save_to_file(file_content, file_name)
 
     def show_full_preview(self, svg_path):
         """Показывает диалог предпросмотра в полном размере"""
@@ -743,3 +743,56 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         if hasattr(self, 'preview_generator'):
             self.preview_generator.cleanup()  # Очищаем временные файлы если они остались
             self.preview_generator = None
+
+    def _import_to_qgis(self, file_content, file_name):
+        """
+        Импорт DXF файла в QGIS через саб-плагин
+        """
+        try:
+            # Создаем временный файл с содержимым DXF
+            temp_file = tempfile.NamedTemporaryFile(suffix='.dxf', delete=False)
+            temp_file.write(file_content)
+            temp_file.close()
+            
+            # Импортируем саб-плагин AnotherDXF2Shape
+            from ..plugins.dxf_tools.uiADXF2Shape import uiADXF2Shape
+            
+            # Создаем экземпляр саб-плагина (UI будет невидимым)
+            dxf_plugin = uiADXF2Shape(self)
+            
+            # Вызываем функцию программного импорта
+            success = dxf_plugin.import_dxf_programmatically(temp_file.name)
+              # Удаляем временный файл
+            os.unlink(temp_file.name)
+            
+            if success:
+                QMessageBox.information(None, self.lm.get_string("COMMON", "success"),
+                                       self.lm.get_string("MAIN_DIALOG", "file_imported_to_qgis", file_name))
+                
+        except Exception as e:
+            Logger.log_message(self.lm.get_string("MAIN_DIALOG", "error_importing_to_qgis", file_name, str(e)))
+            QMessageBox.critical(None, self.lm.get_string("COMMON", "error"),
+                               self.lm.get_string("MAIN_DIALOG", "error_importing_to_qgis", file_name, str(e)))
+
+    def _save_to_file(self, file_content, file_name):
+        """
+        Сохранение DXF файла на ПК
+        """
+        # Открываем диалоговое окно для выбора пути сохранения файла
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(None, self.lm.get_string("MAIN_DIALOG", "save_file_as"), 
+                                                 f"{file_name}", "DXF файлы (*.dxf);;Все файлы (*)", options=options)
+        
+        if file_path:
+            with open(file_path, 'wb') as f:
+                try:
+                    f.write(file_content)
+                    QMessageBox.information(None, self.lm.get_string("COMMON", "success"),
+                                            self.lm.get_string("MAIN_DIALOG", "file_saved_successfully", file_path))
+                except Exception as e:
+                    Logger.log_message(self.lm.get_string("MAIN_DIALOG", "error_saving_file", str(e)))
+                    QMessageBox.critical(None, self.lm.get_string("COMMON", "error"),
+                                        self.lm.get_string("MAIN_DIALOG", "error_saving_file", str(e)))
+        else:
+            QMessageBox.warning(None, self.lm.get_string("COMMON", "warning"), 
+                               self.lm.get_string("MAIN_DIALOG", "file_path_error"))

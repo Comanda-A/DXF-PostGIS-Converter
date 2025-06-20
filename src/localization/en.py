@@ -94,11 +94,13 @@ MAIN_DIALOG = {
     "schema_selector_info": "No files were found in the default schemas. Please select a schema to search for files:",
     "schema_selector_label": "Schema:",
     "no_schemas_available": "No schemas available in the database.",
-    "schema_load_error": "Error loading schemas from database.",
+    "schema_load_error": "Error loading schemas from database.",    
     "files_found_in_schema": "Files found in schema '{0}'. The list will be updated.",
     "no_files_in_selected_schema": "No files found in the selected schema '{0}'.",
     "error_title": "Error",
-    "warning_title": "Warning"
+    "warning_title": "Warning",
+    "file_imported_to_qgis": "File '{0}' successfully imported to QGIS",
+    "error_importing_to_qgis": "Error importing file '{0}' to QGIS: {1}"
 }
 
 # Logging

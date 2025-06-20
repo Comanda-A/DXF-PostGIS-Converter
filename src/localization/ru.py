@@ -94,11 +94,13 @@ MAIN_DIALOG = {
     "schema_selector_info": "Файлы не найдены в схемах по умолчанию. Пожалуйста, выберите схему для поиска файлов:",
     "schema_selector_label": "Схема:",
     "no_schemas_available": "В базе данных нет доступных схем.",
-    "schema_load_error": "Ошибка загрузки схем из базы данных.",
+    "schema_load_error": "Ошибка загрузки схем из базы данных.",    
     "files_found_in_schema": "Файлы найдены в схеме '{0}'. Список будет обновлен.",
     "no_files_in_selected_schema": "В выбранной схеме '{0}' файлы не найдены.",
     "error_title": "Ошибка",
-    "warning_title": "Предупреждение"
+    "warning_title": "Предупреждение",
+    "file_imported_to_qgis": "Файл '{0}' успешно импортирован в QGIS",
+    "error_importing_to_qgis": "Ошибка при импорте файла '{0}' в QGIS: {1}"
 }
 
 # Логирование 

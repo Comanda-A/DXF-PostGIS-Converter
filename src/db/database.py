@@ -20,27 +20,15 @@ PATTERN_DATABASE_URL = 'postgresql://{username}:{password}@{address}:{port}/{dbn
 engine = None
 SessionLocal = None
 
-def _show_schema_selector_dialog(username, password, host, port, dbname):
+def _show_schema_selector_dialog(schemas):
     """
     Показывает диалог выбора схемы
-    
     Args:
-        username: Имя пользователя для подключения к БД
-        password: Пароль для подключения к БД
-        host: Адрес сервера БД
-        port: Порт сервера БД
-        dbname: Имя базы данных
-        
+        schemas: Список схем для отображения в диалоге выбора
     Returns:
         Выбранная схема или None если диалог отменен
     """
     try:
-        # Сначала получаем список схем из базы данных
-        schemas = get_schemas(username, password, host, port, dbname)
-        
-        if not schemas:
-            Logger.log_warning("Не удалось получить список схем из базы данных")
-            return None
         
         # Импортируем здесь, чтобы избежать циклических импортов
         from ..gui.schema_selector_dialog import SchemaSelectorDialog
@@ -109,27 +97,40 @@ def _find_in_schemas(username, password, host, port, dbname, search_function, fi
     try:
         from qgis.core import QgsSettings
         
+        # Получаем список существующих схем
+        existing_schemas = get_schemas(username, password, host, port, dbname)
+        Logger.log_message(f"Найдено схем: {existing_schemas}")
+        if not existing_schemas:
+            Logger.log_warning("Не удалось получить список схем из базы данных")
+            return {'result': None, 'schema': None}
+        
         # Если схема не указана, используем сохранённую схему
         if file_schema is None:
             settings = QgsSettings()
             file_schema = settings.value("DXFPostGIS/lastConnection/fileSchema", 'file_schema')
         
-        # Создаём класс для указанной схемы
-        file_class = models.create_file_table(file_schema)
-        
-        try:
-            # Пытаемся найти в указанной схеме
-            result = search_function(file_class)
-            if result is not None and (not hasattr(result, '__len__') or len(result) > 0):
-                return {'result': result, 'schema': file_schema}
-        except Exception as schema_error:
-            Logger.log_warning(f"Не удалось выполнить поиск в схеме '{file_schema}': {str(schema_error)}")
+        # Проверяем, существует ли указанная схема
+        if file_schema in existing_schemas:
+            try:
+                # Создаём класс для указанной схемы
+                file_class = models.create_file_table(file_schema)
+                # Пытаемся найти в указанной схеме
+                result = search_function(file_class)
+                if result is not None and (not hasattr(result, '__len__') or len(result) > 0):
+                    return {'result': result, 'schema': file_schema}
+            except Exception as schema_error:
+                Logger.log_warning(f"Не удалось выполнить поиск в схеме '{file_schema}': {str(schema_error)}")
+        else:
+            Logger.log_warning(f"Схема '{file_schema}' не существует в базе данных")
         
         # Если не удалось найти в указанной схеме, пробуем схемы по умолчанию
         default_schemas = ['file_schema', 'public']
         for default_schema in default_schemas:
             if default_schema == file_schema:
                 continue  # Уже пробовали
+            if default_schema not in existing_schemas:
+                Logger.log_warning(f"Схема по умолчанию '{default_schema}' не существует в базе данных")
+                continue  # Пропускаем несуществующие схемы
             try:
                 file_class = models.create_file_table(default_schema)
                 result = search_function(file_class)
@@ -140,7 +141,7 @@ def _find_in_schemas(username, password, host, port, dbname, search_function, fi
                 continue
         
         # Если ничего не найдено в схемах по умолчанию, показываем диалог выбора схемы
-        selected_schema = _show_schema_selector_dialog(username, password, host, port, dbname)
+        selected_schema = _show_schema_selector_dialog(existing_schemas)
         
         if selected_schema:
             try:
@@ -197,10 +198,10 @@ def _connect_to_database(username, password, address, port, dbname) -> Session:
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
         # Создаем схемы если их нет
-        _create_schemas()
+        #_create_schemas()
         
-        # Создаем все таблицы, если их нет
-        Base.metadata.create_all(bind=engine)
+        # НЕ создаем все таблицы сразу - они будут созданы по мере необходимости
+        # Base.metadata.create_all(bind=engine)
 
         # Логируем успешное подключение
         Logger.log_message(f"Подключено к базе данных PostgreSQL '{dbname}' по адресу {address}:{port} с пользователем '{username}'.")

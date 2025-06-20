@@ -27,11 +27,12 @@ class ExportThread(QThread):
     Поток для выполнения экспорта данных в базу данных.
     Работает отдельно от основного потока интерфейса, чтобы не блокировать UI.    """
     finished = pyqtSignal(bool, str)  # Сигнал: успех/неуспех, сообщение
+    
     progress_update = pyqtSignal(int, str)  # Сигнал обновления прогресса: процент, сообщение
     
     def __init__(self, username, password, address, port, dbname, dxf_handler, file_path, 
                  mapping_mode, layer_schema='layer_schema', file_schema='file_schema', 
-                 export_layers_only=False):
+                 export_layers_only=False, custom_filename=None):
         """
         Инициализация потока экспорта.
         
@@ -46,6 +47,7 @@ class ExportThread(QThread):
         :param layer_schema: Схема для размещения таблиц слоев
         :param file_schema: Схема для размещения таблицы файлов
         :param export_layers_only: Экспортировать только слои (без сохранения файла)
+        :param custom_filename: Пользовательское название файла для сохранения в БД
         """
         super().__init__()
         self.username = username
@@ -59,6 +61,7 @@ class ExportThread(QThread):
         self.layer_schema = layer_schema
         self.file_schema = file_schema
         self.export_layers_only = export_layers_only
+        self.custom_filename = custom_filename
         self.lm = LocalizationManager.instance()
 
     def run(self):
@@ -68,6 +71,7 @@ class ExportThread(QThread):
             Logger.log_message(self.lm.get_string("EXPORT_DIALOG", "export_thread_start"))
             Logger.log_message(f"Режим маппирования: {self.mapping_mode}")
             
+          
             self.progress_update.emit(0, self.lm.get_string("EXPORT_DIALOG", "progress_text"))
             
             result = export_dxf_to_database(
@@ -81,7 +85,8 @@ class ExportThread(QThread):
                 self.mapping_mode,
                 self.layer_schema,
                 self.file_schema,
-                self.export_layers_only
+                self.export_layers_only,
+                self.custom_filename
             )
             
             if result:
@@ -124,13 +129,15 @@ class ExportDialog(QDialog):
         self.dbname = 'none'
         self.username = 'none'
         self.password = 'none'
-        self.schemaname = 'none'
-
+        self.schemaname = 'none'        
         # Параметры схем
         self.layer_schema = 'layer_schema'
         self.file_schema = 'file_schema'
         self.export_layers_only = False
         self.available_schemas = []
+        
+        # Название файла для экспорта
+        self.custom_filename = ""
 
         Logger.log_message("Инициализация диалога экспорта")
         self.setup_ui()
@@ -304,10 +311,30 @@ class ExportDialog(QDialog):
         right_widget.setMaximumWidth(350)  # Фиксированная максимальная ширина
         right_widget.setMinimumWidth(300)  # Минимальная ширина
         right_widget.setLayout(right_column)
-        
-        # Группа настроек экспорта
+          # Группа настроек экспорта
         self.export_settings_group = QGroupBox(self.lm.get_string("EXPORT_DIALOG", "export_settings_group"))
         export_settings_layout = QVBoxLayout()
+        
+        # Поле для ввода названия файла
+        filename_layout = QVBoxLayout()
+        filename_label = QLabel(self.lm.get_string("EXPORT_DIALOG", "filename_label", "Название файла:"))
+        filename_label.setWordWrap(True)
+        filename_layout.addWidget(filename_label)
+        
+        self.filename_lineedit = QLineEdit()
+        self.filename_lineedit.setPlaceholderText(self.lm.get_string("EXPORT_DIALOG", "filename_placeholder", "Введите название файла"))
+        filename_layout.addWidget(self.filename_lineedit)
+        
+        # Описание поля названия файла
+        filename_description = QLabel(self.lm.get_string("EXPORT_DIALOG", "filename_description", "Оставьте пустым для использования оригинального названия файла"))
+        filename_description.setWordWrap(True)
+        filename_description.setStyleSheet("color: #666666; font-style: italic; font-size: 11px;")
+        filename_layout.addWidget(filename_description)
+        
+        export_settings_layout.addLayout(filename_layout)
+        
+        # Добавляем разделитель
+        export_settings_layout.addSpacing(10)
         
         # Добавляем группу настроек маппирования слоев
         mapping_group_layout = QVBoxLayout()
@@ -459,8 +486,7 @@ class ExportDialog(QDialog):
 
         # Подключение сигналов
         self._connect_signals()
-        
-        # Инициализация состояния элементов
+          # Инициализация состояния элементов
         self.on_export_layers_only_toggled(self.export_layers_only)
 
     def _connect_signals(self):
@@ -470,6 +496,7 @@ class ExportDialog(QDialog):
         self.info_button.clicked.connect(self.show_info_dialog)
         self.port_lineedit.textChanged.connect(self.on_port_changed)
         self.password_lineedit.textChanged.connect(self.on_password_changed)
+        self.filename_lineedit.textChanged.connect(self.on_filename_changed)
         self.export_button.clicked.connect(self.on_export_clicked)
         self.cancel_button.clicked.connect(self.on_cancel_clicked)
         # Подключаем сигнал изменения режима маппирования
@@ -505,12 +532,15 @@ class ExportDialog(QDialog):
         self.dbname = settings.value("DXFPostGIS/lastConnection/database", 'none')
         self.username = settings.value("DXFPostGIS/lastConnection/username", 'none')
         self.password = settings.value("DXFPostGIS/lastConnection/password", 'none')
-        self.schemaname = settings.value("DXFPostGIS/lastConnection/schema", 'none')
-
+        self.schemaname = settings.value("DXFPostGIS/lastConnection/schema", 'none')        
         # Загружаем настройки схем и режима экспорта
         self.layer_schema = settings.value("DXFPostGIS/lastConnection/layerSchema", 'layer_schema')
         self.file_schema = settings.value("DXFPostGIS/lastConnection/fileSchema", 'file_schema')
         self.export_layers_only = settings.value("DXFPostGIS/lastConnection/exportLayersOnly", False, type=bool)
+        
+        # Загружаем пользовательское название файла
+        self.custom_filename = settings.value("DXFPostGIS/lastConnection/customFilename", "")
+        self.filename_lineedit.setText(self.custom_filename)
         
         # Устанавливаем состояние чекбокса
         self.export_layers_only_checkbox.setChecked(self.export_layers_only)
@@ -562,11 +592,12 @@ class ExportDialog(QDialog):
         settings.setValue("DXFPostGIS/lastConnection/username", self.username)
         settings.setValue("DXFPostGIS/lastConnection/password", self.password)
         settings.setValue("DXFPostGIS/lastConnection/schema", self.schemaname)
-        
-        # Сохраняем настройки схем
+          # Сохраняем настройки схем
         settings.setValue("DXFPostGIS/lastConnection/layerSchema", self.layer_schema)
         settings.setValue("DXFPostGIS/lastConnection/fileSchema", self.file_schema)
         settings.setValue("DXFPostGIS/lastConnection/exportLayersOnly", self.export_layers_only)
+          # Сохраняем пользовательское название файла
+        settings.setValue("DXFPostGIS/lastConnection/customFilename", self.custom_filename)
 
     def on_port_changed(self, text):
         """
@@ -585,6 +616,17 @@ class ExportDialog(QDialog):
         """
         self.password = text
         Logger.log_message("Пароль был изменен")
+        self.check_export_enabled()
+
+    def on_filename_changed(self, text):
+        """
+        Обработка изменения названия файла.
+        
+        :param text: Новое название файла
+        """
+        self.custom_filename = text.strip()
+        Logger.log_message(f"Название файла изменено на: '{self.custom_filename}'")
+        self.check_export_enabled()
 
 
     def refresh_data_dialog(self):
@@ -719,25 +761,33 @@ class ExportDialog(QDialog):
         # Получаем выбранный режим маппирования
         mapping_mode = self.mapping_mode_combo.currentData()
         Logger.log_message(f"Выбран режим маппирования для экспорта: {mapping_mode}")
-        
-        # Создаем временный файл для экспорта
+          # Создаем временный файл для экспорта
         selected_file_name = self.dxf_tree_widget_handler.get_selected_file_name()
         if not selected_file_name:
             Logger.log_error("Не удалось определить имя выбранного файла")
             self.timer.stop()
             self.progress.close()
             return
+          # Используем пользовательское название файла, если оно задано
+        final_filename = self.custom_filename if self.custom_filename else selected_file_name
+        
+        # Убеждаемся, что файл имеет расширение .dxf
+        if final_filename and not final_filename.lower().endswith('.dxf'):
+            final_filename += '.dxf'
+            
+        Logger.log_message(f"Название файла для экспорта: '{final_filename}' (оригинальное: '{selected_file_name}')")
             
         # Создаем экспортер DXF
         dxf_exporter = DXFExporter(self.dxf_handler)
         
         # Создаем временный файл
         temp_dir = tempfile.gettempdir()
-        temp_filename = os.path.join(temp_dir, selected_file_name)
+        temp_filename = os.path.join(temp_dir, final_filename)
         
         self.update_progress(10, self.lm.get_string("EXPORT_DIALOG", "creating_temp_file"))
         
         # Экспортируем выбранные сущности во временный файл
+        # Используем оригинальное название файла для получения сущностей
         export_success = dxf_exporter.export_selected_entities(selected_file_name, temp_filename)
         
         if not export_success:
@@ -773,7 +823,8 @@ class ExportDialog(QDialog):
             mapping_mode,
             layer_schema,
             file_schema,
-            self.export_layers_only
+            self.export_layers_only,
+            final_filename  # Передаем пользовательское название файла
         )
         
         # Сохраняем имя временного файла для удаления после завершения экспорта

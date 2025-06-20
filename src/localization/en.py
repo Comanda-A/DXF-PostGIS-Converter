@@ -298,11 +298,16 @@ EXPORT_DIALOG = {
     "select_existing_schema": "Select existing schema",
     "create_new_schema": "Create new schema",
     "new_schema_name": "New schema name:",
-    "export_layers_only": "Export layers only (without saving file)",
+    "export_layers_only": "Export layers only (without saving file)",    
     "schema_not_selected": "Schema for layers not selected",
     "schema_creation_failed": "Failed to create schema",
     "invalid_schema_name": "Invalid schema name",
-    "schema_exists": "Schema already exists"
+    "schema_exists": "Schema already exists",
+    
+    # Filename
+    "filename_label": "File name:",
+    "filename_placeholder": "Enter file name",
+    "filename_description": "Leave empty to use original file name",
 }
 
 # Help content for dialogs

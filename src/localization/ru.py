@@ -225,11 +225,16 @@ EXPORT_DIALOG = {
     "select_existing_schema": "Выбрать существующую схему",
     "create_new_schema": "Создать новую схему",
     "new_schema_name": "Имя новой схемы:",
-    "export_layers_only": "Экспортировать только слои (без сохранения файла)",
+    "export_layers_only": "Экспортировать только слои (без сохранения файла)",    
     "schema_not_selected": "Схема для слоев не выбрана",
     "schema_creation_failed": "Не удалось создать схему",
     "invalid_schema_name": "Недопустимое имя схемы",
     "schema_exists": "Схема уже существует",
+    
+    # Название файла
+    "filename_label": "Название файла:",
+    "filename_placeholder": "Введите название файла",
+    "filename_description": "Оставьте пустым для использования оригинального названия файла",
     
     # Группы и метки
     "dxf_objects_group": "DXF Объекты",

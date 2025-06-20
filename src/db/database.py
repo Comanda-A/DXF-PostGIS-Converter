@@ -395,7 +395,8 @@ def create_layer_table_if_not_exists(layer_name: str, layer_schema: str = 'layer
 
 def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: DXFHandler, file_path: str, 
                           mapping_mode: str = "always_overwrite", layer_schema: str = 'layer_schema', 
-                          file_schema: str = 'file_schema', export_layers_only: bool = False) -> bool:
+                          file_schema: str = 'file_schema', export_layers_only: bool = False, 
+                          custom_filename: str = None) -> bool:
     """
     Экспортирует DXF файл в базу данных
     
@@ -410,14 +411,22 @@ def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: 
         mapping_mode: Режим маппирования слоев (always_overwrite, geometry, notes, both)
         layer_schema: Схема для размещения таблиц слоев
         file_schema: Схема для размещения таблицы файлов
-        export_layers_only: Экспортировать только слои (без сохранения файла)    Returns:
+        export_layers_only: Экспортировать только слои (без сохранения файла)        
+        custom_filename: Пользовательское название файла для сохранения в БД (опционально)
+    Returns:
         True в случае успеха, иначе False
     """
+    
     try:
         session = _connect_to_database(username, password, host, port, dbname)
-        # Получаем имя файла из пути
-        filename = os.path.basename(file_path)
-        Logger.log_message(f"Начало экспорта DXF файла {filename} в базу данных...")
+        # Получаем имя файла из пути (оригинальное название)
+        original_filename = os.path.basename(file_path)
+        # Используем пользовательское название файла или оригинальное
+        filename_for_db = custom_filename if custom_filename else original_filename
+        
+        Logger.log_message(f"Начало экспорта DXF файла в базу данных...")
+        Logger.log_message(f"Оригинальное название файла: {original_filename}")
+        Logger.log_message(f"Название для БД: {filename_for_db}")
         Logger.log_message(f"Путь к файлу: {file_path}")
         Logger.log_message(f"Режим маппирования: {mapping_mode}")
         Logger.log_message(f"Схема для слоев: {layer_schema}")
@@ -431,13 +440,13 @@ def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: 
             # Читаем содержимое файла
             with open(file_path, 'rb') as f:
                 file_content = f.read()
-            # Создаем запись о файле в указанной схеме
-            file_record = create_file_record(session, filename, file_content, file_schema)
+            # Создаем запись о файле в указанной схеме с названием для БД
+            file_record = create_file_record(session, filename_for_db, file_content, file_schema)
             if not file_record:
                 return False
         
-        # Получаем слои DXF файла
-        layers_entities = dxf_handler.get_entities_for_export(filename)
+        # Получаем слои DXF файла используя оригинальное название
+        layers_entities = dxf_handler.get_entities_for_export(original_filename)
         # Для каждого слоя создаем таблицу и записываем сущности
         for layer_name, entities in layers_entities.items():
             layer_class = create_layer_table_if_not_exists(layer_name, layer_schema, file_schema)
@@ -461,16 +470,16 @@ def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: 
                 # Добавляем новые записи
                 _add_new_entities(session, entities, layer_class, file_id)
 
-            Logger.log_message(f"Экспортирован слой {layer_name} из файла {filename}")
-            
-        # Генерируем превью файла только если файл был сохранен
+            Logger.log_message(f"Экспортирован слой {layer_name} из файла {filename_for_db}")
+              # Генерируем превью файла только если файл был сохранен
         if file_record:
-            _create_output_dxf(file_path, filename, dxf_handler)
-
+            _create_output_dxf(file_path, filename_for_db, dxf_handler)
         return True
     except Exception as e:
         session.rollback()
-        Logger.log_error(f"Ошибка при экспорте DXF файла {filename} в базу данных: {str(e)}")
+        # Получаем имя файла для логирования ошибок
+        error_filename = custom_filename if custom_filename else os.path.basename(file_path)
+        Logger.log_error(f"Ошибка при экспорте DXF файла {error_filename} в базу данных: {str(e)}")
         return False
 
 

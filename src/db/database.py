@@ -5,9 +5,8 @@ from .converter_dxf_to_postgis import convert_entity_to_postgis
 
 Base = declarative_base()
 
-from sqlalchemy import create_engine, Engine, text, inspect, MetaData, select
+from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.orm import sessionmaker, Session, close_all_sessions
-from geoalchemy2.shape import  to_shape
 from ..logger.logger import Logger
 from datetime import datetime, timezone
 from . import models
@@ -20,7 +19,151 @@ PATTERN_DATABASE_URL = 'postgresql://{username}:{password}@{address}:{port}/{dbn
 # Глобальные переменные для хранения текущего движка, сессии и кэша файлов
 engine = None
 SessionLocal = None
-_files_cache: dict = {}  # Кэш файлов
+
+def _show_schema_selector_dialog(username, password, host, port, dbname):
+    """
+    Показывает диалог выбора схемы
+    
+    Args:
+        username: Имя пользователя для подключения к БД
+        password: Пароль для подключения к БД
+        host: Адрес сервера БД
+        port: Порт сервера БД
+        dbname: Имя базы данных
+        
+    Returns:
+        Выбранная схема или None если диалог отменен
+    """
+    try:
+        # Сначала получаем список схем из базы данных
+        schemas = get_schemas(username, password, host, port, dbname)
+        
+        if not schemas:
+            Logger.log_warning("Не удалось получить список схем из базы данных")
+            return None
+        
+        # Импортируем здесь, чтобы избежать циклических импортов
+        from ..gui.schema_selector_dialog import SchemaSelectorDialog
+        from qgis.PyQt.QtWidgets import QApplication
+          # Получаем главное окно приложения
+        app = QApplication.instance()
+        if app is None:
+            return None
+            
+        # Находим активное главное окно QGIS или любое видимое окно верхнего уровня
+        main_window = None
+        active_window = app.activeWindow()
+        
+        # Сначала пытаемся найти активное окно
+        if active_window and active_window.isVisible():
+            main_window = active_window
+        else:
+            # Ищем главное окно QGIS
+            for widget in app.topLevelWidgets():
+                if widget.objectName() == 'QgisApp' and widget.isVisible():
+                    main_window = widget
+                    break
+            
+            # Если не нашли главное окно QGIS, берем любое видимое окно верхнего уровня
+            if not main_window:
+                for widget in app.topLevelWidgets():
+                    if widget.isVisible() and widget.isWindow():
+                        main_window = widget
+                        break
+        
+        # Создаем диалог выбора схемы с готовым списком схем
+        dialog = SchemaSelectorDialog(schemas, main_window)
+        
+        # Убеждаемся, что диалог отображается поверх всех окон
+        if main_window:
+            dialog.raise_()
+            dialog.activateWindow()
+        
+        if dialog.exec_() == SchemaSelectorDialog.Accepted:
+            return dialog.get_selected_schema()
+        else:
+            return None
+            
+    except Exception as e:
+        Logger.log_error(f"Ошибка при показе диалога выбора схемы: {str(e)}")
+        return None
+
+
+def _find_in_schemas(username, password, host, port, dbname, search_function, file_schema=None):
+    """
+    Универсальная функция для поиска в схемах с автоматическим диалогом выбора
+    
+    Args:
+        session: Сессия базы данных
+        username: Имя пользователя для подключения к БД
+        password: Пароль для подключения к БД
+        host: Адрес сервера БД
+        port: Порт сервера БД
+        dbname: Имя базы данных
+        search_function: Функция поиска, принимающая (file_class) и возвращающая результат
+        file_schema: Схема для поиска (опционально)
+        
+    Returns:
+        Словарь с ключами 'result' (результат поиска), 'schema' (использованная схема)
+    """
+    try:
+        from qgis.core import QgsSettings
+        
+        # Если схема не указана, используем сохранённую схему
+        if file_schema is None:
+            settings = QgsSettings()
+            file_schema = settings.value("DXFPostGIS/lastConnection/fileSchema", 'file_schema')
+        
+        # Создаём класс для указанной схемы
+        file_class = models.create_file_table(file_schema)
+        
+        try:
+            # Пытаемся найти в указанной схеме
+            result = search_function(file_class)
+            if result is not None and (not hasattr(result, '__len__') or len(result) > 0):
+                return {'result': result, 'schema': file_schema}
+        except Exception as schema_error:
+            Logger.log_warning(f"Не удалось выполнить поиск в схеме '{file_schema}': {str(schema_error)}")
+        
+        # Если не удалось найти в указанной схеме, пробуем схемы по умолчанию
+        default_schemas = ['file_schema', 'public']
+        for default_schema in default_schemas:
+            if default_schema == file_schema:
+                continue  # Уже пробовали
+            try:
+                file_class = models.create_file_table(default_schema)
+                result = search_function(file_class)
+                if result is not None and (not hasattr(result, '__len__') or len(result) > 0):
+                    Logger.log_message(f"Результат найден в схеме '{default_schema}'")
+                    return {'result': result, 'schema': default_schema}
+            except Exception:
+                continue
+        
+        # Если ничего не найдено в схемах по умолчанию, показываем диалог выбора схемы
+        selected_schema = _show_schema_selector_dialog(username, password, host, port, dbname)
+        
+        if selected_schema:
+            try:
+                file_class = models.create_file_table(selected_schema)
+                result = search_function(file_class)
+                if result is not None and (not hasattr(result, '__len__') or len(result) > 0):
+                    Logger.log_message(f"Результат найден в выбранной схеме '{selected_schema}'")
+                    
+                    # Сохраняем выбранную схему в настройки
+                    settings = QgsSettings()
+                    settings.setValue("DXFPostGIS/lastConnection/fileSchema", selected_schema)
+                    
+                    return {'result': result, 'schema': selected_schema}
+                else:
+                    Logger.log_warning(f"В выбранной схеме '{selected_schema}' ничего не найдено")
+            except Exception as e:
+                Logger.log_error(f"Ошибка при поиске в выбранной схеме '{selected_schema}': {str(e)}")
+        
+        return {'result': None, 'schema': None}
+        
+    except Exception as e:
+        Logger.log_error(f"Ошибка в универсальной функции поиска по схемам: {str(e)}")
+        return {'result': None, 'schema': None}
 
 
 # ----------------------
@@ -30,7 +173,7 @@ _files_cache: dict = {}  # Кэш файлов
 def _connect_to_database(username, password, address, port, dbname) -> Session:
     """Создание подключения к базе данных"""
     try:
-        global engine, SessionLocal, _files_cache
+        global engine, SessionLocal
         # Закрываем текущие сессии, если они есть
         if 'SessionLocal' in globals() and SessionLocal is not None:
             close_all_sessions()
@@ -156,14 +299,6 @@ def create_schema(username, password, host, port, dbname, schema_name: str) -> b
     except Exception as e:
         Logger.log_error(f"Ошибка при создании схемы '{schema_name}': {str(e)}")
         return False
-
-def get_session() -> Session:
-    """Получение сессии базы данных"""
-    global SessionLocal
-    if SessionLocal is None:
-        raise Exception("База данных не подключена. Вызовите _connect_to_database сначала.")
-    return SessionLocal()
-
 
 # ----------------------
 # Методы создания сущностей
@@ -386,20 +521,37 @@ def _add_new_entities(session: Session, entities, layer_class, file_id: Optional
 # Метод удаления
 # ----------------------
 
-def delete_dxf_file(username, password, host, port, dbname, file_id: int) -> bool:
+def delete_dxf_file(username, password, host, port, dbname, file_id: int, file_schema=None) -> bool:
     """
     Удаляет DXF файл из базы данных по его ID
     
     Args:
-        session: Сессия базы данных
+        username: Имя пользователя для подключения к БД
+        password: Пароль для подключения к БД
+        host: Адрес сервера БД
+        port: Порт сервера БД
+        dbname: Имя базы данных
         file_id: ID файла в базе данных
+        file_schema: Схема для поиска файла (опционально)
         
     Returns:
         True в случае успеха, иначе False
     """
     try:
         session = _connect_to_database(username, password, host, port, dbname)
-        file_record = session.query(models.DxfFile).filter_by(id=file_id).first()
+        if session is None:
+            return False
+        
+        def search_file_for_deletion(file_class):
+            """Функция поиска файла для удаления в указанной схеме"""
+            return session.query(file_class).filter_by(id=file_id).first()
+        
+        # Используем универсальную функцию поиска
+        result = _find_in_schemas(username, password, host, port, dbname, search_file_for_deletion, file_schema)
+        
+        file_record = result['result']
+        actual_schema = result['schema']
+        
         if not file_record:
             Logger.log_warning(f"Файл с ID {file_id} не найден в базе данных")
             return False
@@ -411,10 +563,12 @@ def delete_dxf_file(username, password, host, port, dbname, file_id: int) -> boo
         session.delete(file_record)
         session.commit()
         
-        Logger.log_message(f"Файл {filename} (ID: {file_id}) успешно удален из базы данных")
+        Logger.log_message(f"Файл {filename} (ID: {file_id}) успешно удален из схемы '{actual_schema}'")
         return True
+        
     except Exception as e:
-        session.rollback()
+        if 'session' in locals():
+            session.rollback()
         Logger.log_error(f"Ошибка при удалении DXF файла с ID {file_id}: {str(e)}")
         return False
 
@@ -423,148 +577,79 @@ def delete_dxf_file(username, password, host, port, dbname, file_id: int) -> boo
 # Методы запросов
 # ----------------------
 
-def get_all_dxf_files(username, password, host, port, dbname):
+def get_all_dxf_files(username, password, host, port, dbname, file_schema=None):
     """
     Получает список всех DXF файлов в базе данных
     
     Args:
-        session: Сессия базы данных
+        username: Имя пользователя для подключения к БД
+        password: Пароль для подключения к БД
+        host: Адрес сервера БД
+        port: Порт сервера БД
+        dbname: Имя базы данных
+        file_schema: Схема для поиска файлов (опционально)
         
     Returns:
-        Список объектов DxfFile
+        Словарь с ключами 'files' (список файлов) и 'schema' (использованная схема)
     """
     try:
-        db = _connect_to_database(username, password, host, port, dbname)
-        db_files = db.query(models.DxfFile).all()
-        files = []
-        for file in db_files:
-            files.append({
-                'id': file.id,
-                'filename': file.filename,
-                'upload_date': file.upload_date,
-                'update_date': file.update_date
-            })
-        return files
+        session = _connect_to_database(username, password, host, port, dbname)
+        if session is None:
+            return {'files': [], 'schema': None}
+        
+        def search_files(file_class):
+            """Функция поиска файлов в указанной схеме"""
+            db_files = session.query(file_class).all()
+            files = []
+            for file in db_files:
+                files.append({
+                    'id': file.id,
+                    'filename': file.filename,
+                    'upload_date': file.upload_date,
+                    'update_date': file.update_date
+                })
+            return files
+        
+        # Используем универсальную функцию поиска
+        result = _find_in_schemas(username, password, host, port, dbname, search_files, file_schema)
+        
+        return {'files': result['result'] or [], 'schema': result['schema']}
+            
     except Exception as e:
         Logger.log_error(f"Ошибка при получении списка DXF файлов: {str(e)}")
-        return []
+        return {'files': [], 'schema': None}
 
-def get_dxf_file_by_id(username, password, host, port, dbname, file_id: int) -> Optional[models.DxfFile]:
+def get_dxf_file_by_id(username, password, host, port, dbname, file_id: int, file_schema=None) -> Optional[models.DxfFile]:
     """
     Получает DXF файл по его ID
     
     Args:
-        session: Сессия базы данных
+        username: Имя пользователя для подключения к БД
+        password: Пароль для подключения к БД
+        host: Адрес сервера БД
+        port: Порт сервера БД
+        dbname: Имя базы данных
         file_id: ID файла
+        file_schema: Схема для поиска файла (опционально)
         
     Returns:
         Объект DxfFile или None, если файл не найден
     """
     try:
         session = _connect_to_database(username, password, host, port, dbname)
-        return session.query(models.DxfFile).filter_by(id=file_id).first()
+        if session is None:
+            return None
+        
+        def search_file(file_class):
+            """Функция поиска файла по ID в указанной схеме"""
+            return session.query(file_class).filter_by(id=file_id).first()
+        
+        # Используем универсальную функцию поиска
+        result = _find_in_schemas(username, password, host, port, dbname, search_file, file_schema)
+        
+        return result['result']
+            
     except Exception as e:
         Logger.log_error(f"Ошибка при получении DXF файла с ID {file_id}: {str(e)}")
         return None
-
-def get_dxf_file_by_name(session: Session, filename: str) -> Optional[models.DxfFile]:
-    """
-    Получает DXF файл по его имени
-    
-    Args:
-        session: Сессия базы данных
-        filename: Имя файла
-        
-    Returns:
-        Объект DxfFile или None, если файл не найден
-    """
-    try:
-        return session.query(models.DxfFile).filter_by(filename=filename).first()
-    except Exception as e:
-        Logger.log_error(f"Ошибка при получении DXF файла с именем {filename}: {str(e)}")
-        return None
-
-def get_layer_entities(username, password, host, port, dbname, file_id: int, layer_name: str) -> List[dict]:
-    """
-    Получает все сущности указанного слоя для файла
-    
-    Args:
-        session: Сессия базы данных
-        file_id: ID файла
-        layer_name: Имя слоя
-        
-    Returns:
-        Список сущностей с их геометрией и дополнительными данными
-    """
-    try:
-        session = _connect_to_database(username, password, host, port, dbname)
-                # Получаем класс таблицы для слоя
-        layer_class = models.create_layer_table(layer_name)
-        
-        # Выполняем запрос
-        entities = session.query(layer_class).filter_by(file_id=file_id).all()
-        
-        # Преобразуем результаты в удобный формат
-        result = []
-        for entity in entities:
-            # Конвертируем геометрию из WKB в объект Shapely
-            shapely_geom = to_shape(entity.geometry)
-            
-            # Формируем словарь с данными
-            entity_data = {
-                'id': entity.id,
-                'geom_type': entity.geom_type,
-                'geometry': shapely_geom,
-                'notes': entity.notes,
-                'extra_data': entity.extra_data
-            }
-            
-            result.append(entity_data)
-            
-        return result
-    except Exception as e:
-        Logger.log_error(f"Ошибка при получении сущностей слоя {layer_name} для файла с ID {file_id}: {str(e)}")
-        return []
-
-def get_all_layers_for_file(username, password, host, port, dbname, file_id: int) -> List[str]:
-    """
-    Получает список всех слоев для указанного файла
-    
-    Args:
-        session: Сессия базы данных
-        file_id: ID файла
-        
-    Returns:
-        Список имен слоев
-    """
-    try:
-        session = _connect_to_database(username, password, host, port, dbname)
-                # Получаем метаданные базы данных
-        metadata = MetaData(schema='layer_schema')
-        metadata.reflect(bind=engine)
-        
-        # Получаем все таблицы в схеме layer_schema
-        layer_tables = [table for table in metadata.tables.values()]
-        
-        # Список для хранения имен слоев
-        layers = []
-        
-        # Проверяем каждую таблицу на наличие сущностей для указанного файла
-        for table in layer_tables:
-            # Формируем запрос
-            query = select([table]).where(table.c.file_id == file_id).limit(1)
-            
-            # Выполняем запрос
-            result = session.execute(query).fetchone()
-            
-            # Если есть результаты, добавляем имя таблицы в список слоев
-            if result:
-                # Преобразуем имя таблицы обратно в имя слоя (заменяем подчеркивания на пробелы)
-                layer_name = table.name  # Можно также сделать замену: .replace('_', ' ')
-                layers.append(layer_name)
-        
-        return layers
-    except Exception as e:
-        Logger.log_error(f"Ошибка при получении списка слоев для файла с ID {file_id}: {str(e)}")
-        return []
 

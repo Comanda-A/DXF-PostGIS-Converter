@@ -87,7 +87,18 @@ MAIN_DIALOG = {
     "preview_generation_error_with_details": "Error generating preview: {0}",
     "preview_generated_successfully": "Preview successfully generated",
     "load_preview_button": "Load Preview",
-    "file_not_found_error": "File with ID {0} not found"
+    "file_not_found_error": "File with ID {0} not found",
+    
+    # Schema selector dialog
+    "schema_selector_title": "Select Schema",
+    "schema_selector_info": "No files were found in the default schemas. Please select a schema to search for files:",
+    "schema_selector_label": "Schema:",
+    "no_schemas_available": "No schemas available in the database.",
+    "schema_load_error": "Error loading schemas from database.",
+    "files_found_in_schema": "Files found in schema '{0}'. The list will be updated.",
+    "no_files_in_selected_schema": "No files found in the selected schema '{0}'.",
+    "error_title": "Error",
+    "warning_title": "Warning"
 }
 
 # Logging

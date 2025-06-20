@@ -67,7 +67,7 @@ def create_layer_table(layer_name, schema_name='layer_schema', file_schema='file
     Args:
         layer_name: Имя слоя, для которого создается таблица
         schema_name: Имя схемы для размещения таблицы
-        file_schema: Имя схемы где находится таблица файлов
+        file_schema: Имя схемы, где находится таблица файлов
         
     Returns:
         Класс таблицы SQLAlchemy для данного слоя

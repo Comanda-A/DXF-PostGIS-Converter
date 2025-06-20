@@ -87,7 +87,18 @@ MAIN_DIALOG = {
     "preview_generation_error_with_details": "Ошибка генерации предпросмотра: {0}",
     "preview_generated_successfully": "Предпросмотр успешно сгенерирован",
     "load_preview_button": "Загрузить предпросмотр",
-    "file_not_found_error": "Файл с ID {0} не найден"
+    "file_not_found_error": "Файл с ID {0} не найден",
+    
+    # Диалог выбора схемы
+    "schema_selector_title": "Выбор схемы",
+    "schema_selector_info": "Файлы не найдены в схемах по умолчанию. Пожалуйста, выберите схему для поиска файлов:",
+    "schema_selector_label": "Схема:",
+    "no_schemas_available": "В базе данных нет доступных схем.",
+    "schema_load_error": "Ошибка загрузки схем из базы данных.",
+    "files_found_in_schema": "Файлы найдены в схеме '{0}'. Список будет обновлен.",
+    "no_files_in_selected_schema": "В выбранной схеме '{0}' файлы не найдены.",
+    "error_title": "Ошибка",
+    "warning_title": "Предупреждение"
 }
 
 # Логирование 

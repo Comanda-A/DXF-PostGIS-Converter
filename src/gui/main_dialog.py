@@ -386,15 +386,23 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             if not username or not password:
                 Logger.log_message(f"Не удалось получить учетные данные для подключения '{conn_name}'")
                 return
-                
-            # Очищаем существующие дочерние элементы
+
+                  # Очищаем существующие дочерние элементы
             conn_item.takeChildren()
             
             # Тестируем подключение и получаем файлы
-            files = get_all_dxf_files(username, password, uri.host(),
-                                        uri.port(), uri.database())
+            files_result = get_all_dxf_files(username, password, uri.host(),
+                                            uri.port(), uri.database())
             
-            if files is None or len(files) == 0:
+            # Если get_all_dxf_files возвращает словарь, извлекаем список файлов
+            if isinstance(files_result, dict):
+                files = files_result.get('files', [])
+            else:
+                # Для обратной совместимости, если возвращается просто список
+                files = files_result if files_result else []
+
+            # Если файлы не найдены (даже после возможного диалога выбора схемы)
+            if not files:
                 Logger.log_message(self.lm.get_string("MAIN_DIALOG", "db_empty_message", conn_name))
                 conn_item.setText(0, f'{conn_name} ({self.lm.get_string("MAIN_DIALOG", "db_empty")})')
                 # Скрываем кнопку подключения, даже если БД пуста

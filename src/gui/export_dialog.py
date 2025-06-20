@@ -2,8 +2,7 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGroupBox, 
                            QTreeWidget, QLabel, QPushButton, QLineEdit, QWidget, 
-                           QComboBox, QTreeWidgetItem, QProgressDialog, QCheckBox,
-                           QRadioButton, QButtonGroup, QMessageBox)
+                           QComboBox, QTreeWidgetItem, QProgressDialog, QCheckBox, QMessageBox)
 from qgis.core import QgsSettings
 
 from ..localization.localization_manager import LocalizationManager
@@ -13,8 +12,7 @@ from ..tree_widget_handler import TreeWidgetHandler
 from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler
 from ..dxf.dxf_exporter import DXFExporter
-from ..db.database import (export_dxf_to_database, get_all_layers_for_file, get_layer_entities, 
-                          get_all_dxf_files, get_schemas, create_schema)
+from ..db.database import (export_dxf_to_database, get_schemas, create_schema)
 from .info_dialog import InfoDialog
 from PyQt5.QtCore import QTimer
 from PyQt5.QtCore import QThread, pyqtSignal

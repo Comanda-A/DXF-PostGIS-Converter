@@ -60,6 +60,10 @@ def get_word_form(number: int, forms: list) -> str:
 class TreeWidgetHandler(QObject):
     # Добавляем сигнал для оповещения об изменении выбора
     selection_changed = pyqtSignal(str)
+    # Сигнал для оповещения о создании новой структуры дерева
+    tree_structure_created = pyqtSignal(str, dict)  # file_name, layers_dict
+    # Сигнал для оповещения об изменении конкретного слоя
+    layer_check_changed = pyqtSignal(str, str, bool)  # file_name, layer_name, checked
 
     def __init__(self, tree_widget, selectable: bool = True):
         super().__init__()  # Initialize QObject
@@ -101,11 +105,10 @@ class TreeWidgetHandler(QObject):
             file_item.setText(0, 
                 self.lm.get_string("TREE_WIDGET_HANDLER", "file_text",
                                   file_name, file_data["layer_count"], layers_word,
-                                  file_data["total_entities"], entities_word)
-            )
+                                  file_data["total_entities"], entities_word)            )
 
     def handle_item_changed(self, item, column):
-        if self.batch_update or self.selectable:
+        if self.batch_update or self.selectable or self.updating_selection:
             return
 
         root_item = item
@@ -162,7 +165,7 @@ class TreeWidgetHandler(QObject):
                         
                         self.selected_file = item
                         self.current_file_name = current_file_name
-                    else:
+                    else:                        
                         # При снятии выбора с файла возвращаем его текст к исходному виду
                         self._reset_file_text(root_item, current_file_name)
                         self.selected_file = None
@@ -180,6 +183,11 @@ class TreeWidgetHandler(QObject):
                         self.update_child_check_states(item, item.checkState(column))
                         self.update_parent_check_states(item)
                         self.update_layer_statistics(layer_name, current_file_name)
+                        
+                        # Оповещаем об изменении конкретного слоя
+                        if not self.updating_selection:
+                            checked = layer_item.checkState(0) == Qt.Checked
+                            self.layer_check_changed.emit(current_file_name, layer_name, checked)
 
                 self.batch_update = False
                 self.update_selection_count(current_file_name)
@@ -356,7 +364,8 @@ class TreeWidgetHandler(QObject):
         # Сохраняем оригинальное имя файла в пользовательских данных
         file_item.setData(0, Qt.UserRole, file_name)
         
-        file_item.setCheckState(0, Qt.Unchecked)
+        file_item.setCheckState(0, Qt.Checked)  # Изначально файл отмечен галочкой
+        self.selected_file = file_item
         self.tree_widget.addTopLevelItem(file_item)
 
         add_remove_button_to_item(file_item, self.tree_widget)
@@ -400,6 +409,9 @@ class TreeWidgetHandler(QObject):
                 self.add_entity_attributes_and_geometry(entity_item, entity)
 
         self.tree_widget.setUpdatesEnabled(True)
+        
+        # Уведомляем о создании нового файла в дереве
+        self.tree_structure_created.emit(file_name, layers)
 
     def add_entity_attributes_and_geometry(self, entity_item, entity):
         attributes = [
@@ -642,7 +654,51 @@ class TreeWidgetHandler(QObject):
             layer_item = file_item.child(i)
             if not layer_item:
                 continue
-                
             layer_name = self._get_layer_name_from_item(layer_item)
             if layer_name and layer_name in self.tree_items[file_name]:
                 self.update_layer_statistics(layer_name, file_name)
+    
+    def set_layer_check_state(self, file_name, layer_name, checked):
+        """
+        Устанавливает состояние checkbox для конкретного слоя программно.
+        Используется для синхронизации с QGIS.
+        
+        Args:
+            file_name: Имя файла
+            layer_name: Имя слоя
+            checked: Состояние (True/False)
+        """
+        if file_name in self.tree_items:
+            layer_data = self.tree_items[file_name].get(layer_name)
+            if layer_data and 'item' in layer_data:
+                layer_item = layer_data['item']
+                # Устанавливаем флаг, что это программное обновление
+                self.updating_selection = True
+                try:
+                    layer_item.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
+                    # Обновляем состояние родительского узла (файла)
+                    self.update_parent_check_states(layer_item)
+                    # Обновляем статистику
+                    self.update_layer_statistics(layer_name, file_name)
+                    # Обновляем общую статистику файла
+                    self.update_selection_count(file_name)
+                finally:
+                    self.updating_selection = False
+    
+    def get_layer_check_state(self, file_name, layer_name):
+        """
+        Получает состояние checkbox для конкретного слоя.
+        
+        Args:
+            file_name: Имя файла
+            layer_name: Имя слоя
+            
+        Returns:
+            bool: True если выбран, False если нет, None если не найден
+        """
+        if file_name in self.tree_items:
+            layer_data = self.tree_items[file_name].get(layer_name)
+            if layer_data and 'item' in layer_data:
+                layer_item = layer_data['item']
+                return layer_item.checkState(0) == Qt.Checked
+        return None

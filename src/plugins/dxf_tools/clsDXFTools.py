@@ -229,6 +229,7 @@ def ProjDaten4Dat(AktDXFDatNam, bCol, bLayer, bZielSave, sOutForm):
     o2 = " --config DXF_TRANSLATE_ESCAPE_SEQUENCES FALSE --config DXF_MERGE_BLOCK_GEOMETRIES TRUE --config DXF_INLINE_BLOCKS TRUE -dim 2 "
 
     (dummy, ProjektName) = os.path.split(AktDXFDatNam)
+    _ProjektName = ProjektName
     ProjektName = ProjektName + '_' + sOutForm
     if bCol:
         AktList = pList2
@@ -250,7 +251,7 @@ def ProjDaten4Dat(AktDXFDatNam, bCol, bLayer, bZielSave, sOutForm):
     else:
         Kern = str(uuid.uuid4())
 
-    return AktList, AktOpt, ProjektName, Kern
+    return AktList, AktOpt, _ProjektName, Kern
 
 
 def DXFImporter(uiParent, sOutForm, listDXFDatNam, zielPfadOrDatei, bZielSave, sCharSet, bCol, bLayer, bFormatText,

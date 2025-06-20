@@ -589,14 +589,14 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
                                      self.tr("Text correction factor can not assume a zero value"))
                 self.txtFaktor.setText("1.3")
                 return
-        except:
+        except:            
             QMessageBox.critical(None, self.tr("Reset text height"),
                                  self.tr("Error converting Text correction factor to numbers"))
             self.txtFaktor.setText("1.3")
             return
 
         if self.chkTransform.isChecked():
-
+            
             Korrekt, DreiPassPunkte = self.CheckKonstTransWerte()
             if not Korrekt:
                 errbox(DreiPassPunkte)
@@ -607,19 +607,15 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
 
         self.OptSpeichern()
         self.tabSetting.setCurrentIndex(0)
-
+        
         Haupt, Neben, Revision = fncPluginVersion().split(".")
         if myqtVersion == 5 and (int(Haupt) >= 1 and int(Neben) >= 1):
             out = "GPKG"
         else:
             out = "SHP"
-
+            
         if self.chkGPKG.isChecked(): out = "GPKG"
         if self.chkSHP.isChecked():  out = "SHP"
-
-    
-        self.iface.read_multiple_dxf(self.current_files)
-
 
         Antw = DXFImporter(self, out, self.listDXFDatNam, ZielPfad, self.chkSHP.isChecked() or self.chkGPKG.isChecked(),
                            self.cbCharSet.currentText(), self.chkCol.isChecked(), self.chkLay.isChecked(),
@@ -627,6 +623,12 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
                            self.chkUseColor4Line.isChecked(), self.chkUseColor4Poly.isChecked(), dblFaktor,
                            self.chkTransform.isChecked(), DreiPassPunkte, self.chk3D.isChecked(),
                            self.txtErsatz4Tab.text())
+        self.iface.read_multiple_dxf(self.current_files)
+        
+        # Настраиваем синхронизацию с QGIS после импорта
+        if hasattr(self.iface, 'setup_qgis_sync_for_imported_files'):
+            self.iface.setup_qgis_sync_for_imported_files(self.current_files)
+
         self.FormRunning(False)
 
     def SetAktionText(self, txt):
@@ -819,8 +821,6 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
             # Формат вывода (в памяти для QGIS)
             out = "GPKG"
 
-            self.iface.read_multiple_dxf([dxf_file])
-
             # Запускаем DXFImporter
             Antw = DXFImporter(self, out, self.listDXFDatNam, ZielPfad, self.chkSHP.isChecked() or self.chkGPKG.isChecked(),
                                self.cbCharSet.currentText(), self.chkCol.isChecked(), self.chkLay.isChecked(),
@@ -828,7 +828,12 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
                                self.chkUseColor4Line.isChecked(), self.chkUseColor4Poly.isChecked(), dblFaktor,
                                self.chkTransform.isChecked(), DreiPassPunkte, self.chk3D.isChecked(),
                                self.txtErsatz4Tab.text())
+            self.iface.read_multiple_dxf([dxf_file])
             
+            # Настраиваем синхронизацию с QGIS после импорта
+            if hasattr(self.iface, 'setup_qgis_sync_for_imported_files'):
+                self.iface.setup_qgis_sync_for_imported_files([dxf_file])
+
             return True
             
         except Exception as e:

@@ -9,6 +9,7 @@ from qgis.core import QgsProviderRegistry, QgsDataSourceUri, QgsSettings
 from functools import partial
 
 from .preview_components import PreviewDialog, PreviewWidgetFactory
+from .qgis_layer_sync_manager import QGISLayerSyncManager
 from ..db.database import get_all_dxf_files, delete_dxf_file, get_dxf_file_by_id
 from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler, get_selected_file
@@ -125,10 +126,20 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.plugin_root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         self.worker = None
         self.connections_manager = ConnectionsManager()
-
+        
+        # Инициализация менеджера синхронизации слоев QGIS
+        self.qgis_sync_manager = QGISLayerSyncManager(self.dxf_tree_widget_handler)
+        
+        # Подключаем сигналы для синхронизации
+        self.dxf_tree_widget_handler.tree_structure_created.connect(
+            self.qgis_sync_manager.create_qgis_group_structure
+        )
+        self.dxf_tree_widget_handler.layer_check_changed.connect(
+            self.qgis_sync_manager.sync_layer_from_plugin_to_qgis
+        )
         # нажатие по кнопке export_to_db_button
         self.export_to_db_button.clicked.connect(self.export_to_db_button_click)
-
+        
         # нажатие по другой вкладке tabWidget
         self.tabWidget.currentChanged.connect(self.handle_tab_change)
 
@@ -762,13 +773,14 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             
             # Вызываем функцию программного импорта
             success = dxf_plugin.import_dxf_programmatically(temp_file.name)
-              # Удаляем временный файл
-            os.unlink(temp_file.name)
+
             
             if success:
                 QMessageBox.information(None, self.lm.get_string("COMMON", "success"),
                                        self.lm.get_string("MAIN_DIALOG", "file_imported_to_qgis", file_name))
-                
+            # Удаляем временный файл
+            os.unlink(temp_file.name)
+            
         except Exception as e:
             Logger.log_message(self.lm.get_string("MAIN_DIALOG", "error_importing_to_qgis", file_name, str(e)))
             QMessageBox.critical(None, self.lm.get_string("COMMON", "error"),
@@ -796,3 +808,37 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         else:
             QMessageBox.warning(None, self.lm.get_string("COMMON", "warning"), 
                                self.lm.get_string("MAIN_DIALOG", "file_path_error"))
+
+
+    def setup_qgis_sync_for_imported_files(self, imported_files):
+        """
+        Настраивает синхронизацию для файлов, импортированных в QGIS через подплагин.
+        
+        Args:
+            imported_files: Список путей к импортированным DXF файлам
+        """
+        try:
+            if not imported_files:
+                return
+                
+            # Получаем информацию о слоях из дерева плагина
+            for file_path in imported_files:
+                file_name = os.path.basename(file_path)
+                
+                # Проверяем, есть ли файл в дереве плагина
+                if file_name in self.dxf_tree_widget_handler.tree_items:
+                    file_data = self.dxf_tree_widget_handler.tree_items[file_name]
+                    layers_dict = {}
+                    
+                    # Собираем информацию о слоях
+                    for layer_name, layer_info in file_data.items():
+                        if isinstance(layer_info, dict) and 'item' in layer_info:
+                            layers_dict[layer_name] = {}  # Пустой словарь для совместимости
+                    
+                    # Создаем синхронизацию с QGIS
+                    if layers_dict:
+                        self.qgis_sync_manager.create_qgis_group_structure(file_name, layers_dict)
+                        Logger.log_message(f"Настроена синхронизация для файла {file_name} с {len(layers_dict)} слоями")
+                        
+        except Exception as e:
+            Logger.log_error(f"Ошибка настройки синхронизации QGIS: {str(e)}")

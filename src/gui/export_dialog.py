@@ -57,10 +57,9 @@ class ExportThread(QThread):
     finished = pyqtSignal(bool, str)  # Сигнал: успех/неуспех, сообщение
     
     progress_update = pyqtSignal(int, str)  # Сигнал обновления прогресса: процент, сообщение
-    
     def __init__(self, username, password, address, port, dbname, dxf_handler, file_path, 
                  mapping_mode, layer_schema='layer_schema', file_schema='file_schema', 
-                 export_layers_only=False, custom_filename=None):
+                 export_layers_only=False, custom_filename=None, column_mapping_configs=None):
         """
         Инициализация потока экспорта.
         
@@ -76,6 +75,7 @@ class ExportThread(QThread):
         :param file_schema: Схема для размещения таблицы файлов
         :param export_layers_only: Экспортировать только слои (без сохранения файла)
         :param custom_filename: Пользовательское название файла для сохранения в БД
+        :param column_mapping_configs: Настройки сопоставления столбцов
         """
         super().__init__()
         self.username = username
@@ -90,6 +90,7 @@ class ExportThread(QThread):
         self.file_schema = file_schema
         self.export_layers_only = export_layers_only
         self.custom_filename = custom_filename
+        self.column_mapping_configs = column_mapping_configs or {}
         self.lm = LocalizationManager.instance()
         
         # Создаем захватчик логов
@@ -197,9 +198,11 @@ class ExportDialog(QDialog):
         self.file_schema = 'file_schema'
         self.export_layers_only = False
         self.available_schemas = []
-        
-        # Название файла для экспорта
+          # Название файла для экспорта
         self.custom_filename = ""
+        
+        # Настройки сопоставления столбцов
+        self.column_mapping_configs = {}
 
         Logger.log_message("Инициализация диалога экспорта")
         self.setup_ui()
@@ -372,8 +375,9 @@ class ExportDialog(QDialog):
         right_widget = QWidget()
         right_widget.setMaximumWidth(350)  # Фиксированная максимальная ширина
         right_widget.setMinimumWidth(300)  # Минимальная ширина
-        right_widget.setLayout(right_column)
-          # Группа настроек экспорта
+        right_widget.setLayout(right_column)        
+        
+        # Группа настроек экспорта
         self.export_settings_group = QGroupBox(self.lm.get_string("EXPORT_DIALOG", "export_settings_group"))
         export_settings_layout = QVBoxLayout()
         
@@ -418,7 +422,23 @@ class ExportDialog(QDialog):
         self.mapping_description.setWordWrap(True)
         self.mapping_description.setStyleSheet("color: #666666; font-style: italic;")
         mapping_group_layout.addWidget(self.mapping_description)
-        
+
+        # НОВОЕ: Настройки сопоставления столбцов
+        column_mapping_layout = QHBoxLayout()
+        self.enable_column_mapping_checkbox = QCheckBox("Включить сопоставление столбцов")
+        self.enable_column_mapping_checkbox.setToolTip("Настройка сопоставления полей DXF с существующими столбцами в БД")
+        self.enable_column_mapping_checkbox.toggled.connect(self.on_column_mapping_toggled)
+        column_mapping_layout.addWidget(self.enable_column_mapping_checkbox)
+
+        self.configure_mapping_button = QPushButton("Настроить сопоставление")
+        self.configure_mapping_button.clicked.connect(self.configure_column_mapping)
+        self.configure_mapping_button.setEnabled(False)
+        column_mapping_layout.addWidget(self.configure_mapping_button)
+        mapping_group_layout.addLayout(column_mapping_layout)
+
+        #self.export_settings_group.setLayout(export_settings_layout)
+        #export_settings_layout = QVBoxLayout()
+
         # Обновляем описание при инициализации
         self.update_mapping_description(0)
         
@@ -576,6 +596,7 @@ class ExportDialog(QDialog):
         self.confirm_file_schema_button.clicked.connect(self.create_file_schema)
         self.cancel_file_schema_button.clicked.connect(self.hide_file_schema_creation)
         self.export_layers_only_checkbox.toggled.connect(self.on_export_layers_only_toggled)
+        self.enable_column_mapping_checkbox.toggled.connect(self.on_column_mapping_toggled)
 
     
     def show_info_dialog(self):
@@ -883,8 +904,7 @@ class ExportDialog(QDialog):
         Logger.log_message(f"Схема для слоев: {layer_schema}")
         Logger.log_message(f"Схема для файлов: {file_schema}")
         Logger.log_message(f"Экспорт только слоев: {self.export_layers_only}")
-        
-        # Создаем и запускаем поток экспорта с временным файлом
+          # Создаем и запускаем поток экспорта с временным файлом
         self.export_thread = ExportThread(
             self.username,
             self.password,
@@ -897,7 +917,8 @@ class ExportDialog(QDialog):
             layer_schema,
             file_schema,
             self.export_layers_only,
-            final_filename  # Передаем пользовательское название файла
+            final_filename,  # Передаем пользовательское название файла
+            self.column_mapping_configs if self.enable_column_mapping_checkbox.isChecked() else {}
         )
         
         # Сохраняем имя временного файла для удаления после завершения экспорта
@@ -1203,3 +1224,143 @@ class ExportDialog(QDialog):
             QMessageBox.critical(self,
                                self.lm.get_string("EXPORT_DIALOG", "error_title"),
                                f"{self.lm.get_string('EXPORT_DIALOG', 'schema_creation_failed')}: {str(e)}")
+
+    def on_column_mapping_toggled(self, checked):
+        """Обработка включения/выключения сопоставления столбцов"""
+        self.configure_mapping_button.setEnabled(checked)
+        if checked:
+            Logger.log_message("Включено сопоставление столбцов")
+        else:
+            Logger.log_message("Выключено сопоставление столбцов")
+            # Очищаем настройки сопоставления
+            self.column_mapping_configs = {}    
+    def configure_column_mapping(self):
+        """Открытие диалога настройки сопоставления столбцов"""
+        if not self.enable_column_mapping_checkbox.isChecked():
+            return
+            
+        Logger.log_message("Открытие диалога настройки сопоставления столбцов")
+        
+        # Проверяем подключение к БД
+        if self.dbname == 'none' or self.username == 'none':
+            QtWidgets.QMessageBox.warning(
+                self, 
+                "Предупреждение",
+                "Для настройки сопоставления столбцов необходимо выбрать базу данных"
+            )
+            return
+        
+        # Создаем диалог сопоставления столбцов
+        db_connection_params = {
+            'username': self.username,
+            'password': self.password,
+            'address': self.address,
+            'port': self.port,
+            'dbname': self.dbname
+        }
+        
+        # Импортируем диалог сопоставления столбцов
+        from .column_mapping_dialog import ColumnMappingDialog
+        
+        dialog = ColumnMappingDialog(
+            db_connection_params=db_connection_params,
+            layer_schema=self.layer_schema,
+            parent=self
+        )        
+        # Подключаем сигнал для получения результата
+        dialog.mapping_configured.connect(self.on_mapping_configured)
+        
+        # Показываем диалог
+        dialog.exec_()
+    
+    def open_mapping_dialog_for_layer(self, layer_name):
+        """Открыть диалог сопоставления для конкретного слоя"""
+        from .column_mapping_dialog import ColumnMappingDialog
+        from ..db.database import table_exists
+        
+        # Проверяем существование таблицы
+        table_name = layer_name.replace(' ', '_').replace('-', '_')
+        layer_schema = self.layer_schema_combo.currentText()
+        
+        exists = table_exists(
+            self.username, self.password, self.address, 
+            self.port, self.dbname, table_name, layer_schema
+        )
+        
+        if not exists:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Информация",
+                f"Таблица для слоя '{layer_name}' не существует в БД.\n"
+                f"Сопоставление столбцов доступно только для существующих таблиц."
+            )
+            return
+        
+        # Получаем столбцы DXF для данного слоя
+        dxf_columns = self.get_dxf_columns_for_layer(layer_name)
+        
+        if not dxf_columns:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Предупреждение", 
+                f"Не удалось определить столбцы для слоя '{layer_name}'"
+            )
+            return
+        
+        # Параметры подключения к БД
+        db_params = {
+            'username': self.username,
+            'password': self.password,
+            'address': self.address,
+            'port': self.port,
+            'dbname': self.dbname
+        }
+        
+        # Создаем диалог сопоставления
+        mapping_dialog = ColumnMappingDialog(
+            layer_name, dxf_columns, db_params, layer_schema, self
+        )
+        mapping_dialog.mapping_configured.connect(self.on_mapping_configured)
+        mapping_dialog.exec_()
+    
+    def get_dxf_columns_for_layer(self, layer_name):
+        """Получение столбцов DXF для слоя (базовые столбцы таблицы слоя)"""
+        # Базовые столбцы, которые всегда есть в таблице слоя
+        base_columns = {
+            'id': 'INTEGER',
+            'geometry': 'GEOMETRY',
+            'geom_type': 'VARCHAR',
+            'layer_name': 'VARCHAR',
+            'color': 'INTEGER',
+            'linetype': 'VARCHAR',
+            'lineweight': 'VARCHAR',
+            'ltscale': 'DOUBLE PRECISION',
+            'invisible': 'BOOLEAN',
+            'true_color': 'INTEGER',
+            'transparency': 'INTEGER',
+            'notes': 'TEXT',
+            'extra_data': 'JSONB',
+            'file_id': 'INTEGER'
+        }
+        
+        # Здесь можно добавить логику для получения дополнительных столбцов
+        # на основе конкретных сущностей в слое
+        
+        return base_columns    
+    def on_mapping_configured(self, mapping_config):
+        """Обработчик настройки сопоставления столбцов"""
+        Logger.log_message(f"Получена конфигурация сопоставления: {mapping_config}")
+        
+        # Сохраняем глобальную конфигурацию сопоставления
+        if not hasattr(self, 'column_mapping_configs'):
+            self.column_mapping_configs = {}
+        
+        # Сохраняем конфигурацию как общий паттерн для всех слоев
+        self.column_mapping_configs['global_pattern'] = mapping_config        
+        Logger.log_message("Настройки сопоставления столбцов сохранены как глобальный паттерн")
+        
+        QtWidgets.QMessageBox.information(
+            self,
+            "Успех",
+            "Сопоставление столбцов настроено успешно как глобальный паттерн"
+        )

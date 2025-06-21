@@ -11,6 +11,7 @@ from ..logger.logger import Logger
 from datetime import datetime, timezone
 from . import models
 from ..dxf.dxf_handler import DXFHandler
+from ..gui.column_mapping_dialog import ColumnMappingDialog
 import os
 
 # Шаблон URL для подключения к базе данных
@@ -197,12 +198,6 @@ def _connect_to_database(username, password, address, port, dbname) -> Session:
         )
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-        # Создаем схемы если их нет
-        #_create_schemas()
-        
-        # НЕ создаем все таблицы сразу - они будут созданы по мере необходимости
-        # Base.metadata.create_all(bind=engine)
-
         # Логируем успешное подключение
         Logger.log_message(f"Подключено к базе данных PostgreSQL '{dbname}' по адресу {address}:{port} с пользователем '{username}'.")
 
@@ -213,18 +208,6 @@ def _connect_to_database(username, password, address, port, dbname) -> Session:
         Logger.log_error(f"Ошибка подключения к базе данных PostgreSQL '{dbname}' по адресу {address}:{port} с пользователем '{username}': {str(e)}")
         return None
 
-def _create_schemas():
-    """Создание необходимых схем в базе данных"""
-    try:
-        with engine.connect() as connection:
-            # Проверяем и создаем расширение PostGIS
-            connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
-            connection.execute(text("CREATE SCHEMA IF NOT EXISTS file_schema;"))
-            connection.execute(text("CREATE SCHEMA IF NOT EXISTS layer_schema;"))
-            connection.commit()
-        Logger.log_message("Схемы и расширение PostGIS успешно созданы или уже существуют.")
-    except Exception as e:
-        Logger.log_error(f"Ошибка при создании схем: {str(e)}")
 
 def get_schemas(username, password, host, port, dbname) -> List[str]:
     """
@@ -396,7 +379,7 @@ def create_layer_table_if_not_exists(layer_name: str, layer_schema: str = 'layer
 def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: DXFHandler, file_path: str, 
                           mapping_mode: str = "always_overwrite", layer_schema: str = 'layer_schema', 
                           file_schema: str = 'file_schema', export_layers_only: bool = False, 
-                          custom_filename: str = None) -> bool:
+                          custom_filename: str = None, column_mapping_configs: dict = None) -> bool:
     """
     Экспортирует DXF файл в базу данных
     
@@ -587,6 +570,97 @@ def delete_dxf_file(username, password, host, port, dbname, file_id: int, file_s
 # Методы запросов
 # ----------------------
 
+def get_table_columns(username, password, host, port, dbname, table_name, schema_name='public'):
+    """
+    Получает информацию о столбцах существующей таблицы
+    
+    Args:
+        username: Имя пользователя для подключения к БД
+        password: Пароль для подключения к БД
+        host: Адрес сервера БД
+        port: Порт сервера БД
+        dbname: Имя базы данных
+        table_name: Имя таблицы
+        schema_name: Схема таблицы
+        
+    Returns:
+        Список словарей с информацией о столбцах [{'name': str, 'type': str, 'nullable': bool}, ...]
+    """
+    try:
+        session = _connect_to_database(username, password, host, port, dbname)
+        if session is None:
+            return []
+            
+        with session.bind.connect() as connection:
+            result = connection.execute(text("""
+                SELECT 
+                    column_name,
+                    data_type,
+                    is_nullable,
+                    column_default,
+                    character_maximum_length
+                FROM information_schema.columns 
+                WHERE table_schema = :schema_name 
+                AND table_name = :table_name
+                ORDER BY ordinal_position
+            """), {'schema_name': schema_name, 'table_name': table_name})
+            
+            columns = []
+            for row in result:
+                columns.append({
+                    'name': row[0],
+                    'type': row[1],
+                    'nullable': row[2] == 'YES',
+                    'default': row[3],
+                    'max_length': row[4]
+                })
+            
+            Logger.log_message(f"Получены столбцы таблицы {schema_name}.{table_name}: {len(columns)} столбцов")
+            return columns
+            
+    except Exception as e:
+        Logger.log_error(f"Ошибка при получении столбцов таблицы {schema_name}.{table_name}: {str(e)}")
+        return []
+
+def table_exists(username, password, host, port, dbname, table_name, schema_name='public'):
+    """
+    Проверяет существование таблицы в базе данных
+    
+    Args:
+        username: Имя пользователя для подключения к БД
+        password: Пароль для подключения к БД
+        host: Адрес сервера БД
+        port: Порт сервера БД
+        dbname: Имя базы данных
+        table_name: Имя таблицы
+        schema_name: Схема таблицы
+        
+    Returns:
+        True если таблица существует, иначе False
+    """
+    try:
+        session = _connect_to_database(username, password, host, port, dbname)
+        if session is None:
+            return False
+            
+        with session.bind.connect() as connection:
+            result = connection.execute(text("""
+                SELECT EXISTS (
+                    SELECT 1 
+                    FROM information_schema.tables 
+                    WHERE table_schema = :schema_name 
+                    AND table_name = :table_name
+                )
+            """), {'schema_name': schema_name, 'table_name': table_name})
+            
+            exists = result.scalar()
+            Logger.log_message(f"Таблица {schema_name}.{table_name} {'существует' if exists else 'не существует'}")
+            return exists
+            
+    except Exception as e:
+        Logger.log_error(f"Ошибка при проверке существования таблицы {schema_name}.{table_name}: {str(e)}")
+        return False
+
 def get_all_dxf_files(username, password, host, port, dbname, file_schema=None):
     """
     Получает список всех DXF файлов в базе данных
@@ -663,3 +737,156 @@ def get_dxf_file_by_id(username, password, host, port, dbname, file_id: int, fil
         Logger.log_error(f"Ошибка при получении DXF файла с ID {file_id}: {str(e)}")
         return None
 
+def apply_column_mapping(session, layer_name, mapping_config, entities, layer_schema='layer_schema'):
+    """
+    Применяет настройки сопоставления столбцов при экспорте сущностей
+    
+    Args:
+        session: Сессия базы данных
+        layer_name: Имя слоя
+        mapping_config: Конфигурация сопоставления столбцов
+        entities: Список сущностей для экспорта
+        layer_schema: Схема слоя
+        
+    Returns:
+        True в случае успеха, иначе False
+    """
+    try:
+        from ..db import models
+        
+        strategy = mapping_config.get('strategy')
+        mappings = mapping_config.get('mappings', {})
+        new_columns = mapping_config.get('new_columns', [])
+        
+        # Получаем класс таблицы слоя
+        layer_class = models.get_layer_table_class(layer_name, layer_schema)
+        if layer_class is None:
+            Logger.log_error(f"Не удалось найти класс таблицы для слоя {layer_name}")
+            return False
+        
+        # Обрабатываем стратегии
+        if strategy in [ColumnMappingDialog.STRATEGY_MAPPING_ADD_COLUMNS, 
+                       ColumnMappingDialog.STRATEGY_MAPPING_ADD_BACKUP]:
+            # Добавляем новые столбцы в таблицу
+            _add_columns_to_table(session, layer_class, new_columns)
+        
+        if strategy in [ColumnMappingDialog.STRATEGY_MAPPING_BACKUP, 
+                       ColumnMappingDialog.STRATEGY_MAPPING_ADD_BACKUP]:
+            # Создаем backup таблицы
+            _create_backup_table(session, layer_class, layer_name, layer_schema)
+        
+        # Экспортируем сущности с учетом сопоставления
+        for entity_data in entities:
+            # Применяем сопоставление полей
+            mapped_data = _apply_field_mapping(entity_data, mappings)
+            
+            # Создаем экземпляр сущности
+            entity_instance = layer_class(**mapped_data)
+            session.add(entity_instance)
+        
+        session.commit()
+        Logger.log_message(f"Экспорт с сопоставлением столбцов завершен для слоя {layer_name}")
+        return True
+        
+    except Exception as e:
+        session.rollback()
+        Logger.log_error(f"Ошибка при применении сопоставления столбцов для слоя {layer_name}: {str(e)}")
+        return False
+
+def _add_columns_to_table(session, table_class, columns):
+    """Добавляет новые столбцы в существующую таблицу"""
+    try:
+        table_name = table_class.__tablename__
+        schema_name = table_class.__table__.schema
+        
+        for column_name in columns:
+            # Определяем тип столбца (по умолчанию TEXT)
+            column_type = "TEXT"
+            
+            alter_sql = text(f"""
+                ALTER TABLE {schema_name}.{table_name} 
+                ADD COLUMN IF NOT EXISTS {column_name} {column_type}
+            """)
+            
+            session.execute(alter_sql)
+            Logger.log_message(f"Добавлен столбец {column_name} в таблицу {schema_name}.{table_name}")
+        
+        session.commit()
+        
+    except Exception as e:
+        session.rollback()
+        Logger.log_error(f"Ошибка при добавлении столбцов: {str(e)}")
+
+def _create_backup_table(session, table_class, layer_name, layer_schema):
+    """Создает backup таблицу с оригинальной структурой"""
+    try:
+        from datetime import datetime
+        
+        original_table = table_class.__tablename__
+        backup_table = f"{original_table}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        backup_sql = text(f"""
+            CREATE TABLE {layer_schema}.{backup_table} AS 
+            SELECT * FROM {layer_schema}.{original_table}
+        """)
+        
+        session.execute(backup_sql)
+        session.commit()
+        
+        Logger.log_message(f"Создана backup таблица: {layer_schema}.{backup_table}")
+        
+    except Exception as e:
+        session.rollback()
+        Logger.log_error(f"Ошибка при создании backup таблицы: {str(e)}")
+
+def _apply_field_mapping(entity_data, mappings):
+    """Применяет сопоставление полей к данным сущности"""
+    mapped_data = {}
+    
+    for dxf_field, value in entity_data.items():
+        # Если есть сопоставление, используем его
+        if dxf_field in mappings:
+            db_field = mappings[dxf_field]
+            mapped_data[db_field] = value
+        else:
+            # Иначе используем оригинальное название поля
+            mapped_data[dxf_field] = value
+    
+    return mapped_data
+
+def get_tables_in_schema(username, password, host, port, dbname, schema_name='public'):
+    """
+    Получает список всех таблиц в указанной схеме
+    
+    Args:
+        username: Имя пользователя для подключения к БД
+        password: Пароль для подключения к БД
+        host: Адрес сервера БД
+        port: Порт сервера БД
+        dbname: Имя базы данных
+        schema_name: Схема для поиска таблиц
+        
+    Returns:
+        Список названий таблиц
+    """
+    try:
+        session = _connect_to_database(username, password, host, port, dbname)
+        if session is None:
+            return []
+            
+        with session.bind.connect() as connection:
+            result = connection.execute(text("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = :schema_name 
+                AND table_type = 'BASE TABLE'
+                ORDER BY table_name
+            """), {'schema_name': schema_name})
+            
+            tables = [row[0] for row in result]
+            session.close()
+            return tables
+            
+    except Exception as e:
+        Logger.log_error(f"Ошибка при получении списка таблиц в схеме {schema_name}: {str(e)}")
+        return []

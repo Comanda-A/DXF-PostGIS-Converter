@@ -365,7 +365,6 @@ class TreeWidgetHandler(QObject):
         file_item.setData(0, Qt.UserRole, file_name)
         
         file_item.setCheckState(0, Qt.Checked)  # Изначально файл отмечен галочкой
-        self.selected_file = file_item
         self.tree_widget.addTopLevelItem(file_item)
 
         add_remove_button_to_item(file_item, self.tree_widget)
@@ -407,9 +406,9 @@ class TreeWidgetHandler(QObject):
             # Отложенное добавление атрибутов
             for entity, entity_item in zip(entities, entity_items):
                 self.add_entity_attributes_and_geometry(entity_item, entity)
+        self.handle_item_changed(file_item, 0)  # Обновляем состояние корневого элемента
 
         self.tree_widget.setUpdatesEnabled(True)
-        
         # Уведомляем о создании нового файла в дереве
         self.tree_structure_created.emit(file_name, layers)
 

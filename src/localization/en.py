@@ -183,6 +183,7 @@ EXPORT_DIALOG = {
     "progress_dialog_title": "Export",
     "progress_text": "Exporting objects to database{0}",
     "success_title": "Success",
+    "progress_log_text": "Exporting...",
     "error_title": "Error",
     "export_error": "Failed to complete export: {0}",
     "warning_title": "Warning",

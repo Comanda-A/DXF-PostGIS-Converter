@@ -144,7 +144,8 @@ class ExportThread(QThread):
                 self.layer_schema,
                 self.file_schema,
                 self.export_layers_only,
-                self.custom_filename
+                self.custom_filename,
+                self.column_mapping_configs
             )
             
             # Останавливаем захват логов

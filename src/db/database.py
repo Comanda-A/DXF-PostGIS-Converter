@@ -5,7 +5,7 @@ from .converter_dxf_to_postgis import convert_entity_to_postgis
 
 Base = declarative_base()
 
-from sqlalchemy import create_engine, text, inspect
+from sqlalchemy import create_engine, text, inspect, MetaData, Table
 from sqlalchemy.orm import sessionmaker, Session, close_all_sessions
 from ..logger.logger import Logger
 from datetime import datetime, timezone
@@ -396,6 +396,7 @@ def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: 
         file_schema: Схема для размещения таблицы файлов
         export_layers_only: Экспортировать только слои (без сохранения файла)        
         custom_filename: Пользовательское название файла для сохранения в БД (опционально)
+        column_mapping_configs: Словарь настроек сопоставления столбцов для каждого слоя (опционально)
     Returns:
         True в случае успеха, иначе False
     """
@@ -427,32 +428,76 @@ def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: 
             file_record = create_file_record(session, filename_for_db, file_content, file_schema)
             if not file_record:
                 return False
-        
-        # Получаем слои DXF файла используя оригинальное название
+          # Получаем слои DXF файла используя оригинальное название
         layers_entities = dxf_handler.get_entities_for_export(original_filename)
+        
         # Для каждого слоя создаем таблицу и записываем сущности
         for layer_name, entities in layers_entities.items():
-            layer_class = create_layer_table_if_not_exists(layer_name, layer_schema, file_schema)
-            if not layer_class:
-                continue
+            Logger.log_message(f"Обработка слоя: {layer_name}")
+              # Проверяем, нужно ли сопоставление столбцов для этого слоя
+            mapping_check = needs_column_mapping(session, layer_name, layer_schema)
+            Logger.log_message(f"Проверка сопоставления для слоя {layer_name}: {mapping_check['reason']}")
+            
+            # Определяем конфигурацию сопоставления для этого слоя
+            layer_mapping_config = None
+            
+            # Сначала проверяем специфичную конфигурацию для слоя
+            if column_mapping_configs and layer_name in column_mapping_configs:
+                layer_mapping_config = column_mapping_configs[layer_name]
+                Logger.log_message(f"Найдена специфичная конфигурация сопоставления для слоя {layer_name}")
+            # Затем проверяем глобальную конфигурацию
+            elif column_mapping_configs and 'global_pattern' in column_mapping_configs:
+                layer_mapping_config = column_mapping_configs['global_pattern']
+                Logger.log_message(f"Используется глобальная конфигурация сопоставления для слоя {layer_name}")
+            # Проверяем глобальную конфигурацию с другим ключом
+            elif column_mapping_configs and 'global' in column_mapping_configs:
+                layer_mapping_config = column_mapping_configs['global']
+                Logger.log_message(f"Используется глобальная конфигурация (global) для слоя {layer_name}")
+                
+            # Создаем таблицу слоя если она не существует (только для стандартного случая)
+            if not mapping_check['needs_mapping'] or not layer_mapping_config:
+                layer_class = create_layer_table_if_not_exists(layer_name, layer_schema, file_schema)
+                if not layer_class:
+                    Logger.log_error(f"Не удалось создать таблицу для слоя {layer_name}")
+                    continue
             
             # Используем file_id только если файл был сохранен
             file_id = file_record.id if file_record else None
             
             # В зависимости от режима маппирования выбираем различную стратегию
             if mapping_mode == "always_overwrite":
-                # Удаляем все существующие записи для этого файла и слоя (если файл сохранен)
-                if file_id:
-                    session.query(layer_class).filter_by(file_id=file_id).delete()
-                else:
-                    # Если экспортируем только слои, удаляем все записи в таблице слоя
-                    session.query(layer_class).delete()
-                session.commit()
-                Logger.log_message(f"Все существующие записи в слое {layer_name} удалены")
                 
-                # Добавляем новые записи
-                _add_new_entities(session, entities, layer_class, file_id)
-
+                # Если нужно сопоставление столбцов И есть конфигурация сопоставления
+                if mapping_check['needs_mapping'] and layer_mapping_config:
+                    Logger.log_message(f"Применяем сопоставление столбцов для слоя {layer_name}")
+                    Logger.log_message(f"Конфигурация сопоставления: {layer_mapping_config}")
+                    
+                    # Используем функцию применения сопоставления столбцов
+                    success = apply_column_mapping(session, layer_name, layer_mapping_config, 
+                                                 entities, layer_schema, file_id)
+                    if not success:
+                        Logger.log_warning(f"Не удалось применить сопоставление столбцов для слоя {layer_name}, используем стандартный способ")
+                        # Удаляем существующие записи
+                        if file_id:
+                            session.query(layer_class).filter_by(file_id=file_id).delete()
+                        else:
+                            session.query(layer_class).delete()
+                        session.commit()
+                        _add_new_entities(session, entities, layer_class, file_id)
+                else:
+                    # Стандартный способ: удаляем существующие записи и добавляем новые
+                    Logger.log_message(f"Используем стандартный способ экспорта для слоя {layer_name}")
+                    if file_id:
+                        session.query(layer_class).filter_by(file_id=file_id).delete()
+                    else:
+                        # Если экспортируем только слои, удаляем все записи в таблице слоя
+                        session.query(layer_class).delete()
+                    session.commit()
+                    Logger.log_message(f"Все существующие записи в слое {layer_name} удалены")
+                    
+                    # Добавляем новые сущности стандартным способом
+                    _add_new_entities(session, entities, layer_class, file_id)
+            
             Logger.log_message(f"Экспортирован слой {layer_name} из файла {filename_for_db}")
               # Генерируем превью файла только если файл был сохранен
         if file_record:
@@ -737,7 +782,7 @@ def get_dxf_file_by_id(username, password, host, port, dbname, file_id: int, fil
         Logger.log_error(f"Ошибка при получении DXF файла с ID {file_id}: {str(e)}")
         return None
 
-def apply_column_mapping(session, layer_name, mapping_config, entities, layer_schema='layer_schema'):
+def apply_column_mapping(session, layer_name, mapping_config, entities, layer_schema='layer_schema', file_id=None):
     """
     Применяет настройки сопоставления столбцов при экспорте сущностей
     
@@ -747,45 +792,122 @@ def apply_column_mapping(session, layer_name, mapping_config, entities, layer_sc
         mapping_config: Конфигурация сопоставления столбцов
         entities: Список сущностей для экспорта
         layer_schema: Схема слоя
+        file_id: ID файла (может быть None если экспортируем только слои)
         
     Returns:
         True в случае успеха, иначе False
     """
     try:
-        from ..db import models
+        if not mapping_config:
+            Logger.log_message("Настройки сопоставления столбцов не предоставлены")
+            return False
+            
+        Logger.log_message(f"Применение сопоставления столбцов для слоя {layer_name}")
+        Logger.log_message(f"Конфигурация: {mapping_config}")
         
-        strategy = mapping_config.get('strategy')
+        strategy = mapping_config.get('strategy', 'mapping_only')
         mappings = mapping_config.get('mappings', {})
         new_columns = mapping_config.get('new_columns', [])
+        target_table = mapping_config.get('target_table')
         
-        # Получаем класс таблицы слоя
-        layer_class = models.get_layer_table_class(layer_name, layer_schema)
-        if layer_class is None:
-            Logger.log_error(f"Не удалось найти класс таблицы для слоя {layer_name}")
-            return False
+        if not target_table:
+            Logger.log_error("Целевая таблица не указана в настройках сопоставления")
+            return False        # Получаем класс существующей таблицы
+        table_name = target_table.replace(' ', '_').replace('-', '_')
         
-        # Обрабатываем стратегии
-        if strategy in [ColumnMappingDialog.STRATEGY_MAPPING_ADD_COLUMNS, 
-                       ColumnMappingDialog.STRATEGY_MAPPING_ADD_BACKUP]:
-            # Добавляем новые столбцы в таблицу
+        # Создаем динамический класс для существующей таблицы
+        from . import models
+        
+        # Отражаем существующую таблицу из базы данных
+        metadata = MetaData()
+        existing_table = Table(table_name, metadata, autoload_with=session.bind, schema=layer_schema)
+        
+        # Создаем динамический класс для работы с существующей таблицей
+        layer_class = type(
+            f"ExistingLayer_{table_name}",
+            (Base,),
+            {
+                '__table__': existing_table,
+                '__mapper_args__': {'primary_key': [existing_table.c.id] if 'id' in existing_table.c else []}
+            }
+        )
+        
+        # Если стратегия включает добавление столбцов
+        if strategy in ['mapping_add_columns', 'mapping_add_backup']:
             _add_columns_to_table(session, layer_class, new_columns)
-        
-        if strategy in [ColumnMappingDialog.STRATEGY_MAPPING_BACKUP, 
-                       ColumnMappingDialog.STRATEGY_MAPPING_ADD_BACKUP]:
-            # Создаем backup таблицы
-            _create_backup_table(session, layer_class, layer_name, layer_schema)
-        
-        # Экспортируем сущности с учетом сопоставления
-        for entity_data in entities:
-            # Применяем сопоставление полей
-            mapped_data = _apply_field_mapping(entity_data, mappings)
             
-            # Создаем экземпляр сущности
-            entity_instance = layer_class(**mapped_data)
-            session.add(entity_instance)
-        
+            # После добавления столбцов обновляем метаданные таблицы
+            metadata = MetaData()
+            existing_table = Table(table_name, metadata, autoload_with=session.bind, schema=layer_schema)
+            
+            # Пересоздаем динамический класс с обновленной структурой таблицы
+            layer_class = type(
+                f"ExistingLayer_{table_name}",
+                (Base,),
+                {
+                    '__table__': existing_table,
+                    '__mapper_args__': {'primary_key': [existing_table.c.id] if 'id' in existing_table.c else []}
+                }
+            )
+            
+        # Если стратегия включает создание backup
+        if strategy in ['mapping_backup', 'mapping_add_backup']:
+            _create_backup_table(session, layer_class, layer_name, layer_schema)
+              # Очищаем существующие записи для этого файла, если file_id указан
+        if file_id is not None:
+            # Используем сопоставленное имя столбца для file_id
+            file_id_column = mappings.get('file_id', 'file_id')
+            if hasattr(existing_table.c, file_id_column):
+                delete_query = session.query(layer_class).filter(getattr(existing_table.c, file_id_column) == file_id)
+                deleted_count = delete_query.count()
+                delete_query.delete()
+                Logger.log_message(f"Удалено {deleted_count} существующих записей для {file_id_column}={file_id}")
+            else:
+                Logger.log_warning(f"Столбец {file_id_column} не найден в таблице, пропускаем очистку записей")
+        else:
+            # Если file_id не указан, очищаем всю таблицу
+            deleted_count = session.query(layer_class).count()
+            session.query(layer_class).delete()
+            Logger.log_message(f"Удалено {deleted_count} записей из таблицы {table_name}")
+            
         session.commit()
-        Logger.log_message(f"Экспорт с сопоставлением столбцов завершен для слоя {layer_name}")
+        
+        # Применяем сопоставление к каждой сущности
+        added_count = 0
+        for entity in entities:
+            try:
+                # Конвертируем сущность в PostGIS формат
+                postgis_data = convert_entity_to_postgis(entity)
+                
+                if not postgis_data:
+                    Logger.log_warning(f"Не удалось преобразовать сущность {entity}")
+                    continue                # Применяем сопоставление полей
+                mapped_data = _apply_field_mapping(postgis_data, mappings)
+                
+                # Добавляем file_id если предоставлен, используя сопоставленное имя столбца
+                if file_id is not None:
+                    file_id_column = mappings.get('file_id', 'file_id')
+                    mapped_data[file_id_column] = file_id
+                
+                # Фильтруем данные, оставляя только те поля, которые существуют в целевой таблице
+                filtered_data = {}
+                for field_name, field_value in mapped_data.items():
+                    if hasattr(existing_table.c, field_name):
+                        filtered_data[field_name] = field_value
+                    else:
+                        Logger.log_warning(f"Поле {field_name} не существует в целевой таблице, пропускаем")
+                
+                # Создаем новую запись в таблице
+                layer_record = layer_class(**filtered_data)
+                session.add(layer_record)
+                added_count += 1
+                
+            except Exception as e:
+                Logger.log_error(f"Ошибка при обработке сущности: {str(e)}")
+                continue
+                
+        session.commit()
+        Logger.log_message(f"Успешно применено сопоставление столбцов: добавлено {added_count} из {len(entities)} сущностей")
         return True
         
     except Exception as e:
@@ -796,20 +918,32 @@ def apply_column_mapping(session, layer_name, mapping_config, entities, layer_sc
 def _add_columns_to_table(session, table_class, columns):
     """Добавляет новые столбцы в существующую таблицу"""
     try:
-        table_name = table_class.__tablename__
-        schema_name = table_class.__table__.schema
+        # Получаем имя таблицы и схему из объекта Table
+        table_obj = table_class.__table__
+        table_name = table_obj.name
+        schema_name = table_obj.schema
+        
+        # Маппинг типов столбцов на основе DxfLayerBase из models.py
+        column_types_mapping = {
+            'id': 'INTEGER PRIMARY KEY',
+            'file_id': 'INTEGER',
+            'geometry': 'GEOMETRY(GEOMETRYZ, 4326)',
+            'geom_type': 'VARCHAR',
+            'notes': 'TEXT',
+            'extra_data': 'JSONB'
+        }
         
         for column_name in columns:
-            # Определяем тип столбца (по умолчанию TEXT)
-            column_type = "TEXT"
+            # Определяем тип столбца на основе маппинга
+            column_type = column_types_mapping.get(column_name, "TEXT")
             
             alter_sql = text(f"""
-                ALTER TABLE {schema_name}.{table_name} 
-                ADD COLUMN IF NOT EXISTS {column_name} {column_type}
+                ALTER TABLE "{schema_name}"."{table_name}" 
+                ADD COLUMN IF NOT EXISTS "{column_name}" {column_type}
             """)
             
             session.execute(alter_sql)
-            Logger.log_message(f"Добавлен столбец {column_name} в таблицу {schema_name}.{table_name}")
+            Logger.log_message(f"Добавлен столбец {column_name} ({column_type}) в таблицу {schema_name}.{table_name}")
         
         session.commit()
         
@@ -822,12 +956,14 @@ def _create_backup_table(session, table_class, layer_name, layer_schema):
     try:
         from datetime import datetime
         
-        original_table = table_class.__tablename__
+        # Получаем имя таблицы из объекта Table
+        table_obj = table_class.__table__
+        original_table = table_obj.name
         backup_table = f"{original_table}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         backup_sql = text(f"""
-            CREATE TABLE {layer_schema}.{backup_table} AS 
-            SELECT * FROM {layer_schema}.{original_table}
+            CREATE TABLE "{layer_schema}"."{backup_table}" AS 
+            SELECT * FROM "{layer_schema}"."{original_table}"
         """)
         
         session.execute(backup_sql)
@@ -847,9 +983,10 @@ def _apply_field_mapping(entity_data, mappings):
         # Если есть сопоставление, используем его
         if dxf_field in mappings:
             db_field = mappings[dxf_field]
-            mapped_data[db_field] = value
+            if db_field:  # Проверяем, что сопоставленное поле не пустое
+                mapped_data[db_field] = value
         else:
-            # Иначе используем оригинальное название поля
+            # Иначе используем оригинальное название поля (только если такое поле не игнорируется)
             mapped_data[dxf_field] = value
     
     return mapped_data
@@ -890,3 +1027,99 @@ def get_tables_in_schema(username, password, host, port, dbname, schema_name='pu
     except Exception as e:
         Logger.log_error(f"Ошибка при получении списка таблиц в схеме {schema_name}: {str(e)}")
         return []
+
+def needs_column_mapping(session, layer_name, layer_schema='layer_schema'):
+    """
+    Проверяет, нужно ли сопоставление столбцов для данного слоя
+    
+    Args:
+        session: Сессия базы данных
+        layer_name: Имя слоя
+        layer_schema: Схема слоя
+        
+    Returns:
+        dict: {'needs_mapping': bool, 'existing_columns': list, 'reason': str}
+    """
+    try:
+        # Нормализуем имя таблицы
+        table_name = layer_name.replace(' ', '_').replace('-', '_')
+        
+        # Проверяем существование таблицы используя существующую сессию
+        inspector = inspect(session.bind)
+        table_exists_flag = inspector.has_table(table_name, schema=layer_schema)
+        
+        if not table_exists_flag:
+            return {
+                'needs_mapping': False, 
+                'existing_columns': [], 
+                'reason': 'Таблица не существует, будет создана новая'
+            }
+        
+        # Получаем столбцы существующей таблицы используя существующую сессию
+        with session.bind.connect() as connection:
+            result = connection.execute(text("""
+                SELECT 
+                    column_name,
+                    data_type,
+                    is_nullable,
+                    column_default,
+                    character_maximum_length
+                FROM information_schema.columns 
+                WHERE table_schema = :schema_name 
+                AND table_name = :table_name
+                ORDER BY ordinal_position
+            """), {'schema_name': layer_schema, 'table_name': table_name})
+            
+            existing_columns = []
+            for row in result:
+                existing_columns.append({
+                    'name': row[0],
+                    'type': row[1],
+                    'nullable': row[2] == 'YES',
+                    'default': row[3],
+                    'max_length': row[4]
+                })
+        
+        # Стандартные столбцы DXF таблицы
+        standard_dxf_columns = ['id', 'file_id', 'geometry', 'geom_type', 'notes', 'extra_data']
+        
+        # Проверяем, есть ли различия в структуре
+        existing_column_names = [col['name'] for col in existing_columns]
+        
+        # Если в существующей таблице отсутствуют стандартные столбцы DXF
+        missing_standard_columns = [col for col in standard_dxf_columns if col not in existing_column_names]
+        
+        # Если в существующей таблице есть дополнительные столбцы, не являющиеся стандартными DXF
+        extra_columns = [col for col in existing_column_names if col not in standard_dxf_columns]
+        
+        if missing_standard_columns or extra_columns:
+            reason = []
+            if missing_standard_columns:
+                reason.append(f"Отсутствуют стандартные DXF столбцы: {', '.join(missing_standard_columns)}")
+            if extra_columns:
+                reason.append(f"Дополнительные столбцы в существующей таблице: {', '.join(extra_columns)}")
+                
+            return {
+                'needs_mapping': True,
+                'existing_columns': existing_columns,
+                'reason': '; '.join(reason)
+            }
+        
+        return {
+            'needs_mapping': False,
+            'existing_columns': existing_columns,
+            'reason': 'Структура таблицы соответствует стандартной DXF структуре'
+        }
+        
+    except Exception as e:
+        Logger.log_error(f"Ошибка при проверке необходимости сопоставления столбцов: {str(e)}")
+        return {
+            'needs_mapping': False,
+            'existing_columns': [],
+            'reason': f'Ошибка проверки: {str(e)}'
+        }
+
+
+# ----------------------
+# Основные функции работы с базой данных
+# ----------------------

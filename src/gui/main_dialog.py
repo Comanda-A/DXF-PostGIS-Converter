@@ -3,9 +3,7 @@ import tempfile
 
 from qgis.PyQt import uic, QtWidgets
 from qgis.PyQt.QtWidgets import QMessageBox, QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView, QFileDialog, QProgressDialog
-from qgis.PyQt.QtCore import Qt, QThread, pyqtSignal, QTimer
-
-import os
+from qgis.PyQt.QtCore import Qt, QThread, pyqtSignal, QTimer, QEvent
 from qgis.core import QgsProviderRegistry, QgsDataSourceUri, QgsSettings
 from functools import partial
 
@@ -183,6 +181,48 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         # Перемещаем кнопку в правый верхний угол
         self.info_button.move(self.width() - 35, 10)
         self.info_button.clicked.connect(self.show_help)
+
+        # Установка event filter для layer_filter_list
+        self.layer_filter_list.installEventFilter(self)
+        self.original_layer_filter_list_geom = self.layer_filter_list.geometry()
+        self.original_layer_filter_list_parent = self.layer_filter_list.parentWidget()
+        self.layer_filter_list_expanded = False
+
+    def eventFilter(self, source, event):
+        if source == self.layer_filter_list:
+            if event.type() == QEvent.FocusIn and not self.layer_filter_list_expanded:
+                self.layer_filter_list_expanded = True
+                # При получении фокуса, перемещаем виджет на главный диалог и расширяем
+                current_pos = self.layer_filter_list.mapTo(self, self.layer_filter_list.rect().topLeft())
+                self.layer_filter_list.setParent(self)
+
+                new_height = self.original_layer_filter_list_geom.height()
+                if self.layer_filter_list.count() > 0:
+                    # Рассчитываем высоту на основе содержимого
+                    content_height = self.layer_filter_list.sizeHintForRow(0) * self.layer_filter_list.count() + 2 * self.layer_filter_list.frameWidth()
+                    # Ограничиваем максимальную высоту
+                    max_height = self.height() - current_pos.y() - 10
+                    new_height = min(content_height, max_height)
+
+                self.layer_filter_list.setGeometry(
+                    current_pos.x(),
+                    current_pos.y(),
+                    self.layer_filter_list.width(),
+                    new_height
+                )
+                self.layer_filter_list.raise_()
+                self.layer_filter_list.show()
+                # Устанавливаем фокус, чтобы событие FocusOut сработало корректно
+                self.layer_filter_list.setFocus()
+
+            elif event.type() == QEvent.FocusOut and self.layer_filter_list_expanded:
+                self.layer_filter_list_expanded = False
+                # При потере фокуса, возвращаем виджет на место
+                self.layer_filter_list.setParent(self.original_layer_filter_list_parent)
+                self.layer_filter_list.setGeometry(self.original_layer_filter_list_geom)
+                self.layer_filter_list.show()
+                
+        return super(ConverterDialog, self).eventFilter(source, event)
 
     def setupUiText(self):
         """Обновляет текст элементов пользовательского интерфейса согласно выбранному языку"""

@@ -5,6 +5,7 @@ from qgis.PyQt import uic, QtWidgets
 from qgis.PyQt.QtWidgets import QMessageBox, QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView, QFileDialog, QProgressDialog
 from qgis.PyQt.QtCore import Qt, QThread, pyqtSignal, QTimer
 
+import os
 from qgis.core import QgsProviderRegistry, QgsDataSourceUri, QgsSettings
 from functools import partial
 
@@ -140,6 +141,15 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         # нажатие по кнопке export_to_db_button
         self.export_to_db_button.clicked.connect(self.export_to_db_button_click)
         
+        # нажатие по кнопке export_to_file_button
+        self.export_to_file_button.clicked.connect(self.export_to_file_button_click)
+        
+        # нажатие по кнопке применения фильтра
+        self.apply_filter_button.clicked.connect(self.apply_layer_filter)
+        
+        # нажатие по кнопке сброса фильтра
+        self.clear_filter_button.clicked.connect(self.clear_layer_filter)
+        
         # нажатие по другой вкладке tabWidget
         self.tabWidget.currentChanged.connect(self.handle_tab_change)
 
@@ -201,6 +211,13 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.label.setText(self.lm.get_string("UI", "file_not_selected"))        
         self.select_area_button.setText(self.lm.get_string("UI", "select_area_button"))
         self.export_to_db_button.setText(self.lm.get_string("UI", "export_to_db_button"))
+        self.export_to_file_button.setText(self.lm.get_string("UI", "export_to_file_button"))
+        
+        # Фильтр выделения
+        self.filter_groupbox.setTitle(self.lm.get_string("UI", "selection_filter"))
+        self.layer_filter_label.setText(self.lm.get_string("UI", "keep_selection_for_layers"))
+        self.apply_filter_button.setText(self.lm.get_string("UI", "apply_filter_button"))
+        self.clear_filter_button.setText(self.lm.get_string("UI", "clear_filter_button"))
         
 
     def check_selected_file(self):
@@ -247,7 +264,11 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.dxf_tree_widget_handler.populate_tree_widget(result)
         
         self.export_to_db_button.setEnabled(self.dxf_handler.file_is_open)
+        self.export_to_file_button.setEnabled(self.dxf_handler.file_is_open)
         self.select_area_button.setEnabled(self.dxf_handler.file_is_open)
+        
+        # Обновляем список слоев в комбобоксе фильтра
+        self.update_layer_filter_list()
 
     def handle_error(self, error_message):
         self.progress_dialog.close()
@@ -281,10 +302,13 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         if result is not None:
             if task_id == "read_dxf_file":
                 self.dxf_tree_widget_handler.populate_tree_widget(result)
+                # Обновляем список слоев в комбобоксе фильтра
+                self.update_layer_filter_list()
             elif task_id == "select_entities_in_area" and result != []:
                 self.dxf_tree_widget_handler.select_area(result)
 
         self.export_to_db_button.setEnabled(self.dxf_handler.file_is_open)
+        self.export_to_file_button.setEnabled(self.dxf_handler.file_is_open)
         self.select_area_button.setEnabled(self.dxf_handler.file_is_open)
 
         if hasattr(self, 'long_task_worker'):
@@ -327,6 +351,139 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.raise_()
         self.activateWindow()
         self.show()
+
+    def export_to_file_button_click(self):
+        """
+        Экспорт выбранных сущностей в DXF файл
+        """
+        from ..dxf.dxf_exporter import DXFExporter
+        
+        if self.dxf_tree_widget_handler.get_selected_file_name() is None:
+            QMessageBox.warning(None, self.lm.get_string("COMMON", "error"), 
+                               self.lm.get_string("MAIN_DIALOG", "no_file_selected"))
+            return
+
+        file_name = self.dxf_tree_widget_handler.get_selected_file_name()
+        
+        # Проверяем есть ли выбранные сущности
+        if file_name not in self.dxf_handler.selected_entities or not self.dxf_handler.selected_entities[file_name]:
+            QMessageBox.warning(None, self.lm.get_string("COMMON", "warning"), 
+                               self.lm.get_string("MAIN_DIALOG", "no_entities_selected"))
+            return
+
+        # Открываем диалог сохранения файла
+        output_file, _ = QFileDialog.getSaveFileName(
+            self, 
+            self.lm.get_string("MAIN_DIALOG", "save_dxf_file"), 
+            f"{os.path.splitext(file_name)[0]}_selected.dxf",
+            "DXF files (*.dxf);;All files (*.*)"
+        )
+        
+        if not output_file:
+            return
+
+        try:
+            # Создаем экспортер и экспортируем
+            exporter = DXFExporter(self.dxf_handler)
+            success = exporter.export_selected_entities(file_name, output_file)
+            
+            if success:
+                QMessageBox.information(
+                    self, 
+                    self.lm.get_string("COMMON", "success"),
+                    self.lm.get_string("MAIN_DIALOG", "export_success", output_file)
+                )
+            else:
+                QMessageBox.critical(
+                    self, 
+                    self.lm.get_string("COMMON", "error"),
+                    self.lm.get_string("MAIN_DIALOG", "export_failed")
+                )
+        except Exception as e:
+            Logger.log_error(f"Ошибка при экспорте в файл: {str(e)}")
+            QMessageBox.critical(
+                self, 
+                self.lm.get_string("COMMON", "error"),
+                self.lm.get_string("MAIN_DIALOG", "export_error", str(e))
+            )
+
+    def apply_layer_filter(self):
+        """
+        Применяет фильтр - оставляет выделение только для выбранных слоев
+        """
+        if not self.dxf_tree_widget_handler.get_selected_file_name():
+            QMessageBox.warning(None, self.lm.get_string("COMMON", "warning"), 
+                               self.lm.get_string("MAIN_DIALOG", "no_file_selected"))
+            return
+            
+        selected_items = self.layer_filter_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(None, self.lm.get_string("COMMON", "warning"), 
+                               self.lm.get_string("MAIN_DIALOG", "no_layers_selected"))
+            return
+        
+        selected_layers = [item.text() for item in selected_items]
+        file_name = self.dxf_tree_widget_handler.get_selected_file_name()
+        
+        # Используем встроенную функциональность tree_widget_handler для эффективного обновления
+        self.dxf_tree_widget_handler.updating_selection = True
+        self.dxf_tree_widget_handler.batch_update = True
+        
+        try:
+            # Получаем данные файла из tree_widget_handler
+            if file_name in self.dxf_tree_widget_handler.tree_items:
+                file_data = self.dxf_tree_widget_handler.tree_items[file_name]
+                
+                # Проходим по всем слоям и устанавливаем состояние
+                for layer_name, layer_data in file_data.items():
+                    if isinstance(layer_data, dict) and 'item' in layer_data:
+                        layer_item = layer_data['item']
+                        
+                        if layer_name in selected_layers:
+                            # Для выбранных слоев оставляем выделение как есть
+                            continue
+                        else:
+                            # Для остальных слоев снимаем выделение со всех дочерних элементов
+                            layer_item.setCheckState(0, Qt.Unchecked)
+                            self.dxf_tree_widget_handler.update_child_check_states(layer_item, Qt.Unchecked)
+            
+            # Обновляем статистику
+            self.dxf_tree_widget_handler.update_selection_count(file_name)
+            
+        finally:
+            self.dxf_tree_widget_handler.batch_update = False
+            self.dxf_tree_widget_handler.updating_selection = False
+            
+        # Важно: вызываем сигнал selection_changed, чтобы dxf_handler обновил выделенные объекты
+        self.dxf_tree_widget_handler.selection_changed.emit(file_name)
+        
+        layers_text = ", ".join(selected_layers)
+        QMessageBox.information(None, self.lm.get_string("COMMON", "success"),
+                               self.lm.get_string("MAIN_DIALOG", "filter_applied_multiple", layers_text))
+                               
+    def clear_layer_filter(self):
+        """
+        Сбрасывает фильтр - снимает выделение со всех элементов в списке
+        """
+        self.layer_filter_list.clearSelection()
+        
+    def update_layer_filter_list(self):
+        """
+        Обновляет список слоев в списке фильтра
+        """
+        self.layer_filter_list.clear()
+        
+        file_name = self.dxf_tree_widget_handler.get_selected_file_name()
+        if not file_name:
+            return
+            
+        # Получаем список слоев из текущего файла
+        if file_name in self.dxf_tree_widget_handler.tree_items:
+            file_data = self.dxf_tree_widget_handler.tree_items[file_name]
+            for layer_name in file_data.keys():
+                if isinstance(file_data[layer_name], dict) and 'item' in file_data[layer_name]:
+                    self.layer_filter_list.addItem(layer_name)
+
 
     def refresh_db_structure_treewidget(self):
         """
@@ -760,10 +917,13 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         Импорт DXF файла в QGIS через саб-плагин
         """
         try:
-            # Создаем временный файл с содержимым DXF
-            temp_file = tempfile.NamedTemporaryFile(suffix='.dxf', delete=False)
-            temp_file.write(file_content)
-            temp_file.close()
+            # Создаем временный файл с содержимым DXF и правильным именем
+            temp_dir = tempfile.gettempdir()
+            temp_file_path = os.path.join(temp_dir, file_name)
+            
+            # Записываем содержимое в файл с правильным именем
+            with open(temp_file_path, 'wb') as f:
+                f.write(file_content)
             
             # Импортируем саб-плагин AnotherDXF2Shape
             from ..plugins.dxf_tools.uiADXF2Shape import uiADXF2Shape
@@ -772,14 +932,17 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             dxf_plugin = uiADXF2Shape(self)
             
             # Вызываем функцию программного импорта
-            success = dxf_plugin.import_dxf_programmatically(temp_file.name)
+            success = dxf_plugin.import_dxf_programmatically(temp_file_path)
 
-            
             if success:
                 QMessageBox.information(None, self.lm.get_string("COMMON", "success"),
                                        self.lm.get_string("MAIN_DIALOG", "file_imported_to_qgis", file_name))
+            
             # Удаляем временный файл
-            os.unlink(temp_file.name)
+            try:
+                os.unlink(temp_file_path)
+            except Exception as e:
+                Logger.log_warning(f"Не удалось удалить временный файл {temp_file_path}: {str(e)}")
             
         except Exception as e:
             Logger.log_message(self.lm.get_string("MAIN_DIALOG", "error_importing_to_qgis", file_name, str(e)))

@@ -64,14 +64,14 @@ MAIN_DIALOG = {
     # Export to file
     "no_file_selected": "No file selected. Please select a DXF file first.",
     "no_entities_selected": "No entities selected. Please select entities to export.",
-    "export_file_as": "Export file as",
-    "export_method_title": "Export Method",
-    "export_method_question": "How would you like to export the selected entities?",
-    "export_simple": "Simple export",
-    "export_with_resources": "Export with resources",
-    "export_successful": "Selected entities were successfully exported to {}",
-    "export_error": "Failed to export selected entities",
-    "export_exception": "Error during export: {}",
+    "save_dxf_file": "Save DXF file",
+    "export_success": "File successfully exported to {0}",
+    "export_failed": "Failed to export file",
+    "export_error": "Error during export: {0}",
+    "no_layer_selected": "No layer selected. Please select a layer in the tree.",
+    "no_layers_selected": "No layers selected. Please select one or more layers from the list.",
+    "filter_applied": "Filter applied. Selection kept only for layer '{0}'.",
+    "filter_applied_multiple": "Filter applied. Selection kept only for layers: {0}.",
     
     # Preview generation
     "preview_generation_started": "Starting preview generation for {0}",
@@ -443,7 +443,11 @@ UI = {
     "selection_intersect": "overlap",
     "databases_label": "Databases",
     "enable_logs": "Enable Logs",
-    "interface_language": "Interface Language"
+    "interface_language": "Interface Language",
+    "selection_filter": "Selection Filter",
+    "keep_selection_for_layers": "Keep selection only for layers:",
+    "apply_filter_button": "OK",
+    "clear_filter_button": "Clear"
 }
 
 DRAW = {

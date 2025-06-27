@@ -64,14 +64,14 @@ MAIN_DIALOG = {
     # Экспорт в файл
     "no_file_selected": "Файл не выбран. Сначала выберите DXF файл.",
     "no_entities_selected": "Не выбраны объекты для экспорта. Выберите объекты.",
-    "export_file_as": "Экспорт файла как",
-    "export_method_title": "Метод экспорта",
-    "export_method_question": "Как вы хотите экспортировать выбранные объекты?",
-    "export_simple": "Простой экспорт",
-    "export_with_resources": "Экспорт с ресурсами",
-    "export_successful": "Выбранные объекты успешно экспортированы в файл {}",
-    "export_error": "Не удалось экспортировать выбранные объекты",
-    "export_exception": "Ошибка при экспорте: {}",
+    "save_dxf_file": "Сохранить DXF файл",
+    "export_success": "Файл успешно экспортирован в {0}",
+    "export_failed": "Не удалось экспортировать файл",
+    "export_error": "Ошибка при экспорте: {0}",
+    "no_layer_selected": "Слой не выбран. Выберите слой в дереве.",
+    "no_layers_selected": "Слои не выбраны. Выберите один или несколько слоев в списке.",
+    "filter_applied": "Фильтр применен. Выделение оставлено только для слоя '{0}'.",
+    "filter_applied_multiple": "Фильтр применен. Выделение оставлено только для слоев: {0}.",
 
     # Генерация предпросмотра
     "preview_generation_started": "Начало генерации предпросмотра для {0}",
@@ -441,5 +441,9 @@ UI = {
     "selection_intersect": "пересечение",
     "databases_label": "Базы данных",
     "enable_logs": "Включить логи",
-    "interface_language": "Язык интерфейса"
+    "interface_language": "Язык интерфейса",
+    "selection_filter": "Фильтр выделения",
+    "keep_selection_for_layers": "Оставить выделение только для слоёв:",
+    "apply_filter_button": "ОК",
+    "clear_filter_button": "Сброс"
 }

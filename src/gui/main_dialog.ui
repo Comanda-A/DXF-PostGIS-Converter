@@ -64,8 +64,8 @@
     <widget class="QLabel" name="label">
      <property name="geometry">
       <rect>
-       <x>540</x>
-       <y>10</y>
+       <x>520</x>
+       <y>240</y>
        <width>141</width>
        <height>41</height>
       </rect>
@@ -134,10 +134,10 @@
      </property>
      <property name="geometry">
       <rect>
-       <x>170</x>
-       <y>10</y>
-       <width>241</width>
-       <height>41</height>
+       <x>20</x>
+       <y>60</y>
+       <width>131</width>
+       <height>51</height>
       </rect>
      </property>
      <property name="font">
@@ -156,8 +156,8 @@
     <widget class="QTextEdit" name="coord">
      <property name="geometry">
       <rect>
-       <x>10</x>
-       <y>60</y>
+       <x>90</x>
+       <y>190</y>
        <width>401</width>
        <height>71</height>
       </rect>
@@ -166,7 +166,7 @@
     <widget class="QComboBox" name="type_shape">
      <property name="geometry">
       <rect>
-       <x>550</x>
+       <x>280</x>
        <y>60</y>
        <width>131</width>
        <height>21</height>
@@ -197,7 +197,7 @@
     <widget class="QComboBox" name="type_selection">
      <property name="geometry">
       <rect>
-       <x>550</x>
+       <x>280</x>
        <y>90</y>
        <width>131</width>
        <height>21</height>
@@ -228,7 +228,7 @@
     <widget class="QLabel" name="label_2">
      <property name="geometry">
       <rect>
-       <x>440</x>
+       <x>170</x>
        <y>60</y>
        <width>91</width>
        <height>21</height>
@@ -247,7 +247,7 @@
     <widget class="QLabel" name="label_3">
      <property name="geometry">
       <rect>
-       <x>440</x>
+       <x>170</x>
        <y>90</y>
        <width>101</width>
        <height>21</height>
@@ -269,7 +269,7 @@
      </property>
      <property name="geometry">
       <rect>
-       <x>420</x>
+       <x>180</x>
        <y>10</y>
        <width>111</width>
        <height>41</height>
@@ -288,6 +288,108 @@
       <bool>false</bool>
      </property>
     </widget>
+    <widget class="QPushButton" name="export_to_file_button">
+     <property name="enabled">
+      <bool>false</bool>
+     </property>
+     <property name="geometry">
+      <rect>
+       <x>300</x>
+       <y>10</y>
+       <width>111</width>
+       <height>41</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Calibri</family>
+       <pointsize>10</pointsize>
+      </font>
+     </property>
+     <property name="text">
+      <string>Экспорт в файл</string>
+     </property>
+     <property name="checkable">
+      <bool>false</bool>
+     </property>
+    </widget>
+    <widget class="QGroupBox" name="filter_groupbox">
+     <property name="geometry">
+      <rect>
+       <x>420</x>
+       <y>10</y>
+       <width>271</width>
+       <height>110</height>
+      </rect>
+     </property>
+     <property name="title">
+      <string>Фильтр выделения</string>
+     </property>
+     <widget class="QLabel" name="layer_filter_label">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>20</y>
+        <width>211</width>
+        <height>20</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>Оставить выделение только для слоёв:</string>
+      </property>
+     </widget>
+     <widget class="QListWidget" name="layer_filter_list">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>44</y>
+        <width>200</width>
+        <height>61</height>
+       </rect>
+      </property>
+      <property name="selectionMode">
+       <enum>QAbstractItemView::MultiSelection</enum>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="apply_filter_button">
+      <property name="geometry">
+       <rect>
+        <x>220</x>
+        <y>40</y>
+        <width>40</width>
+        <height>25</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>ОК</string>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="clear_filter_button">
+      <property name="geometry">
+       <rect>
+        <x>220</x>
+        <y>70</y>
+        <width>40</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>Сброс</string>
+      </property>
+     </widget>
+    </widget>
+    <zorder>coord</zorder>
+    <zorder>open_dxf_button</zorder>
+    <zorder>label</zorder>
+    <zorder>dxf_tree_widget</zorder>
+    <zorder>select_area_button</zorder>
+    <zorder>type_shape</zorder>
+    <zorder>type_selection</zorder>
+    <zorder>label_2</zorder>
+    <zorder>label_3</zorder>
+    <zorder>export_to_db_button</zorder>
+    <zorder>export_to_file_button</zorder>
+    <zorder>filter_groupbox</zorder>
    </widget>
    <widget class="QWidget" name="tab_2">
     <attribute name="title">
@@ -362,7 +464,6 @@
       <string>Включить логи</string>
      </property>
     </widget>
-    <!-- Add language switcher -->
     <widget class="QComboBox" name="language_combo">
      <property name="geometry">
       <rect>

@@ -34,16 +34,7 @@ class QGISLayerSyncManager(QObject):
         if self.tree_widget_handler:
             self.tree_widget_handler.selection_changed.connect(self.on_plugin_tree_changed)
     
-    def extract_file_name_from_group(self, group_name):
-        """
-        Извлекает имя файла из названия группы QGIS.
-        Отрезает часть после '_' как указано в требованиях.
-        Пример: "аппаора.dxf_GPKG(byLay)" -> "аппаора.dxf"
-        """
-        if '_' in group_name:
-            return group_name.split('_')[0]
-        return group_name
-    
+
     def create_qgis_group_structure(self, file_name, layers_dict):
         """
         Привязывает синхронизацию к уже существующим группам в QGIS, созданным подплагином.
@@ -59,7 +50,7 @@ class QGISLayerSyncManager(QObject):
             self.updating = True
             
             # Отрезаем часть после _ в имени файла для QGIS (как указано в требованиях)
-            qgis_file_name = self.extract_file_name_from_group(file_name)
+            qgis_file_name = file_name
             
             # Ищем существующую группу файла в QGIS
             file_group = self._find_group_by_name(qgis_file_name)

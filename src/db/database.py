@@ -21,6 +21,63 @@ PATTERN_DATABASE_URL = 'postgresql://{username}:{password}@{address}:{port}/{dbn
 engine = None
 SessionLocal = None
 
+def ensure_postgis_extension(session: Session) -> bool:
+    """
+    Проверяет наличие расширения PostGIS в базе данных и создает его при необходимости
+    
+    Args:
+        session: Сессия базы данных
+        
+    Returns:
+        True если расширение доступно, иначе False
+    """
+    try:
+        with session.bind.connect() as connection:
+            # Проверяем наличие расширения PostGIS
+            result = connection.execute(text("""
+                SELECT EXISTS(
+                    SELECT 1 FROM pg_extension WHERE extname = 'postgis'
+                );
+            """))
+            
+            extension_exists = result.scalar()
+            
+            if not extension_exists:
+                Logger.log_message("Расширение PostGIS не найдено, пытаемся создать...")
+                
+                # Пытаемся создать расширение PostGIS
+                try:
+                    connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
+                    connection.commit()
+                    Logger.log_message("Расширение PostGIS успешно создано")
+                    return True
+                except Exception as create_error:
+                    Logger.log_error(f"Не удалось создать расширение PostGIS: {str(create_error)}")
+                    
+                    # Проверяем, доступно ли расширение для установки
+                    try:
+                        available_result = connection.execute(text("""
+                            SELECT EXISTS(
+                                SELECT 1 FROM pg_available_extensions WHERE name = 'postgis'
+                            );
+                        """))
+                        
+                        if available_result.scalar():
+                            Logger.log_error("Расширение PostGIS доступно, но не удалось его установить. Проверьте права доступа.")
+                        else:
+                            Logger.log_error("Расширение PostGIS недоступно на сервере PostgreSQL. Обратитесь к администратору.")
+                    except Exception:
+                        Logger.log_error("Не удалось проверить доступность расширения PostGIS")
+                    
+                    return False
+            else:
+                Logger.log_message("Расширение PostGIS уже установлено")
+                return True
+                
+    except Exception as e:
+        Logger.log_error(f"Ошибка при проверке расширения PostGIS: {str(e)}")
+        return False
+
 def _show_schema_selector_dialog(schemas):
     """
     Показывает диалог выбора схемы
@@ -403,6 +460,15 @@ def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: 
     
     try:
         session = _connect_to_database(username, password, host, port, dbname)
+        if session is None:
+            Logger.log_error("Не удалось подключиться к базе данных")
+            return False
+            
+        # Проверяем и устанавливаем расширение PostGIS при необходимости
+        if not ensure_postgis_extension(session):
+            Logger.log_error("Расширение PostGIS недоступно. Работа с геометрией невозможна.")
+            return False
+            
         # Получаем имя файла из пути (оригинальное название)
         original_filename = os.path.basename(file_path)
         # Используем пользовательское название файла или оригинальное

@@ -22,12 +22,12 @@ class DXFExporter:
         """
         if filename not in self.handler.selected_entities:
             Logger.log_error(f"Нет выбранных сущностей для файла {filename}.")
-            return
+            return False
 
         selected_entities = self.handler.selected_entities[filename]
         if not selected_entities:
             Logger.log_error(f"Нет выбранных сущностей для экспорта из файла {filename}.")
-            return
+            return False
 
         try:
             # Используем функцию write_block из модуля xref для создания нового документа

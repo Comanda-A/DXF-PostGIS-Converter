@@ -2,8 +2,8 @@ from qgis.PyQt.QtWidgets import QProgressDialog, QTreeWidgetItem, QPushButton, Q
 from qgis.PyQt.QtCore import Qt, pyqtSignal, QObject
 
 from qgis.core import QgsApplication
-from .logger.logger import Logger
-from .localization.localization_manager import LocalizationManager
+from ..logger.logger import Logger
+from ..localization.localization_manager import LocalizationManager
 
 
 def remove_item(item, tree_widget):

@@ -12,7 +12,7 @@ from .qgis_layer_sync_manager import QGISLayerSyncManager
 from ..db.database import get_all_dxf_files, delete_dxf_file, get_dxf_file_by_id
 from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler, get_selected_file
-from ..tree_widget_handler import TreeWidgetHandler
+from .tree_widget_handler import TreeWidgetHandler
 from .info_dialog import InfoDialog
 from .import_destination_dialog import ImportDestinationDialog
 from ..workers.dxf_worker import DXFWorker

@@ -18,7 +18,7 @@ class ImportDestinationDialog(QDialog):
         self.lm = LocalizationManager.instance()
         self.selected_destination = None
         
-        self.setWindowTitle("Выбор места импорта")
+        self.setWindowTitle("Выбор места")
         
         self.setupUI()
         
@@ -35,7 +35,7 @@ class ImportDestinationDialog(QDialog):
         layout = QVBoxLayout()
         
         # Заголовок
-        title_label = QLabel("Выберите, куда импортировать DXF файл:")
+        title_label = QLabel("Выберите, куда экспортировать DXF файл:")
         title_label.setStyleSheet("font-weight: bold; font-size: 12px; margin-bottom: 10px;")
         layout.addWidget(title_label)
         
@@ -43,7 +43,7 @@ class ImportDestinationDialog(QDialog):
         self.button_group = QButtonGroup()
         
         # Кнопка для импорта в QGIS
-        self.qgis_radio = QRadioButton("Импортировать в проект QGIS")
+        self.qgis_radio = QRadioButton("Экспортировать в проект QGIS")
         self.qgis_radio.setChecked(True)  # По умолчанию выбран QGIS
         self.button_group.addButton(self.qgis_radio, 0)
         layout.addWidget(self.qgis_radio)

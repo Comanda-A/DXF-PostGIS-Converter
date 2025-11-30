@@ -27,7 +27,7 @@ MAIN_DIALOG = {
     "no_connections": "No PostgreSQL connections found",
     "connect_button": "Connect",
     "info_button": "Info",
-    "import_button": "Import",
+    "import_button": "Export",
     "delete_button": "Delete",
     "db_empty": "Empty",
     "connection_error": "Connection error: {0}",
@@ -174,30 +174,30 @@ TREE_WIDGET_HANDLER = {
 
 # Export dialog strings
 EXPORT_DIALOG = {
-    "title": "Export to Database",
-    "export_thread_start": "Starting DXF export to database",
+    "title": "Import to Database",
+    "export_thread_start": "Starting DXF import to database",
     "export_thread_connecting": "Connecting to database...",
-    "export_thread_success": "Export completed successfully",
-    "export_thread_complete": "Export completed successfully!",
-    "export_thread_failed": "Failed to complete export",
-    "progress_dialog_title": "Export",
-    "progress_text": "Exporting objects to database{0}",
+    "export_thread_success": "Import completed successfully",
+    "export_thread_complete": "Import completed successfully!",
+    "export_thread_failed": "Failed to complete import",
+    "progress_dialog_title": "Import",
+    "progress_text": "Importing objects to database{0}",
     "success_title": "Success",
-    "progress_log_text": "Exporting...",
+    "progress_log_text": "Importing...",
     "error_title": "Error",
-    "export_error": "Failed to complete export: {0}",
+    "export_error": "Failed to complete import: {0}",
     "warning_title": "Warning",
-    "select_file_warning": "Please select a file to export",
-    "export_progress": "Exporting file to database",
-    "export_title": "DXF Export",
-    "export_button": "Export",
+    "select_file_warning": "Please select a file to import",
+    "export_progress": "Importing file to database",
+    "export_title": "DXF Import",
+    "export_button": "Import",
     
     # Groups and labels
     "dxf_objects_group": "DXF Objects",
     "db_connection_group": "Database Connection",
     "file_info_group": "File Information",
-    "export_settings_group": "Export Settings",
-    "mapping_info": "During export, geometry and notes fields of layer tables will be compared. The file will be overwritten in the database.",
+    "export_settings_group": "Import Settings",
+    "mapping_info": "During import, geometry and notes fields of layer tables will be compared. The file will be overwritten in the database.",
     
     # Layer mapping modes
     "mapping_mode_label": "Layer mapping mode:",
@@ -213,18 +213,18 @@ EXPORT_DIALOG = {
     "desc_both": "Comparison will be done by both geometry and notes. The most strict matching option.",
     
     # Temporary file operations
-    "creating_temp_file": "Creating temporary file for export...",
-    "temp_file_created": "Temporary file created, performing export...",
-    "temp_file_error": "Failed to create temporary DXF file for export",
+    "creating_temp_file": "Creating temporary file for import...",
+    "temp_file_created": "Temporary file created, performing import...",
+    "temp_file_error": "Failed to create temporary DXF file for import",
     
     # The rest of the existing keys without changes
-    "export_thread_success": "Export completed successfully",
-    "export_thread_complete": "Export completed successfully!",
-    "progress_dialog_title": "Export",
-    "progress_text": "Exporting objects to database{0}",
+    "export_thread_success": "Import completed successfully",
+    "export_thread_complete": "Import completed successfully!",
+    "progress_dialog_title": "Import",
+    "progress_text": "Importing objects to database{0}",
     "success_title": "Success",
     "error_title": "Error",
-    "export_error": "Failed to complete export: {0}",
+    "export_error": "Failed to complete import: {0}",
     
     # Groups and labels
     "dxf_objects_group": "DXF Objects",
@@ -243,7 +243,7 @@ EXPORT_DIALOG = {
     "password_label": "Password:",
     "new_file_placeholder": "Enter file name",
     "layer_select_label": "Select layer:",
-    "ok_button": "Export",
+    "ok_button": "Import",
     "cancel_button": "Cancel",
     
     # Import modes
@@ -299,7 +299,7 @@ EXPORT_DIALOG = {
     "select_existing_schema": "Select existing schema",
     "create_new_schema": "Create new schema",
     "new_schema_name": "New schema name:",
-    "export_layers_only": "Export layers only (without saving file)",    
+    "export_layers_only": "Import layers only (without saving file)",    
     "schema_not_selected": "Schema for layers not selected",
     "schema_creation_failed": "Failed to create schema",
     "invalid_schema_name": "Invalid schema name",
@@ -425,8 +425,8 @@ HELP_CONTENT = {
 # UI strings
 UI = {
     "main_dialog_title": "DXF-PostGIS Converter",
-    "tab_dxf_to_sql": "DXF → SQL",
-    "tab_sql_to_dxf": "SQL → DXF",
+    "tab_dxf_to_sql": "DXF → DB",
+    "tab_sql_to_dxf": "DB → DXF",
     "tab_settings": "Settings",
     "open_dxf_button": "Open DXF",
     "select_area_button": "Select Area",

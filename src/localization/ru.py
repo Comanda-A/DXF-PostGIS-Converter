@@ -27,7 +27,7 @@ MAIN_DIALOG = {
     "no_connections": "Не найдены подключения PostgreSQL",
     "connect_button": "Подключиться",
     "info_button": "Инфо",
-    "import_button": "Импорт",
+    "import_button": "Экспорт",
     "delete_button": "Удалить",
     "db_empty": "Пусто",
     "connection_error": "Ошибка подключения: {0}",
@@ -174,31 +174,32 @@ TREE_WIDGET_HANDLER = {
 }
 
 # Строки для диалога экспорта
+# Строки для диалога импорта
 EXPORT_DIALOG = {
-    "title": "Экспорт в базу данных",
-    "export_thread_start": "Запуск экспорта DXF в базу данных",
-    "export_thread_success": "Экспорт успешно завершен",
-    "export_thread_complete": "Экспорт успешно завершен!",
+    "title": "Импорт в базу данных",
+    "export_thread_start": "Запуск импорта DXF в базу данных",
+    "export_thread_success": "Импорт успешно завершен",
+    "export_thread_complete": "Импорт успешно завершен!",
     "export_thread_connecting": "Подключение к базе данных...",
-    "export_thread_failed": "Не удалось завершить экспорт",    
-    "progress_dialog_title": "Экспорт",
-    "progress_text": "Экспорт объектов в базу данных{0}",
-    "progress_log_text": "Выполняется экспорт...",
+    "export_thread_failed": "Не удалось завершить импорт",    
+    "progress_dialog_title": "Импорт",
+    "progress_text": "Импорт объектов в базу данных{0}",
+    "progress_log_text": "Выполняется импорт...",
     "success_title": "Успех",
     "error_title": "Ошибка",
-    "export_error": "Не удалось выполнить экспорт: {0}",
+    "export_error": "Не удалось выполнить импорт: {0}",
     "warning_title": "Предупреждение",
-    "select_file_warning": "Выберите файл для экспорта",
-    "export_progress": "Экспорт файла в базу данных",
-    "export_title": "Экспорт DXF",
-    "export_button": "Экспортировать",
+    "select_file_warning": "Выберите файл для импорта",
+    "export_progress": "Импорт файла в базу данных",
+    "export_title": "Импорт DXF",
+    "export_button": "Импортировать",
     
     # Группы и метки
     "dxf_objects_group": "DXF Объекты",
     "db_connection_group": "Подключение к базе данных",
     "file_info_group": "Информация о файле",
-    "export_settings_group": "Настройки экспорта",
-    "mapping_info": "При экспорте будет выполнено сопоставление геометрии и примечаний (notes) объектов слоев. Файл будет перезаписан в базе данных.",
+    "export_settings_group": "Настройки импорта",
+    "mapping_info": "При импорте будет выполнено сопоставление геометрии и примечаний (notes) объектов слоев. Файл будет перезаписан в базе данных.",
     
     # Режимы маппирования слоев
     "mapping_mode_label": "Режим маппирования слоев:",
@@ -214,9 +215,9 @@ EXPORT_DIALOG = {
     "desc_both": "Сравнение будет производиться как по геометрии, так и по примечаниям. Наиболее строгий вариант сопоставления.",
     
     # Создание временного файла
-    "creating_temp_file": "Создание временного файла для экспорта...",
-    "temp_file_created": "Временный файл создан, выполняется экспорт...",
-    "temp_file_error": "Не удалось создать временный DXF файл для экспорта",
+    "creating_temp_file": "Создание временного файла для импорта...",
+    "temp_file_created": "Временный файл создан, выполняется импорт...",
+    "temp_file_error": "Не удалось создать временный DXF файл для импорта",
     
     # Схемы
     "layer_schema_group": "Настройки схемы для слоев",
@@ -226,7 +227,7 @@ EXPORT_DIALOG = {
     "select_existing_schema": "Выбрать существующую схему",
     "create_new_schema": "Создать новую схему",
     "new_schema_name": "Имя новой схемы:",
-    "export_layers_only": "Экспортировать только слои (без сохранения файла)",    
+    "export_layers_only": "Импортировать только слои (без сохранения файла)",    
     "schema_not_selected": "Схема для слоев не выбрана",
     "schema_creation_failed": "Не удалось создать схему",
     "invalid_schema_name": "Недопустимое имя схемы",
@@ -254,7 +255,7 @@ EXPORT_DIALOG = {
     "password_label": "Пароль:",
     "new_file_placeholder": "Введите имя файла",
     "layer_select_label": "Выберите слой:",
-    "ok_button": "Экспорт",
+    "ok_button": "Импорт",
     "cancel_button": "Отмена",
     
     # Режимы импорта
@@ -423,12 +424,12 @@ DRAW = {
 # Строки для пользовательского интерфейса
 UI = {
     "main_dialog_title": "DXF-PostGIS Конвертер",
-    "tab_dxf_to_sql": "DXF → SQL",
-    "tab_sql_to_dxf": "SQL → DXF",
+    "tab_dxf_to_sql": "DXF → DB",
+    "tab_sql_to_dxf": "DB → DXF",
     "tab_settings": "Настройки",
-    "open_dxf_button": "Открыть DXF",
+    "open_dxf_button": "Открыть DXF-файл",
     "select_area_button": "Выбрать область",
-    "export_to_db_button": "Экспорт в БД",
+    "export_to_db_button": "Импорт в БД",
     "export_to_file_button": "Экспорт в файл",
     "file_not_selected": "Файл не выбран :(",
     "type_shape": "Тип фигуры",

@@ -1,8 +1,7 @@
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, DateTime, Text, Table, MetaData, LargeBinary
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text, LargeBinary
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship
 from geoalchemy2 import Geometry
-from .database import Base
+from .base import Base
 from ..logger.logger import Logger
 
 

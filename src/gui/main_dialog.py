@@ -1,5 +1,6 @@
 import os
 import tempfile
+from typing import Optional, List, Dict, Any
 
 from qgis.PyQt import uic, QtWidgets
 from qgis.PyQt.QtWidgets import QMessageBox, QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView, QFileDialog, QProgressDialog
@@ -23,22 +24,29 @@ from ..importers.dxf_importer import DXFImporter
 from ..exporters.database_exporter import DatabaseExporter
 from ..exporters.dxf_exporter import DXFEntityExporter
 
+# Constants
+TEMP_DIR_PREFIX = "dxf_preview_"
+DXF_FILTER = "DXF files (*.dxf);;All files (*.*)"
+LOGGING_ENABLED_KEY = "DXFPostGISConverter/EnableLogging"
+LAST_CONNECTION_FILE_SCHEMA_KEY = "DXFPostGIS/lastConnection/fileSchema"
+
 class PreviewGeneratorThread(QThread):
     """
-    Поток для генерации превью DXF файла.
-    Работает отдельно от основного потока интерфейса, чтобы не блокировать UI.
+    Thread for generating DXF file preview.
+    Runs separately from the main UI thread to avoid blocking the interface.
     """
-    finished = pyqtSignal(bool, str, str)  # Сигнал: успех/неуспех, сообщение, путь к превью
-    progress_update = pyqtSignal(int, str)  # Сигнал обновления прогресса: процент, сообщение
-    
-    def __init__(self, dxf_handler, file_content, filename, plugin_root_dir):
+    finished = pyqtSignal(bool, str, str)  # Signal: success/failure, message, preview path
+    progress_update = pyqtSignal(int, str)  # Progress update signal: percentage, message
+
+    def __init__(self, dxf_handler: Any, file_content: bytes, filename: str, plugin_root_dir: str):
         """
-        Инициализация потока генерации превью.
-        
-        :param dxf_handler: Обработчик DXF-файлов
-        :param file_content: Содержимое DXF-файла в бинарном формате
-        :param filename: Имя DXF-файла
-        :param plugin_root_dir: Корневая директория плагина
+        Initialize the preview generation thread.
+
+        Args:
+            dxf_handler: DXF file handler
+            file_content: DXF file content in binary format
+            filename: DXF file name
+            plugin_root_dir: Plugin root directory
         """
         super().__init__()
         self.dxf_handler = dxf_handler
@@ -46,62 +54,63 @@ class PreviewGeneratorThread(QThread):
         self.filename = filename
         self.plugin_root_dir = plugin_root_dir
         self.lm = LocalizationManager.instance()
-        self.temp_file_path = None
+        self.temp_file_path: Optional[str] = None
 
-    def run(self):
+    def run(self) -> None:
         """
-        Основной метод потока. Выполняет генерацию превью и отправляет сигнал о результате.
+        Main thread method. Performs preview generation and emits result signals.
         """
         try:
             Logger.log_message(self.lm.get_string("MAIN_DIALOG", "preview_generation_started", self.filename))
-            
+
             self.progress_update.emit(0, self.lm.get_string("MAIN_DIALOG", "creating_temp_file"))
-            
-            # Создаем временный файл
+
+            # Create temporary file
             temp_dir = tempfile.gettempdir()
-            self.temp_file_path = os.path.join(temp_dir, self.filename)
-            
-            # Записываем содержимое файла во временный файл
+            self.temp_file_path = os.path.join(temp_dir, TEMP_DIR_PREFIX + self.filename)
+
+            # Write file content to temporary file
             with open(self.temp_file_path, 'wb') as f:
                 f.write(self.file_content)
-            
+
             self.progress_update.emit(30, self.lm.get_string("MAIN_DIALOG", "reading_dxf_file"))
-            
-            # Создаем SVG превью
+
+            # Create SVG preview
             doc = self.dxf_handler.simle_read_dxf_file(self.temp_file_path)
-            
+
             self.progress_update.emit(60, self.lm.get_string("MAIN_DIALOG", "generating_svg"))
-            
+
             preview_path = self.dxf_handler.save_svg_preview(doc, doc.modelspace(), self.filename)
-            
+
             self.progress_update.emit(90, self.lm.get_string("MAIN_DIALOG", "cleaning_temp_files"))
-            
-            # Удаляем временный файл
+
+            # Remove temporary file
             try:
-                os.remove(self.temp_file_path)
-                self.temp_file_path = None
+                if self.temp_file_path and os.path.exists(self.temp_file_path):
+                    os.remove(self.temp_file_path)
+                    self.temp_file_path = None
             except Exception as e:
-                Logger.log_warning(f"Не удалось удалить временный файл {self.temp_file_path}: {str(e)}")
-            
+                Logger.log_warning(f"Failed to delete temporary file {self.temp_file_path}: {str(e)}")
+
             if preview_path:
                 Logger.log_message(self.lm.get_string("MAIN_DIALOG", "preview_generation_success", preview_path))
                 self.finished.emit(True, self.lm.get_string("MAIN_DIALOG", "preview_generation_complete"), preview_path)
             else:
-                Logger.log_error("Генерация превью не удалась")
+                Logger.log_error("Preview generation failed")
                 self.finished.emit(False, self.lm.get_string("MAIN_DIALOG", "preview_generation_error"), "")
-                
+
         except Exception as e:
-            Logger.log_error(f"Ошибка при генерации превью: {str(e)}")
+            Logger.log_error(f"Error generating preview: {str(e)}")
             self.finished.emit(False, str(e), "")
-            
-    def cleanup(self):
-        """Очистка временных файлов при прерывании работы потока"""
+
+    def cleanup(self) -> None:
+        """Clean up temporary files when thread is interrupted"""
         if self.temp_file_path and os.path.exists(self.temp_file_path):
             try:
                 os.remove(self.temp_file_path)
-                Logger.log_message(f"Временный файл удален при очистке: {self.temp_file_path}")
+                Logger.log_message(f"Temporary file deleted during cleanup: {self.temp_file_path}")
             except Exception as e:
-                Logger.log_error(f"Ошибка при удалении временного файла при очистке: {str(e)}")
+                Logger.log_error(f"Error deleting temporary file during cleanup: {str(e)}")
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'main_dialog.ui'))
@@ -109,65 +118,59 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(
 
 class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
     """
-    Диалоговое окно для плагина конвертации DXF в БД.
+    Main dialog for the DXF to PostGIS converter plugin.
+    Provides interface for importing DXF files to database and exporting from database.
     """
 
-    def __init__(self, iface, parent=None):
-        """Конструктор."""
+    def __init__(self, iface: Any, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        """
+        Initialize the main dialog.
+
+        Args:
+            iface: QGIS interface instance
+            parent: Parent widget
+        """
         super(ConverterDialog, self).__init__(parent)
         self.setupUi(self)
-        self.iface = iface
-        self.lm = LocalizationManager.instance()  # Инициализация менеджера локализации
-        self.setupUiText()
 
+        # Core components
+        self.iface = iface
+        self.lm = LocalizationManager.instance()
+        self.settings = QgsSettings()
+        self.connections_manager = ConnectionsManager()
+
+        # UI handlers and managers
         self.dxf_tree_widget_handler = TreeWidgetHandler(self.dxf_tree_widget)
         self.dxf_handler = DXFHandler(self.type_shape, self.type_selection, self.dxf_tree_widget_handler)
         self.db_tree_widget_handler = TreeWidgetHandler(self.db_structure_treewidget)
-        self.preview_cache = {}  # Кеш предпросмотров
+        self.qgis_sync_manager = QGISLayerSyncManager(self.dxf_tree_widget_handler)
+
+        # Preview and caching
+        self.preview_cache: Dict[str, Any] = {}
         self.preview_factory = PreviewWidgetFactory()
         self.plugin_root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        self.worker = None
-        self.connections_manager = ConnectionsManager()
-        
-        # Инициализация менеджера синхронизации слоев QGIS
-        self.qgis_sync_manager = QGISLayerSyncManager(self.dxf_tree_widget_handler)
-        
-        # Подключаем сигналы для синхронизации
-        self.dxf_tree_widget_handler.tree_structure_created.connect(
-            self.qgis_sync_manager.create_qgis_group_structure
-        )
-        self.dxf_tree_widget_handler.layer_check_changed.connect(
-            self.qgis_sync_manager.sync_layer_from_plugin_to_qgis
-        )
-        # нажатие по кнопке import_to_db_button
-        self.export_to_db_button.clicked.connect(self.import_to_db_button_click)
-        
-        # нажатие по кнопке export_to_file_button
-        self.export_to_file_button.clicked.connect(self.export_to_file_button_click)
-        
-        # нажатие по кнопке применения фильтра
-        self.apply_filter_button.clicked.connect(self.apply_layer_filter)
-        
-        # нажатие по кнопке сброса фильтра
-        self.clear_filter_button.clicked.connect(self.clear_layer_filter)
-        
-        # нажатие по другой вкладке tabWidget
-        self.tabWidget.currentChanged.connect(self.handle_tab_change)
 
-        # Инициализация состояния чекбокса логирования
-        self.settings = QgsSettings()
-        enable_logging = self.settings.value("DXFPostGISConverter/EnableLogging", False, type=bool)
-        self.enable_logging_checkbox.setChecked(enable_logging)
-        self.enable_logging_checkbox.stateChanged.connect(self.toggle_logging)
-        
-        # Обновляем логгер с текущей настройкой
-        Logger.set_logging_enabled(enable_logging)
+        # Worker and thread management
+        self.worker: Optional[Any] = None
+        self.preview_generator: Optional[PreviewGeneratorThread] = None
+        self.progress_dialog: Optional[QProgressDialog] = None
+        self.timer: Optional[QTimer] = None
 
-        # --- New: Инициализация переключателя языка ---
-        self.language_combo.setCurrentText(self.lm.current_language)
-        self.language_combo.currentTextChanged.connect(self.change_language)
+        # UI state
+        self.layer_filter_list_expanded = False
+        self.original_layer_filter_list_geom = self.layer_filter_list.geometry()
+        self.original_layer_filter_list_parent = self.layer_filter_list.parentWidget()
 
-        # Добавление кнопки информации и настройка ее стилей
+        # Setup UI
+        self._setup_ui()
+        self._setup_connections()
+        self._setup_initial_state()
+
+    def _setup_ui(self) -> None:
+        """Setup user interface components."""
+        self.setupUiText()
+
+        # Help button
         self.info_button = QPushButton("?", self)
         self.info_button.setFixedSize(25, 25)
         self.info_button.setStyleSheet("""
@@ -181,15 +184,42 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                 background-color: #0056b3;
             }
         """)
-        # Перемещаем кнопку в правый верхний угол
         self.info_button.move(self.width() - 35, 10)
         self.info_button.clicked.connect(self.show_help)
 
-        # Установка event filter для layer_filter_list
+        # Event filters
         self.layer_filter_list.installEventFilter(self)
-        self.original_layer_filter_list_geom = self.layer_filter_list.geometry()
-        self.original_layer_filter_list_parent = self.layer_filter_list.parentWidget()
-        self.layer_filter_list_expanded = False
+
+    def _setup_connections(self) -> None:
+        """Setup signal-slot connections."""
+        # Synchronization signals
+        self.dxf_tree_widget_handler.tree_structure_created.connect(
+            self.qgis_sync_manager.create_qgis_group_structure
+        )
+        self.dxf_tree_widget_handler.layer_check_changed.connect(
+            self.qgis_sync_manager.sync_layer_from_plugin_to_qgis
+        )
+
+        # Button connections
+        self.export_to_db_button.clicked.connect(self.import_to_db_button_click)
+        self.export_to_file_button.clicked.connect(self.export_to_file_button_click)
+        self.apply_filter_button.clicked.connect(self.apply_layer_filter)
+        self.clear_filter_button.clicked.connect(self.clear_layer_filter)
+        self.tabWidget.currentChanged.connect(self.handle_tab_change)
+
+        # Settings connections
+        self.enable_logging_checkbox.stateChanged.connect(self.toggle_logging)
+        self.language_combo.currentTextChanged.connect(self.change_language)
+
+    def _setup_initial_state(self) -> None:
+        """Setup initial state of the dialog."""
+        # Logging checkbox
+        enable_logging = self.settings.value(LOGGING_ENABLED_KEY, False, type=bool)
+        self.enable_logging_checkbox.setChecked(enable_logging)
+        Logger.set_logging_enabled(enable_logging)
+
+        # Language combo
+        self.language_combo.setCurrentText(self.lm.current_language)
 
     def eventFilter(self, source, event):
         if source == self.layer_filter_list:

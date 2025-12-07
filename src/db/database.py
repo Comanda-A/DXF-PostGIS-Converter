@@ -1,35 +1,36 @@
 import os
-from typing import List, Optional
-from sqlalchemy.orm import declarative_base
+from typing import List, Optional, Dict, Any, Tuple
+from sqlalchemy.orm import declarative_base, Session
+from sqlalchemy import create_engine, text, inspect, MetaData, Table
+from sqlalchemy.orm import sessionmaker, close_all_sessions
+from datetime import datetime, timezone
 
 from .converter_dxf_to_postgis import convert_entity_to_postgis
-
-Base = declarative_base()
-
-from sqlalchemy import create_engine, text, inspect, MetaData, Table
-from sqlalchemy.orm import sessionmaker, Session, close_all_sessions
-from ..logger.logger import Logger
-from datetime import datetime, timezone
 from . import models
+from .base import Base
+from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler
 from ..gui.column_mapping_dialog import ColumnMappingDialog
 
-# Шаблон URL для подключения к базе данных
-PATTERN_DATABASE_URL = 'postgresql://{username}:{password}@{address}:{port}/{dbname}'
+# Constants
+DEFAULT_FILE_SCHEMA = 'file_schema'
+DEFAULT_LAYER_SCHEMA = 'layer_schema'
+DATABASE_URL_PATTERN = 'postgresql://{username}:{password}@{address}:{port}/{dbname}'
+CLIENT_ENCODING = 'WIN1251'
 
-# Глобальные переменные для хранения текущего движка, сессии и кэша файлов
-engine = None
-SessionLocal = None
+# Global database engine and session factory
+_engine = None
+_SessionLocal = None
 
 def ensure_postgis_extension(session: Session) -> bool:
     """
-    Проверяет наличие расширения PostGIS в базе данных и создает его при необходимости
-    
+    Checks for PostGIS extension in the database and creates it if necessary.
+
     Args:
-        session: Сессия базы данных
-        
+        session: Database session
+
     Returns:
-        True если расширение доступно, иначе False
+        True if extension is available, False otherwise
     """
     try:
         with session.bind.connect() as connection:
@@ -228,40 +229,52 @@ def _find_in_schemas(username, password, host, port, dbname, search_function, fi
 # Основные функции работы с базой данных
 # ----------------------
 
-def _connect_to_database(username, password, address, port, dbname) -> Session:
-    """Создание подключения к базе данных"""
+def _connect_to_database(username: str, password: str, host: str, port: str, dbname: str) -> Optional[Session]:
+    """
+    Creates a database connection and returns a session.
+
+    Args:
+        username: Database username
+        password: Database password
+        host: Database host address
+        port: Database port
+        dbname: Database name
+
+    Returns:
+        SQLAlchemy session or None if connection failed
+    """
+    global _engine, _SessionLocal
+
     try:
-        global engine, SessionLocal
-        # Закрываем текущие сессии, если они есть
-        if 'SessionLocal' in globals() and SessionLocal is not None:
+        # Close existing sessions if any
+        if _SessionLocal is not None:
             close_all_sessions()
 
-        # Формируем URL базы данных
-        db_url = PATTERN_DATABASE_URL.format(
-            username=username, 
+        # Create database URL
+        db_url = DATABASE_URL_PATTERN.format(
+            username=username,
             password=password,
-            address=address, 
-            port=port, 
+            address=host,
+            port=port,
             dbname=dbname
         )
 
-        # Создаем новый движок и сессию с правильными настройками кодировки
-        engine = create_engine(
+        # Create new engine and session with proper encoding settings
+        _engine = create_engine(
             db_url,
             connect_args={
-                'client_encoding': 'WIN1251',  # более компактное хранение кириллицы
+                'client_encoding': CLIENT_ENCODING,  # More compact Cyrillic storage
             }
         )
-        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
 
-        # Логируем успешное подключение
-        Logger.log_message(f"Подключено к базе данных PostgreSQL '{dbname}' по адресу {address}:{port} с пользователем '{username}'.")
+        Logger.log_message(f"Connected to PostgreSQL database '{dbname}' at {host}:{port} as user '{username}'.")
 
-        session = SessionLocal()
-        
+        session = _SessionLocal()
         return session
+
     except Exception as e:
-        Logger.log_error(f"Ошибка подключения к базе данных PostgreSQL '{dbname}' по адресу {address}:{port} с пользователем '{username}': {str(e)}")
+        Logger.log_error(f"Database connection error for '{dbname}' at {host}:{port} as '{username}': {str(e)}")
         return None
 
 def get_schemas(username, password, host, port, dbname) -> List[str]:
@@ -363,7 +376,7 @@ def create_file_record(session: Session, filename: str, file_content: bytes, fil
         file_class = models.create_file_table(file_schema)
         
         # Создаем таблицу, если она не существует
-        file_class.__table__.create(engine, checkfirst=True)
+        file_class.__table__.create(_engine, checkfirst=True)
         
         # Проверяем, существует ли файл с таким именем
         existing_file = session.query(file_class).filter(file_class.filename == filename).first()
@@ -409,14 +422,14 @@ def create_layer_table_if_not_exists(layer_name: str, layer_schema: str = 'layer
         table_name = layer_name.replace(' ', '_').replace('-', '_')
         
         # Проверяем существование таблицы
-        inspector = inspect(engine)
+        inspector = inspect(_engine)
         table_exists = inspector.has_table(table_name, schema=layer_schema)
-        
+
         if not table_exists:
             # Создаем класс таблицы
             layer_class = models.create_layer_table(layer_name, layer_schema, file_schema)
             # Создаем таблицу в базе данных
-            layer_class.__table__.create(engine, checkfirst=True)
+            layer_class.__table__.create(_engine, checkfirst=True)
             Logger.log_message(f"Создана таблица для слоя {layer_name} в схеме {layer_schema}")
             return layer_class
         else:

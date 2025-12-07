@@ -9,7 +9,7 @@ from functools import partial
 
 from .preview_components import PreviewDialog, PreviewWidgetFactory
 from .qgis_layer_sync_manager import QGISLayerSyncManager
-from ..db.database import get_all_dxf_files, delete_dxf_file, get_dxf_file_by_id
+from ..db.database import get_all_dxf_files, delete_dxf_file
 from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler, get_selected_file
 from ..tree_widget_handler import TreeWidgetHandler
@@ -19,6 +19,9 @@ from ..workers.dxf_worker import DXFWorker
 from ..workers.long_task_worker import LongTaskWorker
 from ..db.connections_manager import ConnectionsManager
 from ..localization.localization_manager import LocalizationManager
+from ..importers.dxf_importer import DXFImporter
+from ..exporters.database_exporter import DatabaseExporter
+from ..exporters.dxf_exporter import DXFEntityExporter
 
 class PreviewGeneratorThread(QThread):
     """
@@ -136,8 +139,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.dxf_tree_widget_handler.layer_check_changed.connect(
             self.qgis_sync_manager.sync_layer_from_plugin_to_qgis
         )
-        # нажатие по кнопке export_to_db_button
-        self.export_to_db_button.clicked.connect(self.export_to_db_button_click)
+        # нажатие по кнопке import_to_db_button
+        self.export_to_db_button.clicked.connect(self.import_to_db_button_click)
         
         # нажатие по кнопке export_to_file_button
         self.export_to_file_button.clicked.connect(self.export_to_file_button_click)
@@ -355,29 +358,28 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             self.long_task_worker.deleteLater()
             self.long_task_worker = None
 
-    def export_to_db_button_click(self):
+    def import_to_db_button_click(self):
         from .export_dialog import ExportDialog
 
         if self.dxf_tree_widget_handler.get_selected_file_name() is None:
-            QMessageBox.warning(None, self.lm.get_string("COMMON", "error"), 
+            QMessageBox.warning(None, self.lm.get_string("COMMON", "error"),
                                    self.lm.get_string("MAIN_DIALOG", "no_file_selected"))
             return
 
-
         has_selection = len(self.dxf_handler.selected_entities[self.dxf_tree_widget_handler.get_selected_file_name()]) != self.dxf_handler.len_entities_file[self.dxf_tree_widget_handler.get_selected_file_name()]
-        
+
         if has_selection:
             msg_box = QMessageBox()
             msg_box.setIcon(QMessageBox.Question)
-            msg_box.setWindowTitle(self.lm.get_string("MAIN_DIALOG", "export_to_db"))
-            msg_box.setText(self.lm.get_string("MAIN_DIALOG", "export_selected_question"))
+            msg_box.setWindowTitle(self.lm.get_string("MAIN_DIALOG", "import_to_db"))
+            msg_box.setText(self.lm.get_string("MAIN_DIALOG", "import_selected_question"))
             msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
-            
+
             result = msg_box.exec_()
-            
+
             if result == QMessageBox.Cancel or result == QMessageBox.No:
                 return
-        
+
         dlg = ExportDialog(self.dxf_tree_widget_handler, self.dxf_handler)
         dlg.show()
         result = dlg.exec_()
@@ -396,53 +398,51 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         """
         Экспорт выбранных сущностей в DXF файл
         """
-        from ..dxf.dxf_exporter import DXFExporter
-        
         if self.dxf_tree_widget_handler.get_selected_file_name() is None:
-            QMessageBox.warning(None, self.lm.get_string("COMMON", "error"), 
+            QMessageBox.warning(None, self.lm.get_string("COMMON", "error"),
                                self.lm.get_string("MAIN_DIALOG", "no_file_selected"))
             return
 
         file_name = self.dxf_tree_widget_handler.get_selected_file_name()
-        
+
         # Проверяем есть ли выбранные сущности
         if file_name not in self.dxf_handler.selected_entities or not self.dxf_handler.selected_entities[file_name]:
-            QMessageBox.warning(None, self.lm.get_string("COMMON", "warning"), 
+            QMessageBox.warning(None, self.lm.get_string("COMMON", "warning"),
                                self.lm.get_string("MAIN_DIALOG", "no_entities_selected"))
             return
 
         # Открываем диалог сохранения файла
         output_file, _ = QFileDialog.getSaveFileName(
-            self, 
-            self.lm.get_string("MAIN_DIALOG", "save_dxf_file"), 
+            self,
+            self.lm.get_string("MAIN_DIALOG", "save_dxf_file"),
             f"{os.path.splitext(file_name)[0]}_selected.dxf",
             "DXF files (*.dxf);;All files (*.*)"
         )
-        
+
         if not output_file:
             return
 
         try:
             # Создаем экспортер и экспортируем
-            exporter = DXFExporter(self.dxf_handler)
+            exporter = DXFEntityExporter(self.dxf_handler)
             success = exporter.export_selected_entities(file_name, output_file)
-            
+
             if success:
                 QMessageBox.information(
-                    self, 
+                    self,
                     self.lm.get_string("COMMON", "success"),
                     self.lm.get_string("MAIN_DIALOG", "export_success", output_file)
                 )
             else:
                 QMessageBox.critical(
-                    self, 
+                    self,
                     self.lm.get_string("COMMON", "error"),
                     self.lm.get_string("MAIN_DIALOG", "export_failed")
                 )
         except Exception as e:
             Logger.log_error(f"Ошибка при экспорте в файл: {str(e)}")
             QMessageBox.critical(
-                self, 
+                self,
                 self.lm.get_string("COMMON", "error"),
                 self.lm.get_string("MAIN_DIALOG", "export_error", str(e))
             )
@@ -679,7 +679,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
                 # Привязываем обработчики событий
                 import_button.clicked.connect(
-                    partial(self.import_from_db_button_click, conn_display_name, uri.database(), uri.host(), uri.port(), file['filename'], file['id']))
+                    partial(self.export_from_db_button_click, conn_display_name, uri.database(), uri.host(), uri.port(), file['filename'], file['id']))
 
                 delete_button.clicked.connect(
                     partial(self.delete_file_from_db, conn_display_name, uri.database(), uri.host(), uri.port(), file['id'], file['filename']))
@@ -778,36 +778,43 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             QMessageBox.warning(None, self.lm.get_string("COMMON", "error"), 
                                self.lm.get_string("MAIN_DIALOG", "error_displaying_connection", conn_name, str(e)))
 
-    def import_from_db_button_click(self, conn_display_name, dbname, host, port, file_name, file_id):
+    def export_from_db_button_click(self, conn_display_name, dbname, host, port, file_name, file_id):
         """
-        Обработка нажатия кнопки импорта из базы данных
+        Обработка нажатия кнопки экспорта из базы данных
         """
-        # Показываем диалог выбора места импорта
+        # Показываем диалог выбора места экспорта
         destination_dialog = ImportDestinationDialog(self)
         if destination_dialog.exec_() == QtWidgets.QDialog.Accepted:
             destination = destination_dialog.get_selected_destination()
-            
-            # Получаем подключение и файл из базы данных
+
+            # Получаем подключение из ConnectionsManager
             conn = self.connections_manager.get_connection(conn_display_name)
             if not conn:
-                QMessageBox.warning(None, self.lm.get_string("COMMON", "error"), 
+                QMessageBox.warning(None, self.lm.get_string("COMMON", "error"),
                                    self.lm.get_string("MAIN_DIALOG", "saved_credentials_error"))
                 return
-                
-            file = get_dxf_file_by_id(conn['username'], conn['password'], host, port, dbname, file_id)
-            if not file:
-                QMessageBox.critical(None, self.lm.get_string("COMMON", "error"),
-                                   self.lm.get_string("MAIN_DIALOG", "file_not_found_error", file_id))
-                return
-                
-            file_content = file.file_content
-            
+
+            # Используем DatabaseExporter для экспорта
+            exporter = DatabaseExporter()
+
             if destination == "qgis":
-                # Импорт в QGIS через саб-плагин
-                self._import_to_qgis(file_content, file_name)
+                # Экспорт в QGIS (создает временный файл)
+                temp_file_path = exporter.export_from_database(
+                    conn['username'], conn['password'], host, port, dbname,
+                    file_id, destination="qgis", file_name=file_name
+                )
+                if temp_file_path:
+                    # Импорт в QGIS через саб-плагин
+                    self._import_to_qgis_from_file(temp_file_path, file_name)
             else:
-                # Сохранение в файл на ПК
-                self._save_to_file(file_content, file_name)
+                # Экспорт в файл на ПК
+                result_path = exporter.export_from_database(
+                    conn['username'], conn['password'], host, port, dbname,
+                    file_id, destination="file", file_name=file_name
+                )
+                if result_path:
+                    QMessageBox.information(None, self.lm.get_string("COMMON", "success"),
+                                           self.lm.get_string("MAIN_DIALOG", "file_saved_successfully", result_path))
 
     def show_full_preview(self, svg_path):
         """Показывает диалог предпросмотра в полном размере"""
@@ -952,6 +959,40 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             self.preview_generator.cleanup()  # Очищаем временные файлы если они остались
             self.preview_generator = None
 
+    def _import_to_qgis_from_file(self, file_path, file_name):
+        """
+        Импорт DXF файла в QGIS через саб-плагин из существующего файла
+
+        Args:
+            file_path: Путь к DXF файлу
+            file_name: Имя файла для отображения
+        """
+        try:
+            # Импортируем саб-плагин AnotherDXF2Shape
+            from ..plugins.dxf_tools.uiADXF2Shape import uiADXF2Shape
+
+            # Создаем экземпляр саб-плагина (UI будет невидимым)
+            dxf_plugin = uiADXF2Shape(self)
+
+            # Вызываем функцию программного импорта
+            success = dxf_plugin.import_dxf_programmatically(file_path)
+
+            if success:
+                QMessageBox.information(None, self.lm.get_string("COMMON", "success"),
+                                       self.lm.get_string("MAIN_DIALOG", "file_imported_to_qgis", file_name))
+
+            # Удаляем временный файл если он существует
+            try:
+                if os.path.exists(file_path):
+                    os.unlink(file_path)
+            except Exception as e:
+                Logger.log_warning(f"Не удалось удалить временный файл {file_path}: {str(e)}")
+
+        except Exception as e:
+            Logger.log_message(self.lm.get_string("MAIN_DIALOG", "error_importing_to_qgis", file_name, str(e)))
+            QMessageBox.critical(None, self.lm.get_string("COMMON", "error"),
+                               self.lm.get_string("MAIN_DIALOG", "error_importing_to_qgis", file_name, str(e)))
+
     def _import_to_qgis(self, file_content, file_name):
         """
         Импорт DXF файла в QGIS через саб-плагин
@@ -960,30 +1001,14 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             # Создаем временный файл с содержимым DXF и правильным именем
             temp_dir = tempfile.gettempdir()
             temp_file_path = os.path.join(temp_dir, file_name)
-            
+
             # Записываем содержимое в файл с правильным именем
             with open(temp_file_path, 'wb') as f:
                 f.write(file_content)
-            
-            # Импортируем саб-плагин AnotherDXF2Shape
-            from ..plugins.dxf_tools.uiADXF2Shape import uiADXF2Shape
-            
-            # Создаем экземпляр саб-плагина (UI будет невидимым)
-            dxf_plugin = uiADXF2Shape(self)
-            
-            # Вызываем функцию программного импорта
-            success = dxf_plugin.import_dxf_programmatically(temp_file_path)
 
-            if success:
-                QMessageBox.information(None, self.lm.get_string("COMMON", "success"),
-                                       self.lm.get_string("MAIN_DIALOG", "file_imported_to_qgis", file_name))
-            
-            # Удаляем временный файл
-            try:
-                os.unlink(temp_file_path)
-            except Exception as e:
-                Logger.log_warning(f"Не удалось удалить временный файл {temp_file_path}: {str(e)}")
-            
+            # Используем новый метод для импорта
+            self._import_to_qgis_from_file(temp_file_path, file_name)
+
         except Exception as e:
             Logger.log_message(self.lm.get_string("MAIN_DIALOG", "error_importing_to_qgis", file_name, str(e)))
             QMessageBox.critical(None, self.lm.get_string("COMMON", "error"),

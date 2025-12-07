@@ -1,3 +1,4 @@
+import os
 from typing import List, Optional
 from sqlalchemy.orm import declarative_base
 
@@ -12,7 +13,6 @@ from datetime import datetime, timezone
 from . import models
 from ..dxf.dxf_handler import DXFHandler
 from ..gui.column_mapping_dialog import ColumnMappingDialog
-import os
 
 # Шаблон URL для подключения к базе данных
 PATTERN_DATABASE_URL = 'postgresql://{username}:{password}@{address}:{port}/{dbname}'
@@ -133,7 +133,6 @@ def _show_schema_selector_dialog(schemas):
     except Exception as e:
         Logger.log_error(f"Ошибка при показе диалога выбора схемы: {str(e)}")
         return None
-
 
 def _find_in_schemas(username, password, host, port, dbname, search_function, file_schema=None):
     """
@@ -264,7 +263,6 @@ def _connect_to_database(username, password, address, port, dbname) -> Session:
     except Exception as e:
         Logger.log_error(f"Ошибка подключения к базе данных PostgreSQL '{dbname}' по адресу {address}:{port} с пользователем '{username}': {str(e)}")
         return None
-
 
 def get_schemas(username, password, host, port, dbname) -> List[str]:
     """
@@ -428,18 +426,17 @@ def create_layer_table_if_not_exists(layer_name: str, layer_schema: str = 'layer
         Logger.log_error(f"Ошибка при создании таблицы для слоя {layer_name} в схеме {layer_schema}: {str(e)}")
         return None
 
-
 # ----------------------
 # Методы экспорта
 # ----------------------
 
-def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: DXFHandler, file_path: str, 
-                          mapping_mode: str = "always_overwrite", layer_schema: str = 'layer_schema', 
-                          file_schema: str = 'file_schema', export_layers_only: bool = False, 
+def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: DXFHandler, file_path: str,
+                          mapping_mode: str = "always_overwrite", layer_schema: str = 'layer_schema',
+                          file_schema: str = 'file_schema', export_layers_only: bool = False,
                           custom_filename: str = None, column_mapping_configs: dict = None) -> bool:
     """
     Экспортирует DXF файл в базу данных
-    
+
     Args:
         username: Имя пользователя для подключения к БД
         password: Пароль для подключения к БД
@@ -451,29 +448,29 @@ def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: 
         mapping_mode: Режим маппирования слоев (always_overwrite, geometry, notes, both)
         layer_schema: Схема для размещения таблиц слоев
         file_schema: Схема для размещения таблицы файлов
-        export_layers_only: Экспортировать только слои (без сохранения файла)        
+        export_layers_only: Экспортировать только слои (без сохранения файла)
         custom_filename: Пользовательское название файла для сохранения в БД (опционально)
         column_mapping_configs: Словарь настроек сопоставления столбцов для каждого слоя (опционально)
     Returns:
         True в случае успеха, иначе False
     """
-    
+
     try:
         session = _connect_to_database(username, password, host, port, dbname)
         if session is None:
             Logger.log_error("Не удалось подключиться к базе данных")
             return False
-            
+
         # Проверяем и устанавливаем расширение PostGIS при необходимости
         if not ensure_postgis_extension(session):
             Logger.log_error("Расширение PostGIS недоступно. Работа с геометрией невозможна.")
             return False
-            
+
         # Получаем имя файла из пути (оригинальное название)
         original_filename = os.path.basename(file_path)
         # Используем пользовательское название файла или оригинальное
         filename_for_db = custom_filename if custom_filename else original_filename
-        
+
         Logger.log_message(f"Начало экспорта DXF файла в базу данных...")
         Logger.log_message(f"Оригинальное название файла: {original_filename}")
         Logger.log_message(f"Название для БД: {filename_for_db}")
@@ -482,9 +479,9 @@ def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: 
         Logger.log_message(f"Схема для слоев: {layer_schema}")
         Logger.log_message(f"Схема для файлов: {file_schema}")
         Logger.log_message(f"Экспорт только слоев: {export_layers_only}")
-        
+
         file_record = None
-        
+
         # Создаем запись о файле только если не экспортируем только слои
         if not export_layers_only:
             # Читаем содержимое файла
@@ -496,17 +493,17 @@ def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: 
                 return False
           # Получаем слои DXF файла используя оригинальное название
         layers_entities = dxf_handler.get_entities_for_export(original_filename)
-        
+
         # Для каждого слоя создаем таблицу и записываем сущности
         for layer_name, entities in layers_entities.items():
             Logger.log_message(f"Обработка слоя: {layer_name}")
               # Проверяем, нужно ли сопоставление столбцов для этого слоя
             mapping_check = needs_column_mapping(session, layer_name, layer_schema)
             Logger.log_message(f"Проверка сопоставления для слоя {layer_name}: {mapping_check['reason']}")
-            
+
             # Определяем конфигурацию сопоставления для этого слоя
             layer_mapping_config = None
-            
+
             # Сначала проверяем специфичную конфигурацию для слоя
             if column_mapping_configs and layer_name in column_mapping_configs:
                 layer_mapping_config = column_mapping_configs[layer_name]
@@ -519,27 +516,27 @@ def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: 
             elif column_mapping_configs and 'global' in column_mapping_configs:
                 layer_mapping_config = column_mapping_configs['global']
                 Logger.log_message(f"Используется глобальная конфигурация (global) для слоя {layer_name}")
-                
+
             # Создаем таблицу слоя если она не существует (только для стандартного случая)
             if not mapping_check['needs_mapping'] or not layer_mapping_config:
                 layer_class = create_layer_table_if_not_exists(layer_name, layer_schema, file_schema)
                 if not layer_class:
                     Logger.log_error(f"Не удалось создать таблицу для слоя {layer_name}")
                     continue
-            
+
             # Используем file_id только если файл был сохранен
             file_id = file_record.id if file_record else None
-            
+
             # В зависимости от режима маппирования выбираем различную стратегию
             if mapping_mode == "always_overwrite":
-                
+
                 # Если нужно сопоставление столбцов И есть конфигурация сопоставления
                 if mapping_check['needs_mapping'] and layer_mapping_config:
                     Logger.log_message(f"Применяем сопоставление столбцов для слоя {layer_name}")
                     Logger.log_message(f"Конфигурация сопоставления: {layer_mapping_config}")
-                    
+
                     # Используем функцию применения сопоставления столбцов
-                    success = apply_column_mapping(session, layer_name, layer_mapping_config, 
+                    success = apply_column_mapping(session, layer_name, layer_mapping_config,
                                                  entities, layer_schema, file_id)
                     if not success:
                         Logger.log_warning(f"Не удалось применить сопоставление столбцов для слоя {layer_name}, используем стандартный способ")
@@ -560,10 +557,10 @@ def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: 
                         session.query(layer_class).delete()
                     session.commit()
                     Logger.log_message(f"Все существующие записи в слое {layer_name} удалены")
-                    
+
                     # Добавляем новые сущности стандартным способом
                     _add_new_entities(session, entities, layer_class, file_id)
-            
+
             Logger.log_message(f"Экспортирован слой {layer_name} из файла {filename_for_db}")
               # Генерируем превью файла только если файл был сохранен
         if file_record:
@@ -575,7 +572,6 @@ def export_dxf_to_database(username, password, host, port, dbname, dxf_handler: 
         error_filename = custom_filename if custom_filename else os.path.basename(file_path)
         Logger.log_error(f"Ошибка при экспорте DXF файла {error_filename} в базу данных: {str(e)}")
         return False
-
 
 def _create_output_dxf(file_path : str, filename: str, dxf_handler: DXFHandler) -> None:
     """Создание SVG превью DXF файла"""

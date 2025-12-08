@@ -1,14 +1,14 @@
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from ..db.database import export_dxf_to_database
-from .log_capture import LogCapture
+from .dxf_importer import DXFImporter
+from ..exporters.log_capture import LogCapture
 from ..localization.localization_manager import LocalizationManager
 from ..logger.logger import Logger
 
 
-class ExportThread(QThread):
+class ImportThread(QThread):
     """
-    Поток для выполнения экспорта данных в базу данных.
+    Поток для выполнения импорта DXF данных в базу данных.
     Работает отдельно от основного потока интерфейса, чтобы не блокировать UI.    """
     finished = pyqtSignal(bool, str)  # Сигнал: успех/неуспех, сообщение
 
@@ -17,7 +17,7 @@ class ExportThread(QThread):
                  mapping_mode, layer_schema='layer_schema', file_schema='file_schema',
                  export_layers_only=False, custom_filename=None, column_mapping_configs=None):
         """
-        Инициализация потока экспорта.
+        Инициализация потока импорта.
 
         :param username: Имя пользователя для подключения к БД
         :param password: Пароль пользователя
@@ -25,11 +25,11 @@ class ExportThread(QThread):
         :param port: Порт сервера БД
         :param dbname: Имя базы данных
         :param dxf_handler: Обработчик DXF-файлов
-        :param file_path: Путь к DXF-файлу для экспорта
+        :param file_path: Путь к DXF-файлу для импорта
         :param mapping_mode: Режим маппирования слоев (always_overwrite, geometry, notes, both)
         :param layer_schema: Схема для размещения таблиц слоев
         :param file_schema: Схема для размещения таблицы файлов
-        :param export_layers_only: Экспортировать только слои (без сохранения файла)
+        :param export_layers_only: Импортировать только слои (без сохранения файла)
         :param custom_filename: Пользовательское название файла для сохранения в БД
         :param column_mapping_configs: Настройки сопоставления столбцов
         """
@@ -80,15 +80,17 @@ class ExportThread(QThread):
 
     def run(self):
         """
-        Основной метод потока. Выполняет экспорт и отправляет сигнал о результате.        """
+        Основной метод потока. Выполняет импорт и отправляет сигнал о результате.        """
         try:
             # Начинаем захват логов
             self.log_capture.start_capture()
 
-            Logger.log_message(self.lm.get_string("EXPORT_DIALOG", "export_thread_start"))
+            Logger.log_message("Начало импорта DXF файла в базу данных")
             Logger.log_message(f"Режим маппирования: {self.mapping_mode}")
 
-            result = export_dxf_to_database(
+            # Создаем импортер и выполняем импорт
+            importer = DXFImporter()
+            result = importer.import_dxf_to_database(
                 self.username,
                 self.password,
                 self.address,
@@ -108,11 +110,11 @@ class ExportThread(QThread):
             self.log_capture.stop_capture()
 
             if result:
-                Logger.log_message(self.lm.get_string("EXPORT_DIALOG", "export_thread_success"))
-                self.finished.emit(True, self.lm.get_string("EXPORT_DIALOG", "export_thread_complete"))
+                Logger.log_message("Импорт DXF файла успешно завершен")
+                self.finished.emit(True, "Импорт DXF файла в базу данных завершен успешно")
             else:
-                Logger.log_error("Экспорт не был завершен успешно")
-                self.finished.emit(False, self.lm.get_string("EXPORT_DIALOG", "export_thread_failed"))
+                Logger.log_error("Импорт не был завершен успешно")
+                self.finished.emit(False, "Ошибка при импорте DXF файла в базу данных")
         except Exception as e:
             # Останавливаем захват логов в случае ошибки
             self.log_capture.stop_capture()

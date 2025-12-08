@@ -12,6 +12,10 @@ from ..logger.logger import Logger
 from PyQt5.QtCore import pyqtSignal, QObject, Qt
 from ..localization.localization_manager import LocalizationManager
 
+# Import for DXFExporter
+from ezdxf import xref as xref
+from ezdxf.xref import ConflictPolicy
+
 
 def get_selected_file(tree_widget_handler):
     """
@@ -236,3 +240,67 @@ class DXFHandler(QObject):
         """
         doc = ezdxf.readfile(file_name)
         return doc
+
+    def save_dxf_file(self, filename: str, output_path: str) -> bool:
+        """
+        Сохраняет DXF файл по указанному пути.
+
+        Args:
+            filename: Имя файла в обработчике
+            output_path: Путь для сохранения файла
+
+        Returns:
+            True если сохранение успешно, False иначе
+        """
+        try:
+            if filename not in self.dxf:
+                Logger.log_error(f"Файл {filename} не найден в загруженных файлах")
+                return False
+
+            doc = self.dxf[filename]
+            doc.saveas(output_path)
+            Logger.log_message(f"Файл {filename} успешно сохранен по пути: {output_path}")
+            return True
+
+        except Exception as e:
+            Logger.log_error(f"Ошибка при сохранении файла {filename}: {str(e)}")
+            return False
+
+    def save_selected_entities(self, filename: str, output_file: str):
+        """
+        Экспортирует выбранные сущности в новый DXF файл.
+
+        :param filename: Имя исходного DXF файла.
+        :param output_file: Имя выходного DXF файла.
+        """
+        if filename not in self.selected_entities:
+            Logger.log_error(f"Нет выбранных сущностей для файла {filename}.")
+            return False
+
+        selected_entities = self.selected_entities[filename]
+        if not selected_entities:
+            Logger.log_error(f"Нет выбранных сущностей для экспорта из файла {filename}.")
+            return False
+
+        try:
+            # Используем функцию write_block из модуля xref для создания нового документа
+            # с выбранными сущностями. Эта функция также копирует все необходимые ресурсы,
+            # такие как слои, типы линий, стили текста и т.д.
+            new_doc = xref.write_block(selected_entities, origin=(0, 0, 0))
+
+            layout_names = [name for name in self.dxf[filename].layout_names() if name != "Model"]
+            try:
+                for layout_name in layout_names:
+                    xref.load_paperspace(self.dxf[filename].paperspace(layout_name), new_doc, conflict_policy=ConflictPolicy.NUM_PREFIX)
+            except Exception as e:
+                Logger.log_error(f"Ошибка при загрузке layout {layout_name}: {e}")
+            new_doc.delete_layout('Layout1')
+
+            # Сохраняем новый документ
+            new_doc.saveas(output_file)
+            Logger.log_message(f"Выбранные сущности успешно экспортированы в файл {output_file}.")
+            return True
+
+        except Exception as e:
+            Logger.log_error(f"Ошибка при экспорте сущностей: {e}")
+            return False

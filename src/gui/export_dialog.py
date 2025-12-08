@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
                            QComboBox, QTreeWidgetItem, QProgressDialog, QCheckBox, QMessageBox)
 from qgis.core import QgsSettings, Qgis, QgsApplication
 
-from ..exporters.export_thread import ExportThread
+from ..importers.import_thread import ImportThread
 
 from ..localization.localization_manager import LocalizationManager
 
@@ -13,8 +13,7 @@ from ..db.connections_manager import ConnectionsManager
 from ..tree_widget_handler import TreeWidgetHandler
 from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler
-from ..dxf.dxf_exporter import DXFExporter
-from ..db.database import (get_schemas, create_schema)
+from ..db.database import DatabaseManager
 from .info_dialog import InfoDialog
 from PyQt5.QtCore import QTimer
 import os
@@ -730,8 +729,8 @@ class ExportDialog(QDialog):
             
         Logger.log_message(f"Название файла для экспорта: '{final_filename}' (оригинальное: '{selected_file_name}')")
             
-        # Создаем экспортер DXF
-        dxf_exporter = DXFExporter(self.dxf_handler)
+        # Используем DXFHandler напрямую
+        dxf_exporter = self.dxf_handler
         
         # Создаем временный файл
         temp_dir = tempfile.gettempdir()
@@ -739,9 +738,9 @@ class ExportDialog(QDialog):
         
         self.update_progress(10, self.lm.get_string("EXPORT_DIALOG", "creating_temp_file"))
         
-        # Экспортируем выбранные сущности во временный файл
+        # Сохраняем выбранные сущности во временный файл
         # Используем оригинальное название файла для получения сущностей
-        export_success = dxf_exporter.export_selected_entities(selected_file_name, temp_filename)
+        export_success = dxf_exporter.save_selected_entities(selected_file_name, temp_filename)
         
         if not export_success:
             Logger.log_error("Не удалось создать временный DXF файл для экспорта")
@@ -763,8 +762,8 @@ class ExportDialog(QDialog):
         Logger.log_message(f"Схема для слоев: {layer_schema}")
         Logger.log_message(f"Схема для файлов: {file_schema}")
         Logger.log_message(f"Экспорт только слоев: {self.export_layers_only}")
-          # Создаем и запускаем поток экспорта с временным файлом
-        self.export_thread = ExportThread(
+        # Создаем и запускаем поток импорта с временным файлом
+        self.import_thread = ImportThread(
             self.username,
             self.password,
             self.address,
@@ -783,9 +782,9 @@ class ExportDialog(QDialog):
         # Сохраняем имя временного файла для удаления после завершения экспорта
         self.temp_filename = temp_filename
         
-        self.export_thread.progress_update.connect(self.update_progress)
-        self.export_thread.finished.connect(self.on_export_finished)
-        self.export_thread.start()
+        self.import_thread.progress_update.connect(self.update_progress)
+        self.import_thread.finished.connect(self.on_export_finished)
+        self.import_thread.start()
         
         # Показываем прогресс
         self.progress.show()
@@ -876,7 +875,8 @@ class ExportDialog(QDialog):
                 Logger.log_message("Параметры подключения к БД не настроены")
                 return
                 
-            self.available_schemas = get_schemas(self.username, self.password, self.address, self.port, self.dbname)
+            db_manager = DatabaseManager()
+            self.available_schemas = db_manager.get_schemas(self.username, self.password, self.address, self.port, self.dbname)
             Logger.log_message(f"Загружено схем: {len(self.available_schemas)}")
             
             # Если схемы не загрузились (пустой список), не обновляем комбобоксы
@@ -1032,7 +1032,8 @@ class ExportDialog(QDialog):
             return
             
         try:
-            if create_schema(self.username, self.password, self.address, self.port, self.dbname, schema_name):
+            db_manager = DatabaseManager()
+            if db_manager.create_schema(self.username, self.password, self.address, self.port, self.dbname, schema_name):
                 # Обновляем список схем
                 self.load_schemas()
                 
@@ -1063,7 +1064,8 @@ class ExportDialog(QDialog):
             return
             
         try:
-            if create_schema(self.username, self.password, self.address, self.port, self.dbname, schema_name):
+            db_manager = DatabaseManager()
+            if db_manager.create_schema(self.username, self.password, self.address, self.port, self.dbname, schema_name):
                 # Обновляем список схем
                 self.load_schemas()
                 

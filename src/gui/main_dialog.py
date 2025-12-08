@@ -10,7 +10,7 @@ from functools import partial
 
 from .preview_components import PreviewDialog, PreviewWidgetFactory
 from .qgis_layer_sync_manager import QGISLayerSyncManager
-from ..db.database import get_all_dxf_files, delete_dxf_file
+from ..db.database import DatabaseManager
 from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler, get_selected_file
 from ..tree_widget_handler import TreeWidgetHandler
@@ -21,8 +21,7 @@ from ..workers.long_task_worker import LongTaskWorker
 from ..db.connections_manager import ConnectionsManager
 from ..localization.localization_manager import LocalizationManager
 from ..importers.dxf_importer import DXFImporter
-from ..exporters.database_exporter import DatabaseExporter
-from ..exporters.dxf_exporter import DXFEntityExporter
+from ..exporters.dxf_exporter import DXFExporter
 
 # Constants
 TEMP_DIR_PREFIX = "dxf_preview_"
@@ -454,7 +453,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
 
         try:
             # Создаем экспортер и экспортируем
-            exporter = DXFEntityExporter(self.dxf_handler)
+            exporter = DXFExporter(self.dxf_handler)
             success = exporter.export_selected_entities(file_name, output_file)
 
             if success:
@@ -630,8 +629,9 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             conn_item.takeChildren()
             
             # Тестируем подключение и получаем файлы
-            files_result = get_all_dxf_files(username, password, uri.host(),
-                                            uri.port(), uri.database())
+            db_manager = DatabaseManager()
+            files_result = db_manager.get_all_dxf_files(username, password, uri.host(),
+                                                       uri.port(), uri.database())
             
             # Если get_all_dxf_files возвращает словарь, извлекаем список файлов
             if isinstance(files_result, dict):
@@ -757,7 +757,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             self.preview_factory.remove_from_cache(preview_path)
             if os.path.exists(preview_path):
                 os.remove(preview_path)
-            delete_dxf_file(saved_conn['username'], saved_conn['password'], host, port, database, file_id)
+            db_manager = DatabaseManager()
+            db_manager.delete_dxf_file(saved_conn['username'], saved_conn['password'], host, port, database, file_id)
             self.refresh_db_structure_treewidget()
             
 
@@ -824,8 +825,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                                    self.lm.get_string("MAIN_DIALOG", "saved_credentials_error"))
                 return
 
-            # Используем DatabaseExporter для экспорта
-            exporter = DatabaseExporter()
+            # Используем DXFExporter для экспорта
+            exporter = DXFExporter()
 
             if destination == "qgis":
                 # Экспорт в QGIS (создает временный файл)
@@ -890,7 +891,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                 return
             
             # Получаем файл из базы данных
-            file = get_dxf_file_by_id(conn['username'], conn['password'], host, port, database, file_id)
+            db_manager = DatabaseManager()
+            file = db_manager.get_dxf_file_by_id(conn['username'], conn['password'], host, port, database, file_id)
             if not file:
                 QMessageBox.warning(None, self.lm.get_string("COMMON", "error"),
                                    self.lm.get_string("MAIN_DIALOG", "file_not_found_error", file_id))

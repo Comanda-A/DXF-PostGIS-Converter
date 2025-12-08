@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, declarative_base, close_all_sessions
 from sqlalchemy import create_engine, text, inspect, MetaData, Table
 
 from .converter import DXFToPostGISConverter
+from .import_thread import ImportThread
 from ..db import models
 from ..db.database import DatabaseManager
 from ..db.base import Base
@@ -235,3 +236,46 @@ class DXFImporter:
                 mapped_data[dxf_field] = value
 
         return mapped_data
+
+    def create_import_thread(self, username, password, address, port, dbname, dxf_handler, file_path,
+                            mapping_mode, layer_schema='layer_schema', file_schema='file_schema',
+                            export_layers_only=False, custom_filename=None, column_mapping_configs=None):
+        """
+        Create and return an ImportThread for asynchronous import execution.
+
+        Args:
+            username: Database username
+            password: Database password
+            address: Database host
+            port: Database port
+            dbname: Database name
+            dxf_handler: DXFHandler instance
+            file_path: Path to DXF file
+            mapping_mode: Column mapping mode
+            layer_schema: Layer schema name
+            file_schema: File schema name
+            export_layers_only: Whether to export layers only
+            custom_filename: Custom filename for DB
+            column_mapping_configs: Column mapping configurations
+
+        Returns:
+            ImportThread instance configured for import
+        """
+        # Create a lambda function that captures all parameters and calls import_dxf_to_database
+        import_function = lambda: self.import_dxf_to_database(
+            username=username,
+            password=password,
+            host=address,
+            port=port,
+            dbname=dbname,
+            dxf_handler=dxf_handler,
+            file_path=file_path,
+            mapping_mode=mapping_mode,
+            layer_schema=layer_schema,
+            file_schema=file_schema,
+            export_layers_only=export_layers_only,
+            custom_filename=custom_filename,
+            column_mapping_configs=column_mapping_configs
+        )
+
+        return ImportThread(import_function)

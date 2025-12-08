@@ -15,7 +15,8 @@ from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler, get_selected_file
 from ..tree_widget_handler import TreeWidgetHandler
 from .info_dialog import InfoDialog
-from .import_destination_dialog import ImportDestinationDialog
+from .import_dialog import ImportDialog
+from .export_dialog import ExportDialog
 from ..workers.dxf_worker import DXFWorker
 from ..workers.long_task_worker import LongTaskWorker
 from ..db.connections_manager import ConnectionsManager
@@ -388,8 +389,6 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             self.long_task_worker = None
 
     def import_to_db_button_click(self):
-        from .export_dialog import ExportDialog
-
         if self.dxf_tree_widget_handler.get_selected_file_name() is None:
             QMessageBox.warning(None, self.lm.get_string("COMMON", "error"),
                                    self.lm.get_string("MAIN_DIALOG", "no_file_selected"))
@@ -409,7 +408,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             if result == QMessageBox.Cancel or result == QMessageBox.No:
                 return
 
-        dlg = ExportDialog(self.dxf_tree_widget_handler, self.dxf_handler)
+        dlg = ImportDialog(self.dxf_tree_widget_handler, self.dxf_handler)
         dlg.show()
         result = dlg.exec_()
         if result:
@@ -814,7 +813,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         Обработка нажатия кнопки экспорта из базы данных
         """
         # Показываем диалог выбора места экспорта
-        destination_dialog = ImportDestinationDialog(self)
+        destination_dialog = ExportDialog(self)
         if destination_dialog.exec_() == QtWidgets.QDialog.Accepted:
             destination = destination_dialog.get_selected_destination()
 

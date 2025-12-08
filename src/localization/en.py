@@ -309,6 +309,19 @@ EXPORT_DIALOG = {
     "filename_label": "File name:",
     "filename_placeholder": "Enter file name",
     "filename_description": "Leave empty to use original file name",
+
+    # Column mapping settings
+    "enable_column_mapping": "Enable column mapping",
+    "column_mapping_tooltip": "Configure mapping of DXF fields to existing database columns",
+    "configure_mapping_button": "Configure mapping",
+
+    # Additional import dialog keys
+    "import_settings_group": "Import Settings",
+    "import_layers_only": "Import layers only",
+    "import_button": "Import",
+    "import_progress": "Import",
+    "import_title": "DXF Import",
+    "import_error": "Import error: {0}"
 }
 
 # Help content for dialogs

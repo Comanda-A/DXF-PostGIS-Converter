@@ -301,7 +301,20 @@ EXPORT_DIALOG = {
     "file_exists_tooltip": "Файл с таким именем уже существует. Выберите другое имя.",
     "file_available_tooltip": "Имя файла доступно",
     "file_check_error_tooltip": "Ошибка при проверке имени файла: {0}",
-    "enter_file_name_tooltip": "Введите имя файла"
+    "enter_file_name_tooltip": "Введите имя файла",
+
+    # Настройки сопоставления столбцов
+    "enable_column_mapping": "Включить сопоставление столбцов",
+    "column_mapping_tooltip": "Настройка сопоставления полей DXF с существующими столбцами в БД",
+    "configure_mapping_button": "Настроить сопоставление",
+
+    # Additional import dialog keys
+    "import_settings_group": "Настройки импорта",
+    "import_layers_only": "Импортировать только слои",
+    "import_button": "Импортировать",
+    "import_progress": "Импорт",
+    "import_title": "Импорт DXF",
+    "import_error": "Ошибка импорта: {0}"
 }
 
 # Контент справки для диалогов

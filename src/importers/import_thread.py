@@ -1,6 +1,6 @@
 from PyQt5.QtCore import QThread, pyqtSignal
+from typing import Callable
 
-from .dxf_importer import DXFImporter
 from ..exporters.log_capture import LogCapture
 from ..localization.localization_manager import LocalizationManager
 from ..logger.logger import Logger
@@ -13,40 +13,14 @@ class ImportThread(QThread):
     finished = pyqtSignal(bool, str)  # Сигнал: успех/неуспех, сообщение
 
     progress_update = pyqtSignal(int, str)  # Сигнал обновления прогресса: процент, сообщение
-    def __init__(self, username, password, address, port, dbname, dxf_handler, file_path,
-                 mapping_mode, layer_schema='layer_schema', file_schema='file_schema',
-                 export_layers_only=False, custom_filename=None, column_mapping_configs=None):
+    def __init__(self, import_function: Callable[[], bool]):
         """
         Инициализация потока импорта.
 
-        :param username: Имя пользователя для подключения к БД
-        :param password: Пароль пользователя
-        :param address: Адрес сервера БД
-        :param port: Порт сервера БД
-        :param dbname: Имя базы данных
-        :param dxf_handler: Обработчик DXF-файлов
-        :param file_path: Путь к DXF-файлу для импорта
-        :param mapping_mode: Режим маппирования слоев (always_overwrite, geometry, notes, both)
-        :param layer_schema: Схема для размещения таблиц слоев
-        :param file_schema: Схема для размещения таблицы файлов
-        :param export_layers_only: Импортировать только слои (без сохранения файла)
-        :param custom_filename: Пользовательское название файла для сохранения в БД
-        :param column_mapping_configs: Настройки сопоставления столбцов
+        :param import_function: Функция, выполняющая импорт и возвращающая bool результат
         """
         super().__init__()
-        self.username = username
-        self.password = password
-        self.address = address
-        self.port = port
-        self.dbname = dbname
-        self.dxf_handler = dxf_handler
-        self.file_path = file_path
-        self.mapping_mode = mapping_mode
-        self.layer_schema = layer_schema
-        self.file_schema = file_schema
-        self.export_layers_only = export_layers_only
-        self.custom_filename = custom_filename
-        self.column_mapping_configs = column_mapping_configs or {}
+        self.import_function = import_function
         self.lm = LocalizationManager.instance()
 
         # Создаем захватчик логов
@@ -86,25 +60,9 @@ class ImportThread(QThread):
             self.log_capture.start_capture()
 
             Logger.log_message("Начало импорта DXF файла в базу данных")
-            Logger.log_message(f"Режим маппирования: {self.mapping_mode}")
 
-            # Создаем импортер и выполняем импорт
-            importer = DXFImporter()
-            result = importer.import_dxf_to_database(
-                self.username,
-                self.password,
-                self.address,
-                self.port,
-                self.dbname,
-                self.dxf_handler,
-                self.file_path,
-                self.mapping_mode,
-                self.layer_schema,
-                self.file_schema,
-                self.export_layers_only,
-                self.custom_filename,
-                self.column_mapping_configs
-            )
+            # Выполняем функцию импорта
+            result = self.import_function()
 
             # Останавливаем захват логов
             self.log_capture.stop_capture()
@@ -118,5 +76,5 @@ class ImportThread(QThread):
         except Exception as e:
             # Останавливаем захват логов в случае ошибки
             self.log_capture.stop_capture()
-            Logger.log_error(f"Ошибка при экспорте: {str(e)}")
+            Logger.log_error(f"Ошибка при импорте: {str(e)}")
             self.finished.emit(False, str(e))

@@ -5,11 +5,9 @@ from sqlalchemy import create_engine, text, inspect, MetaData, Table
 from sqlalchemy.orm import sessionmaker, close_all_sessions
 from datetime import datetime, timezone
 
-from ..importers.converter import DXFToPostGISConverter
 from . import models
 from .base import Base
 from ..logger.logger import Logger
-from ..dxf.dxf_handler import DXFHandler
 from ..gui.column_mapping_dialog import ColumnMappingDialog
 
 
@@ -430,13 +428,6 @@ class DatabaseManager:
             Logger.log_error(f"Ошибка при создании таблицы для слоя {layer_name} в схеме {layer_schema}: {str(e)}")
             return None
 
-
-
-    def _create_output_dxf(self, file_path : str, filename: str, dxf_handler: DXFHandler) -> None:
-        """Создание SVG превью DXF файла"""
-        doc = dxf_handler.simle_read_dxf_file(file_path)
-        dxf_handler.save_svg_preview(doc, doc.modelspace(), filename)
-
     def _add_new_entities(self, session: Session, entities, layer_class, file_id: Optional[int]) -> None:
         """
         Добавляет новые сущности в таблицу слоя
@@ -763,15 +754,15 @@ class DatabaseManager:
             Logger.log_error(f"Ошибка при получении DXF файла с ID {file_id}: {str(e)}")
             return None
 
-    def apply_column_mapping(self, session, layer_name, mapping_config, entities, layer_schema='layer_schema', file_id=None):
+    def apply_column_mapping(self, session, layer_name, mapping_config, postgis_entities, layer_schema='layer_schema', file_id=None):
         """
-        Применяет настройки сопоставления столбцов при экспорте сущностей
+        Применяет настройки сопоставления столбцов к уже преобразованным PostGIS сущностям
 
         Args:
             session: Сессия базы данных
             layer_name: Имя слоя
             mapping_config: Конфигурация сопоставления столбцов
-            entities: Список сущностей для экспорта
+            postgis_entities: Список уже преобразованных PostGIS сущностей
             layer_schema: Схема слоя
             file_id: ID файла (может быть None если экспортируем только слои)
 
@@ -793,7 +784,9 @@ class DatabaseManager:
 
             if not target_table:
                 Logger.log_error("Целевая таблица не указана в настройках сопоставления")
-                return False        # Получаем класс существующей таблицы
+                return False
+
+            # Получаем класс существующей таблицы
             table_name = target_table.replace(' ', '_').replace('-', '_')
 
             # Создаем динамический класс для существующей таблицы
@@ -834,7 +827,8 @@ class DatabaseManager:
             # Если стратегия включает создание backup
             if strategy in ['mapping_backup', 'mapping_add_backup']:
                 self._create_backup_table(session, layer_class, layer_name, layer_schema)
-              # Очищаем существующие записи для этого файла, если file_id указан
+
+            # Очищаем существующие записи для этого файла, если file_id указан
             if file_id is not None:
                 # Используем сопоставленное имя столбца для file_id
                 file_id_column = mappings.get('file_id', 'file_id')
@@ -853,17 +847,15 @@ class DatabaseManager:
 
             session.commit()
 
-            # Применяем сопоставление к каждой сущности
+            # Применяем сопоставление к каждой уже преобразованной сущности
             added_count = 0
-            for entity in entities:
+            for postgis_data in postgis_entities:
                 try:
-                    # Конвертируем сущность в PostGIS формат
-                    converter = DXFToPostGISConverter()
-                    postgis_data = converter.convert_entity_to_postgis(entity)
-
                     if not postgis_data:
-                        Logger.log_warning(f"Не удалось преобразовать сущность {entity}")
-                        continue                # Применяем сопоставление полей
+                        Logger.log_warning("Пустые данные PostGIS сущности")
+                        continue
+
+                    # Применяем сопоставление полей
                     mapped_data = self._apply_field_mapping(postgis_data, mappings)
 
                     # Добавляем file_id если предоставлен, используя сопоставленное имя столбца
@@ -889,7 +881,7 @@ class DatabaseManager:
                     continue
 
             session.commit()
-            Logger.log_message(f"Успешно применено сопоставление столбцов: добавлено {added_count} из {len(entities)} сущностей")
+            Logger.log_message(f"Успешно применено сопоставление столбцов: добавлено {added_count} из {len(postgis_entities)} сущностей")
             return True
 
         except Exception as e:
@@ -1020,6 +1012,46 @@ class DatabaseManager:
         except Exception as e:
             Logger.log_error(f"Ошибка при получении списка таблиц в схеме {schema_name}: {str(e)}")
             return []
+
+    def insert_converted_entities(self, session: Session, postgis_entities: List[dict], layer_class, file_id: Optional[int]) -> bool:
+        """
+        Вставляет преобразованные PostGIS сущности в таблицу слоя
+
+        Args:
+            session: Сессия базы данных
+            postgis_entities: Список преобразованных PostGIS сущностей
+            layer_class: Класс модели таблицы слоя
+            file_id: ID файла (может быть None если экспортируем только слои)
+
+        Returns:
+            True в случае успеха, иначе False
+        """
+        try:
+            for postgis_entity in postgis_entities:
+                if postgis_entity:
+                    # Создаем новый экземпляр модели слоя
+                    # Добавляем file_id только если он существует
+                    layer_entity_data = {
+                        'geom_type': postgis_entity['geom_type'],
+                        'geometry': postgis_entity['geometry'],
+                        'notes': postgis_entity.get('notes', None),
+                        'extra_data': postgis_entity.get('extra_data', None)
+                    }
+
+                    if file_id is not None:
+                        layer_entity_data['file_id'] = file_id
+
+                    layer_entity = layer_class(**layer_entity_data)
+                    session.add(layer_entity)
+
+            # Сохраняем изменения в базе данных
+            session.commit()
+            Logger.log_message(f"Добавлено {len(postgis_entities)} новых сущностей в слой")
+            return True
+        except Exception as e:
+            session.rollback()
+            Logger.log_error(f"Ошибка при вставке преобразованных сущностей: {str(e)}")
+            return False
 
     def needs_column_mapping(self, session, layer_name, layer_schema='layer_schema'):
         """

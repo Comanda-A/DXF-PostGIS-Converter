@@ -1,94 +1,69 @@
-"""
-DXF and Database Exporters
-Handles exporting DXF entities and database files.
+"""src.exporters.dxf_exporter
+
+Facade exporter that keeps the historical DXFExporter API, while delegating
+implementation to smaller classes (database export, selected entities export,
+and background thread).
 """
 
-import os
-import tempfile
-from typing import Optional
+from __future__ import annotations
+
+from typing import Optional, Callable, Union
+
 from ..dxf.dxf_handler import DXFHandler
-from ..db.database import DatabaseManager
 from ..logger.logger import Logger
+
+from .database_exporter import DXFDatabaseExporter
+from .entities_exporter import DXFEntitiesExporter
+from .export_thread import ExportThread
+
+
+ExportResult = Union[bool, Optional[str]]
 
 
 class DXFExporter:
-    """
-    Unified exporter for DXF operations - both entity export and database file export.
+    """Unified facade for DXF export operations.
+
+    This class is used by GUI code. To avoid breaking existing integrations,
+    its public methods remain stable and delegate work to specialized classes.
     """
 
-    def __init__(self, dxf_handler=None):
-        """
-        Initialize with optional DXF handler.
-
-        Args:
-            dxf_handler: DXFHandler instance (required for entity export operations)
-        """
+    def __init__(self, dxf_handler: Optional[DXFHandler] = None):
         self.dxf_handler = dxf_handler
-        self.db_manager = DatabaseManager()
         self.logger = Logger
+        self.db_exporter = DXFDatabaseExporter()
+        self.entities_exporter = DXFEntitiesExporter(dxf_handler=dxf_handler)
 
-    def export_from_database(self, username: str, password: str, host: str, port: str, dbname: str,
-                           file_id: int, destination: str = "file", file_name: str = None) -> Optional[str]:
+    def export_from_database(
+        self,
+        username: str,
+        password: str,
+        host: str,
+        port: str,
+        dbname: str,
+        file_id: int,
+        destination: str = "file",
+        file_name: Optional[str] = None,
+    ) -> Optional[str]:
+        """Export a DXF file stored in DB.
+
+        Returns the created file path (for both "file" and "qgis" destinations)
+        or None on failure/cancel.
         """
-        Export DXF file from database to specified destination.
+        return self.db_exporter.export_from_database(
+            username=username,
+            password=password,
+            host=host,
+            port=port,
+            dbname=dbname,
+            file_id=file_id,
+            destination=destination,
+            file_name=file_name,
+        )
 
-        Args:
-            username: Database username
-            password: Database password
-            host: Database host
-            port: Database port
-            dbname: Database name
-            file_id: File ID in database
-            destination: "file" or "qgis"
-            file_name: Optional filename for export
+    def export_selected_entities(self, filename: str, output_file: str) -> bool:
+        """Export selected entities of a loaded DXF into a new DXF file."""
+        return self.entities_exporter.export_selected_entities(filename, output_file)
 
-        Returns:
-            Path to exported file if destination is "file", None otherwise
-        """
-        try:
-            # Get file from database
-            db_manager = DatabaseManager()
-            file_record = db_manager.get_dxf_file_by_id(username, password, host, port, dbname, file_id)
-            if not file_record:
-                Logger.log_error(f"File with ID {file_id} not found in database")
-                return None
-
-            file_content = file_record.file_content
-            filename = file_name or file_record.filename
-
-            if destination == "qgis":
-                # Return temp file path for QGIS import
-                temp_dir = tempfile.gettempdir()
-                temp_file_path = os.path.join(temp_dir, filename)
-
-                with open(temp_file_path, 'wb') as f:
-                    f.write(file_content)
-
-                Logger.log_message(f"File {filename} exported to temp location for QGIS import")
-                return temp_file_path
-
-            else:  # destination == "file"
-                # Save to user-specified location
-                from qgis.PyQt.QtWidgets import QFileDialog
-                from qgis.PyQt.QtCore import QCoreApplication
-
-                file_path, _ = QFileDialog.getSaveFileName(
-                    None,
-                    QCoreApplication.translate("DXFExporter", "Save DXF File"),
-                    filename,
-                    "DXF files (*.dxf);;All files (*.*)"
-                )
-
-                if file_path:
-                    with open(file_path, 'wb') as f:
-                        f.write(file_content)
-
-                    Logger.log_message(f"File {filename} exported to {file_path}")
-                    return file_path
-                else:
-                    Logger.log_warning("File export cancelled by user")
-                    return None
-
-        except Exception as e:
-            Logger.log_error(f"Error exporting file from database: {str(e)}")
-            return None
+    def create_export_thread(self, export_function: Callable[[], ExportResult]) -> ExportThread:
+        """Create a background thread for export execution."""
+        return ExportThread(export_function)

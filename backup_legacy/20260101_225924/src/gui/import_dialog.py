@@ -11,7 +11,7 @@ from ..importers.dxf_importer import DXFImporter
 from ..localization.localization_manager import LocalizationManager
 
 from ..db.connections_manager import ConnectionsManager
-from .tree_widget_handler import TreeWidgetHandler
+from ..tree_widget_handler import TreeWidgetHandler
 from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler
 from ..db.database import DatabaseManager

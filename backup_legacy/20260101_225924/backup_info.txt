@@ -1,0 +1,6 @@
+Backup created: 2026-01-01T22:59:24.893915
+Files:
+  - src/dxf_postgis_converter.py
+  - src/gui/import_dialog.py
+  - src/gui/main_dialog.py
+  - src/db/database.py

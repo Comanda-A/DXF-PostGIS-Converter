@@ -33,7 +33,7 @@
    </property>
    <widget class="QWidget" name="tab">
     <attribute name="title">
-     <string>DXF → SQL</string>
+     <string>DXF → DB</string>
     </attribute>
     <widget class="QPushButton" name="open_dxf_button">
      <property name="geometry">
@@ -393,7 +393,7 @@
    </widget>
    <widget class="QWidget" name="tab_2">
     <attribute name="title">
-     <string>SQL → DXF</string>
+     <string>DB → DXF</string>
     </attribute>
     <widget class="QLabel" name="settings_structureLabel_2">
      <property name="geometry">

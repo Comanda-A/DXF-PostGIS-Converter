@@ -34,13 +34,11 @@ from ...workers.dxf_worker import DXFWorker
 from ...workers.long_task_worker import LongTaskWorker
 from .connections_manager import ConnectionsManager
 from ...localization.localization_manager import LocalizationManager
-from ...exporters.dxf_exporter import DXFExporter
 from ...logger.logger import Logger
 
 
 # Load UI file from resources
-FORM_CLASS, _ = uic.loadUiType(os.path.join(
-    os.path.dirname(__file__), '..', 'resources', 'main_dialog.ui'))
+FORM_CLASS, _ = uic.loadUiType(os.path.join(os.path.dirname(__file__), '..', 'resources', 'main_dialog.ui'))
 
 
 class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
@@ -66,6 +64,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         # Services from DI container
         self._settings_service = self._container.settings_service
         self._entity_selector = self._container.entity_selector
+        self._export_service = self._container.export_service
         
         # Legacy components (для совместимости)
         self.lm = LocalizationManager.instance()
@@ -77,7 +76,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.qgis_sync_manager = QGISLayerSyncManager(self.dxf_tree_widget_handler)
         
         # DXF Handler wrapper (для совместимости с legacy code)
-        from ...dxf.dxf_handler import DXFHandler
+        from ...domain.dxf.dxf_handler import DXFHandler
         self.dxf_handler = DXFHandler(
             self.type_shape, 
             self.type_selection, 
@@ -253,10 +252,24 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             return
         
         try:
-            exporter = DXFExporter(self.dxf_handler)
-            success = exporter.export_selected_entities(selected_file, output_file)
+            from ...application.export_service import ExportEntitiesRequest
             
-            if success:
+            # Получаем выбранные сущности
+            selected_entities = self.dxf_handler.selected_entities.get(selected_file, [])
+            entity_handles = [entity.dxf.handle for entity in selected_entities]
+            
+            request = ExportEntitiesRequest(
+                source_file=selected_file,
+                output_file=output_file,
+                entity_handles=entity_handles
+            )
+            
+            result = self._export_service.export_selected_entities(
+                request=request,
+                dxf_handler=self.dxf_handler
+            )
+            
+            if result.success:
                 QMessageBox.information(
                     self,
                     self.lm.get_string("COMMON", "success"),
@@ -266,7 +279,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                 QMessageBox.critical(
                     self,
                     self.lm.get_string("COMMON", "error"),
-                    self.lm.get_string("MAIN_DIALOG", "export_failed")
+                    result.error_message or self.lm.get_string("MAIN_DIALOG", "export_failed")
                 )
         except Exception as e:
             Logger.log_error(f"Export error: {e}")
@@ -334,6 +347,21 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         """Очистить фильтр."""
         self.layer_filter_list.clearSelection()
     
+    def update_layer_filter_list(self):
+        """Обновляет список слоев в списке фильтра."""
+        self.layer_filter_list.clear()
+        
+        file_name = self.dxf_tree_widget_handler.get_selected_file_name()
+        if not file_name:
+            return
+            
+        # Получаем список слоев из текущего файла
+        if file_name in self.dxf_tree_widget_handler.tree_items:
+            file_data = self.dxf_tree_widget_handler.tree_items[file_name]
+            for layer_name in file_data.keys():
+                if isinstance(file_data[layer_name], dict) and 'item' in file_data[layer_name]:
+                    self.layer_filter_list.addItem(layer_name)
+    
     def _toggle_logging(self, state):
         """Переключить логирование."""
         enabled = state == Qt.Checked
@@ -361,6 +389,67 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.activateWindow()
         self.show()
     
+    # Используется в плагине dxf_tools (uiADXF2Shape.py 626 строка)
+    def read_multiple_dxf(self, file_names):
+        """
+        Обработка выбора нескольких DXF файлов и заполнение древовидного виджета слоями и объектами.
+        """
+        self.worker = DXFWorker(self.dxf_handler, file_names)
+        self.worker.finished.connect(self.process_results)
+        self.worker.error.connect(self.handle_error)
+        
+        self.worker.start()
+        
+    def process_results(self, results: list):
+        for result in results:
+            if result:
+                self.dxf_tree_widget_handler.populate_tree_widget(result)
+        
+        self.export_to_db_button.setEnabled(self.dxf_handler.file_is_open)
+        self.export_to_file_button.setEnabled(self.dxf_handler.file_is_open)
+        self.select_area_button.setEnabled(self.dxf_handler.file_is_open)
+        
+        # Обновляем список слоев в комбобоксе фильтра
+        self.update_layer_filter_list()
+
+
+    def handle_error(self, error_message):
+        self.progress_dialog.close()
+        QMessageBox.critical(self, self.lm.get_string("COMMON", "error"),
+                            self.lm.get_string("MAIN_DIALOG", "error_processing_dxf", error_message))
+
+    # ========== Long Task Handling (for select_entities_in_area) ==========
+    def start_long_task(self, task_id, func, *args):
+        """
+        Запускает длительную задачу в отдельном потоке.
+        """
+        self.long_task_worker = LongTaskWorker(task_id, func, *args)
+        self.long_task_worker.finished.connect(self.on_finished)
+        self.long_task_worker.error.connect(self.handle_long_task_error)
+        
+        self.long_task_worker.start()
+
+    def handle_long_task_error(self, error_message):
+        """Обработчик ошибок длительных задач"""
+        QMessageBox.critical(self, self.lm.get_string("COMMON", "error"), 
+                            self.lm.get_string("MAIN_DIALOG", "error_executing_task", error_message))
+
+    def on_finished(self, task_id, result):
+        """
+        Обрабатывает завершение задачи.
+        """
+        if result is not None:
+            if task_id == "select_entities_in_area" and result != []:
+                self.dxf_tree_widget_handler.select_area(result)
+
+        self.export_to_db_button.setEnabled(self.dxf_handler.file_is_open)
+        self.export_to_file_button.setEnabled(self.dxf_handler.file_is_open)
+        self.select_area_button.setEnabled(self.dxf_handler.file_is_open)
+
+        if hasattr(self, 'long_task_worker') and self.long_task_worker:
+            self.long_task_worker.deleteLater()
+            self.long_task_worker = None
+
     # ========== DB Tree ==========
     
     def _refresh_db_tree(self):
@@ -546,27 +635,45 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             )
             return
         
-        exporter = DXFExporter()
-        result = exporter.export_from_database(
-            conn['username'],
-            conn['password'],
-            uri.host(),
-            uri.port(),
-            uri.database(),
-            file_info.id,
-            destination=destination,
-            file_name=file_info.filename
+        from ...application.settings_service import ConnectionSettings
+        from ...domain.models.config import ExportConfig
+        from ...application.export_service import ExportDestination
+        
+        # Создаём конфигурацию экспорта
+        connection_settings = ConnectionSettings(
+            host=uri.host(),
+            port=uri.port(),
+            database=uri.database(),
+            username=conn['username'],
+            password=conn['password']
         )
         
-        if result:
+        export_dest = ExportDestination.QGIS if destination == "qgis" else ExportDestination.FILE
+        
+        config = ExportConfig(
+            connection=connection_settings,
+            file_id=file_info.id,
+            file_name=file_info.filename,
+            destination=export_dest.value
+        )
+        
+        result = self._export_service.export_from_database(config)
+        
+        if result.success:
             if destination == "qgis":
-                self._import_to_qgis(result, file_info.filename)
+                self._import_to_qgis(result.output_path, file_info.filename)
             else:
                 QMessageBox.information(
                     self,
                     self.lm.get_string("COMMON", "success"),
-                    self.lm.get_string("MAIN_DIALOG", "file_saved_successfully", result)
+                    self.lm.get_string("MAIN_DIALOG", "file_saved_successfully", result.output_path)
                 )
+        else:
+            QMessageBox.critical(
+                self,
+                self.lm.get_string("COMMON", "error"),
+                result.message or self.lm.get_string("MAIN_DIALOG", "export_failed")
+            )
     
     def _delete_from_db(self, conn_display_name, uri, file_info):
         """Удалить файл из БД."""

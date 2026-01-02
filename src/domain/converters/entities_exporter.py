@@ -12,7 +12,7 @@ from typing import Optional, TYPE_CHECKING
 from ...logger.logger import Logger
 
 if TYPE_CHECKING:
-    from ...dxf.dxf_handler import DXFHandler
+    from ..dxf.dxf_handler import DXFHandler
 
 
 class DXFEntitiesExporter:

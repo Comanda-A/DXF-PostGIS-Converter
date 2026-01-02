@@ -18,7 +18,7 @@ from ..src.localization.localization_manager import LocalizationManager
 from ..src.container import DependencyContainer
 from ..src.logger.logger import Logger
 
-from .presentation.dialogs import ConverterDialog
+from .presentation.dialogs.main_dialog import ConverterDialog
 from .. import resources
 
 import os.path
@@ -143,16 +143,17 @@ class DxfPostGISConverter:
             shape_type = self.dlg.type_shape.currentText()
 
             if shape_type == ui["shape_rectangle"]:
-                tool = RectangleMapTool(self.canvas, self.dlg)
+                self.rect = RectangleMapTool(self.canvas, self.dlg)
+                self.iface.mapCanvas().setMapTool(self.rect)
             elif shape_type == ui["shape_circle"]:
-                tool = CircleMapTool(self.canvas, self.dlg)
+                self.circle = CircleMapTool(self.canvas, self.dlg)
+                self.iface.mapCanvas().setMapTool(self.circle)
             elif shape_type == ui["shape_polygon"]:
-                tool = PolygonMapTool(self.canvas, self.dlg)
+                self.polygon = PolygonMapTool(self.canvas, self.dlg)
+                self.iface.mapCanvas().setMapTool(self.polygon)
             else:
                 Logger.log_warning(f"Unknown shape type: {shape_type}")
                 return
-
-            self.iface.mapCanvas().setMapTool(tool)
             
             self.iface.messageBar().pushMessage(
                 common["info"],

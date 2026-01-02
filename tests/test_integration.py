@@ -54,7 +54,7 @@ def get_test_db_config():
     return ConnectionSettings(
         host=os.environ.get('TEST_DB_HOST', 'localhost'),
         port=os.environ.get('TEST_DB_PORT', '5432'),
-        database=os.environ.get('TEST_DB_NAME', 'postgres'),
+        database=os.environ.get('TEST_DB_NAME', 'test_dxf'),
         username=os.environ.get('TEST_DB_USER', 'postgres'),
         password=os.environ.get('TEST_DB_PASSWORD', '123')
     )
@@ -653,6 +653,7 @@ class TestRealDxfFileImport(unittest.TestCase):
             'ex1': cls.dxf_examples_dir / 'ex1.dxf',
             'ex2': cls.dxf_examples_dir / 'ex2.dxf',
             'simple_line': cls.dxf_examples_dir / 'simple_line.dxf',
+            'primer_2018': cls.dxf_examples_dir / 'Пример файла_2018.dxf',
         }
     
     @classmethod

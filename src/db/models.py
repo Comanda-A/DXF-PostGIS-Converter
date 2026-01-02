@@ -7,6 +7,10 @@ from ..logger.logger import Logger
 
 class ModelFactory:
     """Фабрика для создания моделей баз данных"""
+    
+    # Кэш созданных классов для предотвращения дублирования
+    _file_table_cache = {}
+    _layer_table_cache = {}
 
     @staticmethod
     def create_file_table(schema_name='file_schema'):
@@ -19,9 +23,13 @@ class ModelFactory:
         Returns:
             Класс таблицы SQLAlchemy для файлов
         """
+        # Проверяем кэш
+        if schema_name in ModelFactory._file_table_cache:
+            return ModelFactory._file_table_cache[schema_name]
+        
         Logger.log_message(f"Creating file table in schema '{schema_name}'")
 
-        return type(
+        file_class = type(
             f"DxfFile_{schema_name}",
             (Base, DxfFileBase),
             {
@@ -29,6 +37,10 @@ class ModelFactory:
                 '__table_args__': {'schema': schema_name, 'extend_existing': True}
             }
         )
+        
+        # Сохраняем в кэш
+        ModelFactory._file_table_cache[schema_name] = file_class
+        return file_class
 
     @staticmethod
     def create_layer_table(layer_name, schema_name='layer_schema', file_schema='file_schema'):
@@ -43,6 +55,11 @@ class ModelFactory:
         Returns:
             Класс таблицы SQLAlchemy для данного слоя
         """
+        # Создаем уникальный ключ для кэша
+        cache_key = f"{schema_name}.{layer_name}"
+        if cache_key in ModelFactory._layer_table_cache:
+            return ModelFactory._layer_table_cache[cache_key]
+        
         # Заменяем пробелы и дефисы на подчеркивания
         tablename = layer_name.replace(' ', '_').replace('-', '_')
 
@@ -61,11 +78,15 @@ class ModelFactory:
             'extra_data': Column(JSONB, nullable=True),
         }
 
-        return type(
+        layer_class = type(
             f"{layer_name}",
             (Base,),
             attributes
         )
+        
+        # Сохраняем в кэш
+        ModelFactory._layer_table_cache[cache_key] = layer_class
+        return layer_class
 
 # ----------------------
 # Base classes for model definitions

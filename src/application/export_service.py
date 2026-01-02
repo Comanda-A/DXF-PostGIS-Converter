@@ -129,7 +129,7 @@ class ExportService:
         if not validation.is_valid:
             return ExportResult(
                 success=False,
-                error_message="; ".join(validation.errors)
+                message="; ".join(validation.errors)
             )
         
         try:
@@ -140,18 +140,22 @@ class ExportService:
             if not session:
                 return ExportResult(
                     success=False,
-                    error_message="Не удалось подключиться к базе данных"
+                    message="Не удалось подключиться к базе данных"
                 )
             
             try:
                 # Получение файла
                 report_progress(30, "Получение данных файла...")
-                file_record = self._repository.get_file_by_id(session, config.file_id)
+                file_record = self._repository.get_file_by_id(
+                    session, 
+                    config.file_id,
+                    schema=config.file_schema
+                )
                 
                 if not file_record:
                     return ExportResult(
                         success=False,
-                        error_message=f"Файл с ID {config.file_id} не найден в базе данных"
+                        message=f"Файл с ID {config.file_id} не найден в базе данных"
                     )
                 
                 report_progress(50, "Подготовка контента...")
@@ -163,8 +167,7 @@ class ExportService:
                 if not output_path:
                     return ExportResult(
                         success=False,
-                        error_message="Путь для сохранения не определён",
-                        cancelled=True
+                        message="Путь для сохранения не определён"
                     )
                 
                 # Запись файла
@@ -175,9 +178,9 @@ class ExportService:
                 
                 return ExportResult(
                     success=True,
+                    message=f"Файл {file_name} экспортирован успешно",
                     output_path=output_path,
-                    file_name=file_name,
-                    entities_count=0  # TODO: можно получить из метаданных
+                    entities_exported=0  # TODO: можно получить из метаданных
                 )
                 
             finally:
@@ -187,7 +190,7 @@ class ExportService:
             Logger.log_error(f"Export error: {e}")
             return ExportResult(
                 success=False,
-                error_message=str(e)
+                message=str(e)
             )
     
     def export_selected_entities(

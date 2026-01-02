@@ -136,6 +136,33 @@ class DxfRepository:
     
     # ========== Операции с файлами ==========
     
+    def ensure_file_table(
+        self, 
+        session: Session, 
+        schema: str = 'file_schema'
+    ) -> bool:
+        """
+        Убедиться что таблица dxf_files существует.
+        
+        Args:
+            session: Активная сессия БД
+            schema: Схема для размещения
+            
+        Returns:
+            True если таблица существует или была создана
+        """
+        try:
+            file_class = models.ModelFactory.create_file_table(schema)
+            engine = self._connection.get_engine()
+            if engine:
+                file_class.__table__.create(engine, checkfirst=True)
+                Logger.log_message(f"Таблица dxf_files проверена/создана в схеме '{schema}'")
+                return True
+            return False
+        except Exception as e:
+            Logger.log_error(f"Ошибка создания таблицы dxf_files в схеме '{schema}': {str(e)}")
+            return False
+    
     def create_file(
         self, 
         session: Session, 

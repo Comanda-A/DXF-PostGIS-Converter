@@ -153,6 +153,11 @@ class ImportService:
             if not self._connection.ensure_postgis_extension(session):
                 return ImportResult.error_result("Расширение PostGIS недоступно")
             
+            # Убеждаемся что таблица dxf_files существует (для ForeignKey в таблицах слоёв)
+            report_progress(12, "Проверка структуры БД...")
+            if not self._repository.ensure_file_table(session, config.file_schema):
+                return ImportResult.error_result("Не удалось создать таблицу dxf_files")
+            
             # Загружаем DXF если не переданы сущности
             if entities_by_layer is None:
                 report_progress(15, "Чтение DXF файла...")

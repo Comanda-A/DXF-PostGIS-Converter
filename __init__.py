@@ -43,7 +43,5 @@ def classFactory(iface):  # pylint: disable=invalid-name
     ])
 
     # Import and return the main plugin class
-    # Migration to refactored version
-    from .src.migration_bridge import get_plugin_class
-    DxfPostGISConverter = get_plugin_class()
+    from .src.dxf_postgis_converter import DxfPostGISConverter
     return DxfPostGISConverter(iface)

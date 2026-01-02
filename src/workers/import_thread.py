@@ -1,7 +1,15 @@
+# -*- coding: utf-8 -*-
+"""
+Import Thread - фоновый поток для операций импорта.
+
+Выполняет импорт DXF в PostgreSQL/PostGIS в отдельном потоке,
+чтобы не блокировать UI.
+"""
+
 from PyQt5.QtCore import QThread, pyqtSignal
 from typing import Callable
 
-from ..exporters.log_capture import LogCapture
+from ..logger.log_capture import LogCapture
 from ..localization.localization_manager import LocalizationManager
 from ..logger.logger import Logger
 
@@ -9,15 +17,18 @@ from ..logger.logger import Logger
 class ImportThread(QThread):
     """
     Поток для выполнения импорта DXF данных в базу данных.
-    Работает отдельно от основного потока интерфейса, чтобы не блокировать UI.    """
+    
+    Работает отдельно от основного потока интерфейса, чтобы не блокировать UI.
+    """
     finished = pyqtSignal(bool, str)  # Сигнал: успех/неуспех, сообщение
-
     progress_update = pyqtSignal(int, str)  # Сигнал обновления прогресса: процент, сообщение
+    
     def __init__(self, import_function: Callable[[], bool]):
         """
         Инициализация потока импорта.
 
-        :param import_function: Функция, выполняющая импорт и возвращающая bool результат
+        Args:
+            import_function: Функция, выполняющая импорт и возвращающая bool результат
         """
         super().__init__()
         self.import_function = import_function
@@ -29,7 +40,7 @@ class ImportThread(QThread):
 
     def on_log_captured(self, message):
         """
-        Обработчик захваченного лога - передаем его как прогресс
+        Обработчик захваченного лога - передаем его как прогресс.
         """
         # Очищаем сообщение от лишних символов
         clean_message = message.strip()
@@ -54,7 +65,8 @@ class ImportThread(QThread):
 
     def run(self):
         """
-        Основной метод потока. Выполняет импорт и отправляет сигнал о результате.        """
+        Основной метод потока. Выполняет импорт и отправляет сигнал о результате.
+        """
         try:
             # Начинаем захват логов
             self.log_capture.start_capture()

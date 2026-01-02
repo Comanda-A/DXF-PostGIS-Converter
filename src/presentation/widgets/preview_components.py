@@ -5,8 +5,8 @@ from qgis.PyQt.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
 from qgis.PyQt.QtCore import Qt, QSize
 from qgis.PyQt.QtSvg import QGraphicsSvgItem, QSvgWidget
 import os
-from ..logger.logger import Logger
-from ..localization.localization_manager import LocalizationManager
+from ...logger.logger import Logger
+from ...localization.localization_manager import LocalizationManager
 
 class ZoomableGraphicsView(QGraphicsView):
     def __init__(self, parent=None):

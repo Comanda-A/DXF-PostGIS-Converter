@@ -1,7 +1,7 @@
 from qgis.PyQt.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QDialogButtonBox, QCheckBox
 from qgis.PyQt.QtCore import Qt
 
-from ..localization.localization_manager import LocalizationManager
+from ...localization.localization_manager import LocalizationManager
 
 class CredentialsDialog(QDialog):
     """Диалог для ввода учетных данных"""

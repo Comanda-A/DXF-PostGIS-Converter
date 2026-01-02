@@ -19,13 +19,13 @@ from PyQt5.QtWidgets import (
     QComboBox, QTreeWidgetItem, QProgressDialog, QCheckBox, QMessageBox
 )
 
-from ..application import SettingsService, ConnectionSettings, ImportService
-from ..application.settings_service import SchemaSettings
-from ..domain.models import ImportConfig, ImportResult
-from ..container import DependencyContainer
-from ..localization.localization_manager import LocalizationManager
-from ..logger.logger import Logger
-from ..db.connections_manager import ConnectionsManager
+from ...application import SettingsService, ConnectionSettings, ImportService
+from ...application.settings_service import SchemaSettings
+from ...domain.models import ImportConfig, ImportResult
+from ...container import DependencyContainer
+from ...localization.localization_manager import LocalizationManager
+from ...logger.logger import Logger
+from .connections_manager import ConnectionsManager
 
 
 class ImportWorker(QThread):

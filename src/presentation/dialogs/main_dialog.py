@@ -20,27 +20,27 @@ from qgis.core import QgsProviderRegistry, QgsDataSourceUri
 
 from functools import partial
 
-from .preview_components import PreviewDialog, PreviewWidgetFactory
-from .qgis_layer_sync_manager import QGISLayerSyncManager
-from .tree_widget_handler import TreeWidgetHandler
+from ..widgets.preview_components import PreviewDialog, PreviewWidgetFactory
+from ..widgets.qgis_layer_sync_manager import QGISLayerSyncManager
+from ..widgets.tree_widget_handler import TreeWidgetHandler
 from .info_dialog import InfoDialog
 from .import_dialog import ImportDialog
 from .export_dialog import ExportDialog
 
-from ..container import DependencyContainer
-from ..application import SettingsService
-from ..domain.dxf import DxfDocument, EntitySelector
-from ..workers.dxf_worker import DXFWorker
-from ..workers.long_task_worker import LongTaskWorker
-from ..db.connections_manager import ConnectionsManager
-from ..localization.localization_manager import LocalizationManager
-from ..exporters.dxf_exporter import DXFExporter
-from ..logger.logger import Logger
+from ...container import DependencyContainer
+from ...application import SettingsService
+from ...domain.dxf import DxfDocument, EntitySelector
+from ...workers.dxf_worker import DXFWorker
+from ...workers.long_task_worker import LongTaskWorker
+from .connections_manager import ConnectionsManager
+from ...localization.localization_manager import LocalizationManager
+from ...exporters.dxf_exporter import DXFExporter
+from ...logger.logger import Logger
 
 
-# Load UI file
+# Load UI file from resources
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
-    os.path.dirname(__file__), 'main_dialog.ui'))
+    os.path.dirname(__file__), '..', 'resources', 'main_dialog.ui'))
 
 
 class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
@@ -77,7 +77,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.qgis_sync_manager = QGISLayerSyncManager(self.dxf_tree_widget_handler)
         
         # DXF Handler wrapper (для совместимости с legacy code)
-        from ..dxf.dxf_handler import DXFHandler
+        from ...dxf.dxf_handler import DXFHandler
         self.dxf_handler = DXFHandler(
             self.type_shape, 
             self.type_selection, 
@@ -427,7 +427,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         conn_item.takeChildren()
         
         # Используем репозиторий из контейнера
-        from ..application.settings_service import ConnectionSettings
+        from ...application.settings_service import ConnectionSettings
         
         connection = ConnectionSettings(
             host=uri.host(),
@@ -584,7 +584,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         if not conn:
             return
         
-        from ..application.settings_service import ConnectionSettings
+        from ...application.settings_service import ConnectionSettings
         
         connection = ConnectionSettings(
             host=uri.host(),
@@ -610,7 +610,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
     def _import_to_qgis(self, file_path, filename):
         """Импорт в QGIS."""
         try:
-            from ..plugins.dxf_tools.uiADXF2Shape import uiADXF2Shape
+            from ...plugins.dxf_tools.uiADXF2Shape import uiADXF2Shape
             plugin = uiADXF2Shape(self)
             success = plugin.import_dxf_programmatically(file_path)
             

@@ -5,7 +5,7 @@
 
 from qgis.PyQt.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QRadioButton, QButtonGroup
 from qgis.PyQt.QtCore import Qt
-from ..localization.localization_manager import LocalizationManager
+from ...localization.localization_manager import LocalizationManager
 
 
 class ExportDialog(QDialog):

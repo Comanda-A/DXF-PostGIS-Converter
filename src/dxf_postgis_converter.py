@@ -18,7 +18,7 @@ from ..src.localization.localization_manager import LocalizationManager
 from ..src.container import DependencyContainer
 from ..src.logger.logger import Logger
 
-from .gui.main_dialog import ConverterDialog
+from .presentation.dialogs import ConverterDialog
 from .. import resources
 
 import os.path

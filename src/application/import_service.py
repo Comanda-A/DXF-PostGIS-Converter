@@ -11,8 +11,8 @@ from typing import Optional, Callable, List, Dict, Any
 
 from ..domain.dxf import DxfDocument, EntitySelector
 from ..domain.models import ImportConfig, ImportResult, ValidationResult
+from ..domain.converters import DXFToPostGISConverter
 from ..infrastructure.database import DatabaseConnection, DxfRepository
-from ..importers.converter import DXFToPostGISConverter
 from ..logger.logger import Logger
 
 
@@ -203,7 +203,7 @@ class ImportService:
             layer_errors = {}
             
             for i, (layer_name, entities) in enumerate(entities_by_layer.items()):
-                layer_progress = 30 + int((i / total_layers) * 60)
+                layer_progress = 30 + int((i / max(total_layers, 1)) * 60)
                 report_progress(layer_progress, f"Обработка слоя: {layer_name}")
                 
                 try:
@@ -265,8 +265,9 @@ class ImportService:
     def _convert_entities(self, entities) -> List[Dict[str, Any]]:
         """Конвертировать DXF сущности в формат PostGIS."""
         result = []
+        entities_list = list(entities)  # Ensure entities is a list
         
-        for entity in entities:
+        for entity in entities_list:
             try:
                 postgis_entity = self._converter.convert_entity_to_postgis(entity)
                 if postgis_entity:

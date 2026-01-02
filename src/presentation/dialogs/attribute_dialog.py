@@ -2,7 +2,7 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTableWidget, QHeaderView, QDialogButtonBox
 
-from ..localization.localization_manager import LocalizationManager
+from ...localization.localization_manager import LocalizationManager
 
 class AttributeDialog(QDialog):
     def __init__(self, dxf_entity, db_entity, parent=None):

@@ -13,8 +13,8 @@ from ..dxf.dxf_handler import DXFHandler
 from ..logger.logger import Logger
 
 from .database_exporter import DXFDatabaseExporter
-from .entities_exporter import DXFEntitiesExporter
-from .export_thread import ExportThread
+from ..domain.converters import DXFEntitiesExporter
+from ..workers import ExportThread
 
 
 ExportResult = Union[bool, Optional[str]]

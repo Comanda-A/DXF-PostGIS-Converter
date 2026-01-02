@@ -26,7 +26,7 @@ def get_import_dialog_class():
     Returns:
         ImportDialog
     """
-    from .gui.import_dialog import ImportDialog
+    from .presentation.dialogs import ImportDialog
     return ImportDialog
 
 
@@ -37,5 +37,5 @@ def get_main_dialog_class():
     Returns:
         ConverterDialog
     """
-    from .gui.main_dialog import ConverterDialog
+    from .presentation.dialogs import ConverterDialog
     return ConverterDialog

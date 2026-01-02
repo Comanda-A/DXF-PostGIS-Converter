@@ -13,6 +13,9 @@ __all__ = [
     'SchemaSettings',
     'ImportService',
     'ExportService',
+    'SchemaService',
+    'SchemaDialogCallback',
+    'SchemaSearchResult',
 ]
 
 
@@ -24,6 +27,15 @@ def __getattr__(name: str):
     elif name == 'ExportService':
         from .export_service import ExportService
         return ExportService
+    elif name == 'SchemaService':
+        from .schema_service import SchemaService
+        return SchemaService
+    elif name == 'SchemaDialogCallback':
+        from .schema_service import SchemaDialogCallback
+        return SchemaDialogCallback
+    elif name == 'SchemaSearchResult':
+        from .schema_service import SchemaSearchResult
+        return SchemaSearchResult
     elif name == 'ExportDestination':
         from .export_service import ExportDestination
         return ExportDestination

@@ -8,11 +8,9 @@ from typing import Optional, Dict, List
 from sqlalchemy.orm import Session, declarative_base, close_all_sessions
 from sqlalchemy import create_engine, text, inspect, MetaData, Table
 
-from .converter import DXFToPostGISConverter
-from .import_thread import ImportThread
-from ..db import models
-from ..db.database import DatabaseManager
-from ..db.base import Base
+from ..domain.converters import DXFToPostGISConverter
+from ..workers import ImportThread
+from ..infrastructure.database import DatabaseConnection, DxfRepository, models, Base
 from ..logger.logger import Logger
 from ..dxf.dxf_handler import DXFHandler
 
@@ -24,7 +22,8 @@ class DXFImporter:
 
     def __init__(self):
         self.logger = Logger
-        self.db_manager = DatabaseManager()
+        self._connection = DatabaseConnection.instance()
+        self._repository = DxfRepository(self._connection)
 
     def import_dxf_to_database(self, username: str, password: str, host: str, port: str, dbname: str,
                               dxf_handler: DXFHandler, file_path: str, mapping_mode: str = "always_overwrite",
@@ -54,13 +53,17 @@ class DXFImporter:
         """
         try:
             # Create database connection
-            session = self.db_manager._connect_to_database(username, password, host, port, dbname)
-            if session is None:
+            if not self._connection.connect(username, password, host, port, dbname):
                 Logger.log_error("Не удалось подключиться к базе данных")
                 return False
 
+            session = self._connection.get_session()
+            if session is None:
+                Logger.log_error("Не удалось получить сессию базы данных")
+                return False
+
             # Проверяем и устанавливаем расширение PostGIS при необходимости
-            if not self.db_manager.ensure_postgis_extension(session):
+            if not self._repository.ensure_postgis_extension(session):
                 Logger.log_error("Расширение PostGIS недоступно. Работа с геометрией невозможна.")
                 return False
 
@@ -86,7 +89,7 @@ class DXFImporter:
                 with open(file_path, 'rb') as f:
                     file_content = f.read()
                 # Создаем запись о файле в указанной схеме с названием для БД
-                file_record = self.db_manager.create_file_record(session, filename_for_db, file_content, file_schema)
+                file_record = self._repository.create_file_record(session, filename_for_db, file_content, file_schema)
                 if not file_record:
                     return False
 
@@ -98,8 +101,8 @@ class DXFImporter:
                 Logger.log_message(f"Обработка слоя: {layer_name}")
 
                 # Проверяем, нужно ли сопоставление столбцов для этого слоя
-                mapping_check = self.db_manager.needs_column_mapping(session, layer_name, layer_schema)
-                Logger.log_message(f"Проверка сопоставления для слоя {layer_name}: {mapping_check['reason']}")
+                mapping_check = self._repository.needs_column_mapping(session, layer_name, layer_schema)
+                Logger.log_message(f"Проверка сопоставления для слоя {layer_name}: {mapping_check.reason}")
 
                 # Определяем конфигурацию сопоставления для этого слоя
                 layer_mapping_config = None
@@ -117,12 +120,11 @@ class DXFImporter:
                     layer_mapping_config = column_mapping_configs['global']
                     Logger.log_message(f"Используется глобальная конфигурация (global) для слоя {layer_name}")
 
-                # Создаем таблицу слоя если она не существует (только для стандартного случая)
-                if not mapping_check['needs_mapping'] or not layer_mapping_config:
-                    layer_class = self.db_manager.create_layer_table_if_not_exists(layer_name, layer_schema, file_schema)
-                    if not layer_class:
-                        Logger.log_error(f"Не удалось создать таблицу для слоя {layer_name}")
-                        continue
+                # Создаем таблицу слоя если она не существует
+                layer_class = self._repository.create_layer_table(session, layer_name, layer_schema, file_schema)
+                if not layer_class:
+                    Logger.log_error(f"Не удалось создать таблицу для слоя {layer_name}")
+                    continue
 
                 # Используем file_id только если файл был сохранен
                 file_id = file_record.id if file_record else None
@@ -131,7 +133,7 @@ class DXFImporter:
                 if mapping_mode == "always_overwrite":
 
                     # Если нужно сопоставление столбцов И есть конфигурация сопоставления
-                    if mapping_check['needs_mapping'] and layer_mapping_config:
+                    if mapping_check.needs_mapping and layer_mapping_config:
                         Logger.log_message(f"Применяем сопоставление столбцов для слоя {layer_name}")
                         Logger.log_message(f"Конфигурация сопоставления: {layer_mapping_config}")
 
@@ -144,7 +146,7 @@ class DXFImporter:
                                 postgis_entities.append(postgis_entity)
 
                         # Используем функцию применения сопоставления столбцов
-                        success = self.db_manager.apply_column_mapping(session, layer_name, layer_mapping_config,
+                        success = self._repository.apply_column_mapping(session, layer_name, layer_mapping_config,
                                                  postgis_entities, layer_schema, file_id)
                         if not success:
                             Logger.log_warning(f"Не удалось применить сопоставление столбцов для слоя {layer_name}, используем стандартный способ")
@@ -210,9 +212,9 @@ class DXFImporter:
                 if postgis_entity:
                     postgis_entities.append(postgis_entity)
 
-            # Вставляем преобразованные сущности через DatabaseManager
+            # Вставляем преобразованные сущности через DxfRepository
             if postgis_entities:
-                return self.db_manager.insert_converted_entities(session, postgis_entities, layer_class, file_id)
+                return self._repository.insert_entities(session, postgis_entities, layer_class, file_id)
             else:
                 Logger.log_message("Нет сущностей для вставки после конвертации")
                 return True

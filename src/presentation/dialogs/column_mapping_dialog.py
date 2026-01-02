@@ -5,8 +5,8 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
 from PyQt5.QtCore import Qt, pyqtSignal
 from qgis.core import QgsSettings
 
-from ..localization.localization_manager import LocalizationManager
-from ..logger.logger import Logger
+from ...localization.localization_manager import LocalizationManager
+from ...logger.logger import Logger
 
 
 class ColumnMappingDialog(QDialog):
@@ -156,16 +156,22 @@ class ColumnMappingDialog(QDialog):
         """Загрузка списка существующих таблиц в схеме"""
         try:
             # Импортируем здесь для избежания циклического импорта
-            from ..db.database import get_tables_in_schema
+            from ..infrastructure.database import DatabaseConnection, DxfRepository
             
-            tables = get_tables_in_schema(
+            connection = DatabaseConnection.instance()
+            if not connection.connect(
                 self.db_connection_params['username'],
-                self.db_connection_params['password'], 
+                self.db_connection_params['password'],
                 self.db_connection_params['address'],
                 self.db_connection_params['port'],
-                self.db_connection_params['dbname'],
-                self.layer_schema
-            )
+                self.db_connection_params['dbname']
+            ):
+                Logger.log_error("Не удалось подключиться к БД")
+                return
+            
+            session = connection.get_session()
+            repository = DxfRepository(connection)
+            tables = repository.get_tables_in_schema(session, self.layer_schema)
             
             self.table_combo.clear()
             self.table_combo.addItem("-- Выберите таблицу --", "")
@@ -190,17 +196,24 @@ class ColumnMappingDialog(QDialog):
         """Загрузка столбцов из выбранной существующей таблицы БД"""
         try:
             # Импортируем здесь для избежания циклического импорта
-            from ..db.database import get_table_columns
+            from ..infrastructure.database import DatabaseConnection, DxfRepository
             
-            self.db_columns = get_table_columns(
+            connection = DatabaseConnection.instance()
+            if not connection.connect(
                 self.db_connection_params['username'],
-                self.db_connection_params['password'], 
+                self.db_connection_params['password'],
                 self.db_connection_params['address'],
                 self.db_connection_params['port'],
-                self.db_connection_params['dbname'],
-                table_name,
-                self.layer_schema
-            )
+                self.db_connection_params['dbname']
+            ):
+                Logger.log_error("Не удалось подключиться к БД")
+                self.db_columns = []
+                return
+            
+            session = connection.get_session()
+            repository = DxfRepository(connection)
+            
+            self.db_columns = repository.get_table_columns(session, table_name, self.layer_schema)
             Logger.log_message(f"Загружены столбцы таблицы {table_name}: {self.db_columns}")
         except Exception as e:
             Logger.log_error(f"Ошибка загрузки столбцов таблицы: {str(e)}")

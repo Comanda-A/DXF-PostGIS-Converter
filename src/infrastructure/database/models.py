@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text, Larg
 from sqlalchemy.dialects.postgresql import JSONB
 from geoalchemy2 import Geometry
 from .base import Base
-from ..logger.logger import Logger
+from ...logger.logger import Logger
 
 
 class ModelFactory:

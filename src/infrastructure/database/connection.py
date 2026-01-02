@@ -108,29 +108,28 @@ class DatabaseConnection:
             True если расширение доступно
         """
         try:
-            with session.bind.connect() as connection:
-                # Проверяем наличие расширения
-                result = connection.execute(text("""
-                    SELECT EXISTS(
-                        SELECT 1 FROM pg_extension WHERE extname = 'postgis'
-                    );
-                """))
+            # Проверяем наличие расширения через сессию напрямую
+            result = session.execute(text("""
+                SELECT EXISTS(
+                    SELECT 1 FROM pg_extension WHERE extname = 'postgis'
+                );
+            """))
+            
+            if result.scalar():
+                Logger.log_message("Расширение PostGIS установлено")
+                return True
+            
+            # Пытаемся создать расширение
+            Logger.log_message("Расширение PostGIS не найдено, создаём...")
+            try:
+                session.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
+                session.commit()
+                Logger.log_message("Расширение PostGIS успешно создано")
+                return True
+            except Exception as create_error:
+                Logger.log_error(f"Не удалось создать PostGIS: {str(create_error)}")
+                return False
                 
-                if result.scalar():
-                    Logger.log_message("Расширение PostGIS установлено")
-                    return True
-                
-                # Пытаемся создать расширение
-                Logger.log_message("Расширение PostGIS не найдено, создаём...")
-                try:
-                    connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
-                    connection.commit()
-                    Logger.log_message("Расширение PostGIS успешно создано")
-                    return True
-                except Exception as create_error:
-                    Logger.log_error(f"Не удалось создать PostGIS: {str(create_error)}")
-                    return False
-                    
         except Exception as e:
             Logger.log_error(f"Ошибка проверки PostGIS: {str(e)}")
             return False

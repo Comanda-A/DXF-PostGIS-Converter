@@ -1,7 +1,7 @@
 from qgis.PyQt.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QMessageBox
 from qgis.PyQt.QtCore import Qt
-from ..localization.localization_manager import LocalizationManager
-from ..logger.logger import Logger
+from ...localization.localization_manager import LocalizationManager
+from ...logger.logger import Logger
 
 
 class SchemaSelectorDialog(QDialog):

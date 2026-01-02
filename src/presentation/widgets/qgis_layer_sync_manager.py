@@ -1,7 +1,7 @@
 from qgis.PyQt.QtCore import QObject, pyqtSignal
 from qgis.core import QgsProject, QgsLayerTreeGroup, QgsLayerTreeLayer
-from ..logger.logger import Logger
-from ..localization.localization_manager import LocalizationManager
+from ...logger.logger import Logger
+from ...localization.localization_manager import LocalizationManager
 
 
 class QGISLayerSyncManager(QObject):

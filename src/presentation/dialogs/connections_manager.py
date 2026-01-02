@@ -5,7 +5,7 @@ from qgis.core import QgsSettings, QgsProviderRegistry, QgsDataSourceUri
 from qgis._core import QgsApplication, QgsAuthMethodConfig
 import json
 import os
-from ..logger.logger import Logger
+from ...logger.logger import Logger
 
 class ConnectionsManager:
     _instance = None
@@ -76,7 +76,7 @@ class ConnectionsManager:
         Возвращает:
             tuple: (username, password)
         """
-        from ..gui.credentials_dialog import CredentialsDialog
+        from .credentials_dialog import CredentialsDialog
         
         # Формируем уникальный идентификатор подключения
         conn_display_name = f"{host}:{port}/{database}"

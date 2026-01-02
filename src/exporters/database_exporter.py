@@ -11,15 +11,16 @@ import os
 import tempfile
 from typing import Optional
 
-from ..db.database import DatabaseManager
+from ..infrastructure.database import DatabaseConnection, DxfRepository
 from ..logger.logger import Logger
 
 
 class DXFDatabaseExporter:
     """Exports DXF files stored in the database."""
 
-    def __init__(self, db_manager: Optional[DatabaseManager] = None):
-        self.db_manager = db_manager or DatabaseManager()
+    def __init__(self, connection: Optional[DatabaseConnection] = None, repository: Optional[DxfRepository] = None):
+        self._connection = connection or DatabaseConnection.instance()
+        self._repository = repository or DxfRepository(self._connection)
         self.logger = Logger
 
     def export_from_database(
@@ -43,7 +44,23 @@ class DXFDatabaseExporter:
             or None when not exported.
         """
         try:
-            file_record = self.db_manager.get_dxf_file_by_id(username, password, host, port, dbname, file_id)
+            # Подключаемся к базе данных
+            if not self._connection.connect(username, password, host, port, dbname):
+                Logger.log_error(f"Failed to connect to database")
+                return None
+            
+            session = self._connection.get_session()
+            if session is None:
+                Logger.log_error("Failed to get database session")
+                return None
+            
+            # Получаем файл по ID (пробуем разные схемы)
+            file_record = None
+            for schema in ['file_schema', 'public']:
+                file_record = self._repository.get_file_by_id(session, file_id, schema)
+                if file_record:
+                    break
+            
             if not file_record:
                 Logger.log_error(f"File with ID {file_id} not found in database")
                 return None

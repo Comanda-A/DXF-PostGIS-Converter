@@ -2,13 +2,13 @@ from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QVBoxLayout, QPushButton, QLabel
 from qgis.PyQt import uic
 
-from ..plugins.db_manager.db_tree import DBTree
-from ..localization.localization_manager import LocalizationManager
+from ...plugins.db_manager.db_tree import DBTree
+from ...localization.localization_manager import LocalizationManager
 import os
 
 
-# Load UI file for PyQt
-FORM_CLASS, _ = uic.loadUiType(os.path.join(os.path.dirname(__file__), 'providers_dialog.ui'))
+# Load UI file from resources
+FORM_CLASS, _ = uic.loadUiType(os.path.join(os.path.dirname(__file__), '..', 'resources', 'providers_dialog.ui'))
 
 
 class ProvidersDialog(QtWidgets.QDialog, FORM_CLASS):

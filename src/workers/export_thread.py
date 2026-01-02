@@ -1,8 +1,9 @@
-"""src.exporters.export_thread
+# -*- coding: utf-8 -*-
+"""
+Export Thread - фоновый поток для операций экспорта.
 
-Background thread for export operations.
-
-This mirrors importers.import_thread.ImportThread to keep UI responsive.
+Выполняет экспорт из PostgreSQL/PostGIS в DXF в отдельном потоке,
+чтобы не блокировать UI.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from typing import Callable, Optional, Union, Tuple
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from .log_capture import LogCapture
+from ..logger.log_capture import LogCapture
 from ..localization.localization_manager import LocalizationManager
 from ..logger.logger import Logger
 
@@ -20,8 +21,9 @@ ExportFnResult = Union[bool, str, None]
 
 
 class ExportThread(QThread):
-    """Поток для выполнения экспорта DXF данных.
-
+    """
+    Поток для выполнения экспорта DXF данных.
+    
     Работает отдельно от основного потока интерфейса, чтобы не блокировать UI.
     """
 
@@ -29,6 +31,12 @@ class ExportThread(QThread):
     progress_update = pyqtSignal(int, str)  # Сигнал прогресса: процент, сообщение
 
     def __init__(self, export_function: Callable[[], ExportFnResult]):
+        """
+        Инициализация потока экспорта.
+        
+        Args:
+            export_function: Функция, выполняющая экспорт
+        """
         super().__init__()
         self.export_function = export_function
         self.lm = LocalizationManager.instance()
@@ -37,6 +45,9 @@ class ExportThread(QThread):
         self.log_capture.log_captured.connect(self.on_log_captured)
 
     def on_log_captured(self, message: str):
+        """
+        Обработчик захваченного лога - передаем его как прогресс.
+        """
         clean_message = (message or "").strip()
 
         percent = 50
@@ -56,6 +67,9 @@ class ExportThread(QThread):
         self.progress_update.emit(percent, clean_message)
 
     def run(self):
+        """
+        Основной метод потока. Выполняет экспорт и отправляет сигнал о результате.
+        """
         try:
             self.log_capture.start_capture()
             Logger.log_message("Начало экспорта DXF")
@@ -79,6 +93,15 @@ class ExportThread(QThread):
 
     @staticmethod
     def _normalize_result(result: ExportFnResult) -> Tuple[bool, str]:
+        """
+        Нормализовать результат функции экспорта.
+        
+        Args:
+            result: Результат (bool, str или None)
+            
+        Returns:
+            Кортеж (success, message)
+        """
         if isinstance(result, str):
             if result:
                 return True, result

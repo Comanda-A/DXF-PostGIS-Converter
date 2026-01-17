@@ -30,6 +30,9 @@ class ImportConfig:
     # Маппинг столбцов
     column_mappings: Dict[str, Any] = field(default_factory=dict)
     
+    # Создавать ли превью при импорте
+    generate_preview: bool = True
+    
     @property
     def is_valid(self) -> bool:
         """Базовая проверка валидности конфигурации."""

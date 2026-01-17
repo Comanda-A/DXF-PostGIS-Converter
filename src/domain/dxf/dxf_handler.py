@@ -93,7 +93,7 @@ class DXFHandler(QObject):
         """
         try:
             # Создаем директорию превью в корне плагина
-            preview_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'previews')
+            preview_dir = os.path.join(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'previews')
             os.makedirs(preview_dir, exist_ok=True)
 
             # Генерируем уникальное имя файла для превью

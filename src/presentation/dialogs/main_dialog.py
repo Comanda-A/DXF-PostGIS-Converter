@@ -148,6 +148,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         
         # Settings
         self.enable_logging_checkbox.stateChanged.connect(self._toggle_logging)
+        self.enable_preview_checkbox.stateChanged.connect(self._toggle_preview)
         self.language_combo.currentTextChanged.connect(self._change_language)
     
     def _load_settings(self):
@@ -155,6 +156,9 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         is_logging = self._settings_service.is_logging_enabled()
         self.enable_logging_checkbox.setChecked(is_logging)
         Logger.set_logging_enabled(is_logging)
+        
+        is_preview = self._settings_service.is_preview_enabled()
+        self.enable_preview_checkbox.setChecked(is_preview)
         
         lang = self._settings_service.get_language()
         self.language_combo.setCurrentText(lang)
@@ -182,6 +186,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         # Settings
         self.language_label.setText(self.lm.get_string("UI", "interface_language"))
         self.enable_logging_checkbox.setText(self.lm.get_string("UI", "enable_logs"))
+        self.enable_preview_checkbox.setText(self.lm.get_string("UI", "enable_preview", "Создавать превью при импорте"))
     
     # ========== Event Handlers ==========
     
@@ -367,6 +372,11 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         enabled = state == Qt.Checked
         self._settings_service.set_logging_enabled(enabled)
         Logger.set_logging_enabled(enabled)
+    
+    def _toggle_preview(self, state):
+        """Переключить создание превью."""
+        enabled = state == Qt.Checked
+        self._settings_service.set_preview_enabled(enabled)
     
     def _change_language(self, new_lang):
         """Сменить язык."""

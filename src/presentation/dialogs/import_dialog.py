@@ -283,6 +283,13 @@ class ImportDialog(QDialog):
         file_schema_group.setLayout(file_schema_layout)
         right_column.addWidget(file_schema_group)
         
+        # Превью
+        self.generate_preview_checkbox = QCheckBox(
+            self.lm.get_string("EXPORT_DIALOG", "generate_preview", "Создавать превью")
+        )
+        self.generate_preview_checkbox.setChecked(self._settings_service.is_preview_enabled())
+        right_column.addWidget(self.generate_preview_checkbox)
+        
         # Кнопки
         button_layout = QHBoxLayout()
         self.import_button = QPushButton(self.lm.get_string("EXPORT_DIALOG", "import_button"))
@@ -501,7 +508,8 @@ class ImportDialog(QDialog):
             mapping_mode=self.mapping_mode_combo.currentData() or 'always_overwrite',
             export_layers_only=self._schema_settings.export_layers_only,
             custom_filename=self._schema_settings.custom_filename,
-            column_mappings=self.column_mapping_configs
+            column_mappings=self.column_mapping_configs,
+            generate_preview=self.generate_preview_checkbox.isChecked()
         )
     
     def _show_progress_dialog(self):

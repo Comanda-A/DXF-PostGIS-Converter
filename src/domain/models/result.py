@@ -48,6 +48,9 @@ class ImportResult:
     # Путь к временному файлу (для очистки)
     temp_file_path: Optional[str] = None
     
+    # Путь к SVG превью
+    preview_path: Optional[str] = None
+    
     @classmethod
     def success_result(
         cls, 

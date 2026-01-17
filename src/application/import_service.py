@@ -9,7 +9,7 @@ import os
 import tempfile
 from typing import Optional, Callable, List, Dict, Any
 
-from ..domain.dxf import DxfDocument, EntitySelector
+from ..domain.dxf import DxfDocument, EntitySelector, DXFHandler
 from ..domain.models import ImportConfig, ImportResult, ValidationResult
 from ..domain.converters import DXFToPostGISConverter
 from ..infrastructure.database import DatabaseConnection, DxfRepository
@@ -158,7 +158,16 @@ class ImportService:
             if not self._repository.ensure_file_table(session, config.file_schema):
                 return ImportResult.error_result("Не удалось создать таблицу dxf_files")
             
+            # Определяем имя файла (нужно до создания превью)
+            original_filename = os.path.basename(file_path)
+            filename_for_db = config.custom_filename or original_filename
+            if not filename_for_db.lower().endswith('.dxf'):
+                filename_for_db += '.dxf'
+            
             # Загружаем DXF если не переданы сущности
+            preview_path = None
+            document = None
+            
             if entities_by_layer is None:
                 report_progress(15, "Чтение DXF файла...")
                 document = DxfDocument(file_path)
@@ -166,11 +175,25 @@ class ImportService:
                     return ImportResult.error_result("Не удалось загрузить DXF файл")
                 entities_by_layer = document.get_layers()
             
-            # Определяем имя файла
-            original_filename = os.path.basename(file_path)
-            filename_for_db = config.custom_filename or original_filename
-            if not filename_for_db.lower().endswith('.dxf'):
-                filename_for_db += '.dxf'
+            # Создаём превью если включено (независимо от того, переданы сущности или нет)
+            if config.generate_preview:
+                report_progress(18, "Создание превью...")
+                try:
+                    # Если документ ещё не загружен, загружаем только для превью
+                    if document is None:
+                        document = DxfDocument(file_path)
+                    
+                    if document.is_loaded:
+                        # Используем filename_for_db для имени превью (не временный путь)
+                        preview_path = DXFHandler.save_svg_preview(
+                            document.document, 
+                            document.modelspace, 
+                            filename_for_db
+                        )
+                        if preview_path:
+                            Logger.log_message(f"Превью создано: {preview_path}")
+                except Exception as e:
+                    Logger.log_warning(f"Не удалось создать превью: {str(e)}")
             
             Logger.log_message(f"Импорт файла: {filename_for_db}")
             Logger.log_message(f"Слоёв для импорта: {len(entities_by_layer)}")
@@ -248,7 +271,8 @@ class ImportService:
                     files_imported=1 if file_record else 0,
                     layers_imported=layers_imported,
                     entities_imported=total_entities,
-                    layer_errors=layer_errors
+                    layer_errors=layer_errors,
+                    preview_path=preview_path
                 )
             else:
                 return ImportResult.error_result(

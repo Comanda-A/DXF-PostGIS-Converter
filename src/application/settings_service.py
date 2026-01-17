@@ -70,6 +70,7 @@ class SettingsService:
         # Пользовательские настройки
         LOGGING_ENABLED = "DXFPostGISConverter/EnableLogging"
         LANGUAGE = "DXFPostGISConverter/Language"
+        GENERATE_PREVIEW = "DXFPostGISConverter/GeneratePreview"
         
         # Сохранённые подключения
         CONNECTIONS = "DXFPostGIS/connections"
@@ -146,6 +147,14 @@ class SettingsService:
     def set_language(self, language: str) -> None:
         """Установить язык интерфейса."""
         self._settings.setValue(self.Keys.LANGUAGE, language)
+    
+    def is_preview_enabled(self) -> bool:
+        """Проверить, включено ли создание превью при импорте."""
+        return self._settings.value(self.Keys.GENERATE_PREVIEW, True, type=bool)
+    
+    def set_preview_enabled(self, enabled: bool) -> None:
+        """Установить состояние создания превью при импорте."""
+        self._settings.setValue(self.Keys.GENERATE_PREVIEW, enabled)
     
     # ========== Вспомогательные методы ==========
     

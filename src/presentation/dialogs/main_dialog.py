@@ -75,8 +75,8 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         self.db_tree_widget_handler = TreeWidgetHandler(self.db_structure_treewidget)
         self.qgis_sync_manager = QGISLayerSyncManager(self.dxf_tree_widget_handler)
         
-        # DXF Handler wrapper (для совместимости с legacy code)
-        from ...domain.dxf.dxf_handler import DXFHandler
+        # DXF Handler (presentation layer — зависит от UI-виджетов)
+        from ..dxf_handler import DXFHandler
         self.dxf_handler = DXFHandler(
             self.type_shape, 
             self.type_selection, 
@@ -284,7 +284,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
                 QMessageBox.critical(
                     self,
                     self.lm.get_string("COMMON", "error"),
-                    result.error_message or self.lm.get_string("MAIN_DIALOG", "export_failed")
+                    result.message or self.lm.get_string("MAIN_DIALOG", "export_failed")
                 )
         except Exception as e:
             Logger.log_error(f"Export error: {e}")
@@ -526,7 +526,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         conn_item.takeChildren()
         
         # Используем репозиторий из контейнера
-        from ...application.settings_service import ConnectionSettings
+        from ...domain.models.config import ConnectionSettings
         
         connection = ConnectionSettings(
             host=uri.host(),
@@ -645,8 +645,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
             )
             return
         
-        from ...application.settings_service import ConnectionSettings
-        from ...domain.models.config import ExportConfig
+        from ...domain.models.config import ConnectionSettings, ExportConfig
         from ...application.export_service import ExportDestination
         
         # Создаём конфигурацию экспорта
@@ -701,7 +700,7 @@ class ConverterDialog(QtWidgets.QDialog, FORM_CLASS):
         if not conn:
             return
         
-        from ...application.settings_service import ConnectionSettings
+        from ...domain.models.config import ConnectionSettings
         
         connection = ConnectionSettings(
             host=uri.host(),

@@ -196,11 +196,15 @@ class ExportService:
     def export_selected_entities(
         self,
         request: ExportEntitiesRequest,
-        dxf_handler: Any,  # DXFHandler для обратной совместимости
+        dxf_handler: Any,  # DXFHandler из presentation layer
         progress_callback: Optional[Callable[[int, str], None]] = None
     ) -> ExportResult:
         """
         Экспорт выбранных сущностей в новый DXF файл.
+        
+        Делегирует работу DXFHandler.save_selected_entities(), который использует
+        ezdxf.xref.write_block для корректного копирования сущностей вместе со
+        всеми зависимыми ресурсами (слои, стили, типы линий и т.д.).
         
         Args:
             request: Запрос на экспорт сущностей
@@ -210,84 +214,37 @@ class ExportService:
         Returns:
             Результат экспорта
         """
-        import ezdxf
-        
         def report_progress(percent: int, message: str):
             if progress_callback:
                 progress_callback(percent, message)
         
         try:
-            report_progress(10, "Загрузка исходного файла...")
+            report_progress(10, "Подготовка к экспорту...")
             
-            # Получаем документ
-            source_doc = dxf_handler.documents.get(request.source_file)
-            if not source_doc:
-                return ExportResult(
-                    success=False,
-                    error_message=f"Файл {request.source_file} не загружен"
-                )
-            
-            # Получаем выбранные сущности
-            selected_entities = dxf_handler.selected_entities.get(request.source_file, [])
-            if not selected_entities:
-                return ExportResult(
-                    success=False,
-                    error_message="Нет выбранных сущностей для экспорта"
-                )
-            
-            report_progress(30, "Создание нового документа...")
-            
-            # Создаём новый документ
-            new_doc = ezdxf.new(dxfversion=source_doc.dxfversion)
-            msp = new_doc.modelspace()
-            
-            # Копируем слои
-            report_progress(40, "Копирование слоёв...")
-            layer_names = set()
-            for entity in selected_entities:
-                layer_name = entity.dxf.layer
-                if layer_name not in layer_names:
-                    layer_names.add(layer_name)
-                    try:
-                        source_layer = source_doc.layers.get(layer_name)
-                        if source_layer and layer_name not in new_doc.layers:
-                            new_doc.layers.add(
-                                layer_name,
-                                color=source_layer.color,
-                                linetype=source_layer.dxf.linetype
-                            )
-                    except Exception:
-                        pass
-            
-            # Копируем сущности
-            report_progress(60, "Копирование сущностей...")
-            copied_count = 0
-            for entity in selected_entities:
-                try:
-                    # Копируем через virtual entities для сложных объектов
-                    new_entity = entity.copy()
-                    msp.add_entity(new_entity)
-                    copied_count += 1
-                except Exception as e:
-                    Logger.log_warning(f"Не удалось скопировать сущность: {e}")
-            
-            # Сохраняем
-            report_progress(90, "Сохранение файла...")
-            new_doc.saveas(request.output_file)
+            report_progress(50, "Экспорт сущностей...")
+            success = dxf_handler.save_selected_entities(
+                request.source_file, request.output_file
+            )
             
             report_progress(100, "Экспорт завершён")
             
-            return ExportResult(
-                success=True,
-                output_path=request.output_file,
-                entities_count=copied_count
-            )
+            if success:
+                return ExportResult(
+                    success=True,
+                    output_path=request.output_file,
+                    message="Экспорт выбранных сущностей завершён успешно"
+                )
+            else:
+                return ExportResult(
+                    success=False,
+                    message="Не удалось экспортировать выбранные сущности"
+                )
             
         except Exception as e:
             Logger.log_error(f"Export entities error: {e}")
             return ExportResult(
                 success=False,
-                error_message=str(e)
+                message=str(e)
             )
     
     def _resolve_output_path(self, config: ExportConfig, file_name: str) -> Optional[str]:

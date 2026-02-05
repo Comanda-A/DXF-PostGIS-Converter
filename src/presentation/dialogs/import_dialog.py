@@ -19,8 +19,8 @@ from PyQt5.QtWidgets import (
     QComboBox, QTreeWidgetItem, QProgressDialog, QCheckBox, QMessageBox
 )
 
-from ...application import SettingsService, ConnectionSettings, ImportService
-from ...application.settings_service import SchemaSettings
+from ...application import SettingsService, ImportService
+from ...domain.models.config import ConnectionSettings, SchemaSettings
 from ...domain.models import ImportConfig, ImportResult
 from ...container import DependencyContainer
 from ...localization.localization_manager import LocalizationManager

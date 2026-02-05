@@ -13,7 +13,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session, close_all_sessions
 from sqlalchemy.engine import Engine
 
-from ...application.settings_service import ConnectionSettings
+from ...domain.models.config import ConnectionSettings
 from ...logger.logger import Logger
 
 

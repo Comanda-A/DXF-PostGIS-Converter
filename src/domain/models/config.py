@@ -1,12 +1,42 @@
 # -*- coding: utf-8 -*-
 """
 Config DTOs - конфигурации для операций импорта/экспорта.
+
+Содержит доменные модели данных: ConnectionSettings, SchemaSettings,
+ImportConfig, ExportConfig. Эти классы — чистые DTO без UI-зависимостей.
 """
 
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 
-from ...application.settings_service import ConnectionSettings
+
+@dataclass
+class ConnectionSettings:
+    """Настройки подключения к базе данных."""
+    host: str = 'none'
+    port: str = '5432'
+    database: str = 'none'
+    username: str = 'none'
+    password: str = ''
+
+    @property
+    def is_configured(self) -> bool:
+        """Проверяет, настроено ли подключение."""
+        return self.database != 'none' and self.username != 'none'
+
+    @property
+    def display_name(self) -> str:
+        """Возвращает отображаемое имя подключения."""
+        return f"{self.host}:{self.port}/{self.database}"
+
+
+@dataclass
+class SchemaSettings:
+    """Настройки схем базы данных."""
+    layer_schema: str = 'layer_schema'
+    file_schema: str = 'file_schema'
+    export_layers_only: bool = False
+    custom_filename: str = ''
 
 
 @dataclass

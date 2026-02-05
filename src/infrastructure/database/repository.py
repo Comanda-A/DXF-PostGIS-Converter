@@ -18,7 +18,7 @@ from sqlalchemy import text, inspect, MetaData, Table
 from sqlalchemy.orm import Session
 
 from .connection import DatabaseConnection
-from ...application.settings_service import ConnectionSettings
+from ...domain.models.config import ConnectionSettings
 from . import models
 from .base import Base
 from ...logger.logger import Logger

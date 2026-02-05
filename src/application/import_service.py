@@ -9,7 +9,7 @@ import os
 import tempfile
 from typing import Optional, Callable, List, Dict, Any
 
-from ..domain.dxf import DxfDocument, EntitySelector, DXFHandler
+from ..domain.dxf import DxfDocument, EntitySelector
 from ..domain.models import ImportConfig, ImportResult, ValidationResult
 from ..domain.converters import DXFToPostGISConverter
 from ..infrastructure.database import DatabaseConnection, DxfRepository
@@ -184,12 +184,12 @@ class ImportService:
                         document = DxfDocument(file_path)
                     
                     if document.is_loaded:
-                        # Используем filename_for_db для имени превью (не временный путь)
-                        preview_path = DXFHandler.save_svg_preview(
-                            document.document, 
-                            document.modelspace, 
-                            filename_for_db
+                        # Определяем директорию для превью
+                        preview_dir = os.path.join(
+                            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                            'previews'
                         )
+                        preview_path = document.save_svg_preview(preview_dir)
                         if preview_path:
                             Logger.log_message(f"Превью создано: {preview_path}")
                 except Exception as e:

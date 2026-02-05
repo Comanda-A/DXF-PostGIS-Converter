@@ -8,9 +8,9 @@ from typing import Dict
 
 import os
 
-from ...logger.logger import Logger
+from ..logger.logger import Logger
 from PyQt5.QtCore import pyqtSignal, QObject, Qt
-from ...localization.localization_manager import LocalizationManager
+from ..localization.localization_manager import LocalizationManager
 
 # Import for DXFExporter
 from ezdxf import xref as xref

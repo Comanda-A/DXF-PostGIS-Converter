@@ -20,7 +20,7 @@ try:
     from PyQt5 import QtCore, QtGui, QtWidgets
     from qgis.utils import os, sys
     from PyQt5 import QtGui, uic
-    from PyQt5.QtWidgets import QApplication, QMessageBox, QDialog, QTableWidgetItem, QDialogButtonBox, QFileDialog
+    from PyQt5.QtWidgets import QApplication, QMessageBox, QDialog, QTableWidgetItem, QDialogButtonBox, QFileDialog, QSizePolicy
     from PyQt5.QtCore import QSize, QSettings, QTranslator, qVersion, QCoreApplication, QObject, QEvent
 
 except:
@@ -179,7 +179,6 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
         self.setupUi(self)
         self.setWindowTitle(fncCGFensterTitel())
         self.browseDXFDatei.clicked.connect(self.browseDXFDatei_clicked)
-        self.browseZielPfadOrDatei.clicked.connect(self.browseZielPfadOrDatei_clicked)
         self.chkSHP.clicked.connect(self.chkSHP_clicked)
         self.chkGPKG.clicked.connect(self.chkGPKG_clicked)
 
@@ -206,22 +205,11 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
         self.btnStart.clicked.connect(self.btnStart_clicked)
         self.btnReset.clicked.connect(self.btnReset_clicked)
 
-        LastDay = date(2023, 5, 19)
-        if (date.today() > LastDay):
-            self.btnDonate.setVisible(False)
-            self.lbDonate.setVisible(False)
-        else:
-            d = LastDay - date.today()
-            if (d.days == 0):
-                self.lbDonate.setText('!! Only today !!')
-            else:
-                self.lbDonate.setText('Only ' + str(d.days) + ' more days')
-            if myqtVersion == 4:
-                self.btnDonate.setText('Donate')
-            self.btnDonate.clicked.connect(self.btnDonate_clicked)
-
         self.StartHeight = self.height()
         self.StartWidth = self.width()
+
+        self.LastHeight = 0
+        self.LastWidth = 0
 
         self.SetzeVoreinstellungen()
         self.TableNone2Empty(self.tabTPoints)
@@ -442,10 +430,6 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
 
         self.cbCharSet.addItems(self.charsetList)
         self.cbCharSet.setCurrentIndex(int(iCodePage))
-        try:
-            self.lbGDAL.setText(gdal.VersionInfo("GDAL_RELEASE_DATE"))
-        except:
-            self.lbGDAL.setText("-")
 
     def chkTransform_clicked(self):
         self.ManageTransformSettings()
@@ -458,19 +442,8 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
 
     def SHPorGPKG(self):
         s = QSettings("EZUSoft", fncProgKennung())
-        if self.chkSHP.isChecked() or self.chkGPKG.isChecked():
-            self.txtZielPfad.setText(s.value("lastSHPorGPKGDir", "."))
         bGenSHP = self.chkSHP.isChecked()
         bGenGPKG = self.chkGPKG.isChecked()
-        self.lbOutput.setEnabled(bGenSHP or bGenGPKG)
-        self.txtZielPfad.setEnabled(bGenSHP or bGenGPKG)
-        self.browseZielPfadOrDatei.setEnabled(bGenSHP or bGenGPKG)
-        if bGenSHP or bGenGPKG:
-            self.txtZielPfad.setPlaceholderText(self.tr("Specify destination path"))
-            self.lbOutput.setText(self.tr(u"Output path"))
-        else:
-            self.txtZielPfad.setPlaceholderText("")
-            self.lbOutput.setText("")
 
     def chkSHP_clicked(self):
         if self.chkSHP.isChecked() and self.chkGPKG.isChecked():
@@ -524,7 +497,6 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
             flags = QtGui.QFileDialog.DontResolveSymlinks | QtGui.QFileDialog.ShowDirsOnly
             outDirName = QtGui.QFileDialog.getExistingDirectory(self, "Open Directory", lastSHPorGPKGDir, flags)
         outDirName = outDirName.replace("\\", "/")
-        self.txtZielPfad.setText(outDirName)
         if outDirName != "": s.setValue("lastSHPorGPKGDir", outDirName)
 
     def OptSpeichern(self):
@@ -541,12 +513,8 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
 
         s.setValue("iCodePage", self.cbCharSet.currentIndex())
 
-    def btnDonate_clicked(self):
-        sLink = 'https://www.makobo.de/links/Donate_AnotherDXF2Shape.php?id=' + fncBrowserID()
-        webbrowser.open(sLink)
-
     def btnReset_clicked(self):
-        result = QMessageBox.question(None, 'Another DXF2Shape', self.tr('Restore default settings'),
+        result = QMessageBox.question(None, 'Сброс UI', 'Восстановить настройки по умолчанию',
                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if result == QMessageBox.Yes:
             QSettings("EZUSoft", fncProgKennung()).clear()
@@ -573,7 +541,7 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
 
         if ZielPfad == "":
             QMessageBox.critical(None, self.tr("Destination path not selected"),
-                                 self.tr("Please specify a target path for shapes"))
+                                self.tr("Please specify a target path for shapes"))
             return
 
         if ZielPfad[-1] != "/" and ZielPfad[-1] != "\\":
@@ -586,12 +554,12 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
             dblFaktor = float(self.txtFaktor.text().replace(",", "."))
             if dblFaktor == 0:
                 QMessageBox.critical(None, self.tr("Reset text height"),
-                                     self.tr("Text correction factor can not assume a zero value"))
+                                    self.tr("Text correction factor can not assume a zero value"))
                 self.txtFaktor.setText("1.3")
                 return
         except:            
             QMessageBox.critical(None, self.tr("Reset text height"),
-                                 self.tr("Error converting Text correction factor to numbers"))
+                                self.tr("Error converting Text correction factor to numbers"))
             self.txtFaktor.setText("1.3")
             return
 
@@ -617,43 +585,45 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
         if self.chkGPKG.isChecked(): out = "GPKG"
         if self.chkSHP.isChecked():  out = "SHP"
 
-        Antw = DXFImporter(self, out, self.listDXFDatNam, ZielPfad, self.chkSHP.isChecked() or self.chkGPKG.isChecked(),
-                           self.cbCharSet.currentText(), self.chkCol.isChecked(), self.chkLay.isChecked(),
-                           self.chkUseTextFormat.isChecked(), self.chkUseColor4Point.isChecked(),
-                           self.chkUseColor4Line.isChecked(), self.chkUseColor4Poly.isChecked(), dblFaktor,
-                           self.chkTransform.isChecked(), DreiPassPunkte, self.chk3D.isChecked(),
-                           self.txtErsatz4Tab.text())
-        self.iface.read_multiple_dxf(self.current_files)
+        if self.chkQgis.isChecked():
+            Antw = DXFImporter(self, out, self.listDXFDatNam, ZielPfad, self.chkSHP.isChecked() or self.chkGPKG.isChecked(),
+                self.cbCharSet.currentText(), self.chkCol.isChecked(), self.chkLay.isChecked(),
+                self.chkUseTextFormat.isChecked(), self.chkUseColor4Point.isChecked(),
+                self.chkUseColor4Line.isChecked(), self.chkUseColor4Poly.isChecked(), dblFaktor,
+                self.chkTransform.isChecked(), DreiPassPunkte, self.chk3D.isChecked(),
+                self.txtErsatz4Tab.text())
         
         # Настраиваем синхронизацию с QGIS после импорта
         if hasattr(self.iface, 'setup_qgis_sync_for_imported_files'):
             self.iface.setup_qgis_sync_for_imported_files(self.current_files)
-
+        
         self.FormRunning(False)
+        self.close()
 
     def SetAktionText(self, txt):
-        self.lbAktion.setText(txt)
+        self.labelProgress1.setText(txt)
         self.repaint()
 
     def SetAktionAktSchritt(self, akt):
-        self.pgBar.setValue(akt)
+        self.progressBar1.setValue(akt)
         self.repaint()
 
     def SetAktionGesSchritte(self, ges):
-        self.pgBar.setMaximum(ges)
+        self.progressBar1.setMaximum(ges)
         self.repaint()
 
     def SetDatAktionText(self, txt):
-        self.lbDatAktion.setText(txt)
+        self.labelProgress2.setText(txt)
         self.repaint()
 
     def SetDatAktionAktSchritt(self, akt):
-        self.pgDatBar.setValue(akt)
+        self.progressBar2.setValue(akt)
         self.repaint()
 
     def SetDatAktionGesSchritte(self, ges):
-        self.pgDatBar.setMaximum(ges)
+        self.progressBar2.setMaximum(ges)
         self.repaint()
+
 
     def FormRunning(self, bRun):
         def Anz(ctl):
@@ -662,27 +632,23 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
             else:
                 ctl.show()
 
-        Anz(self.lbFormat);
-        Anz(self.lbColor);
-        Anz(self.lbGDAL);
-        Anz(self.lbDXF);
-        Anz(self.lbOutput);
+        Anz(self.lbFormat)
+        Anz(self.lbColor)
+        Anz(self.lbDXF)
         Anz(self.lblCharSet)
-        Anz(self.chkUseTextFormat);
-        Anz(self.chkUseColor4Point);
-        Anz(self.chkUseColor4Line);
+        Anz(self.chkUseTextFormat)
+        Anz(self.chkUseColor4Point)
+        Anz(self.chkUseColor4Line)
         Anz(self.chkUseColor4Poly)
 
         Anz(self.btnStart)
         Anz(self.btnReset)
         Anz(self.cbCharSet)
         Anz(self.button_box.button(QDialogButtonBox.Close))
-        Anz(self.browseDXFDatei);
-        Anz(self.browseZielPfadOrDatei)
-        Anz(self.listDXFDatNam);
-        Anz(self.txtZielPfad)
-        Anz(self.chkCol);
-        Anz(self.chkLay);
+        Anz(self.browseDXFDatei)
+        Anz(self.listDXFDatNam)
+        Anz(self.chkCol)
+        Anz(self.chkLay)
         Anz(self.chkSHP)
         if myqtVersion == 5: Anz(self.chkGPKG)
         Anz(self.lbFaktor);
@@ -693,150 +659,25 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
         Anz(self.tabSetting)
 
         if bRun:
-            self.lbIcon.show()
-            self.pgBar.show()
-            self.lbAktion.show()
-            self.pgBar.setValue(0)
             self.AktSchritt = 0
-            
-            self.pgDatBar.show()
-            self.lbDatAktion.show()
-            self.pgDatBar.setValue(0)
             self.AktDatSchritt = 0
 
             self.chkSHP_clicked()
             self.chkGPKG_clicked()
+            self.LastHeight = self.height()
+            self.LastWidth = self.width()
+            self.stackedWidget.setCurrentIndex(1)
+            self.setMinimumSize(400, 130)
+            self.setMaximumSize(400, 130)
         else:
-            self.lbIcon.hide()
-            self.pgBar.hide()
-            self.lbAktion.hide()
-            self.pgDatBar.hide()
-            self.lbDatAktion.hide()    
+            self.stackedWidget.setCurrentIndex(0)
+            self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+            self.setMinimumSize(650, 450)
+            self.setMaximumSize(16777215, 16777215)
+            self.resize(self.LastWidth, self.LastHeight)
+    
     def RunMenu(self):
         self.exec_()
         s = QSettings("EZUSoft", fncProgKennung())
         s.setValue("SaveWidth", str(self.width()))
         s.setValue("SaveHeight", str(self.height()))
-
-    def import_dxf_programmatically(self, dxf_file_path):
-        """
-        Программный импорт DXF файла в QGIS с отображением UI прогресса
-        
-        :param dxf_file_path: Путь к DXF файлу
-        :return: True если импорт успешен, False в противном случае
-        """
-        try:
-            # Очищаем список файлов и добавляем наш файл
-            self.listDXFDatNam.clear()
-            self.listDXFDatNam.setEnabled(True)
-            self.listDXFDatNam.addItem(dxf_file_path)
-            self.current_files = [dxf_file_path]
-
-            # Устанавливаем настройки по умолчанию для импорта в QGIS
-            self.chkSHP.setChecked(False)
-            self.chkGPKG.setChecked(False)
-
-            # Настройки форматирования
-            self.chkCol.setChecked(False)  # Включаем цвета
-            self.chkLay.setChecked(True)  # Включаем слои
-            self.chkUseTextFormat.setChecked(True)  # Форматирование текста
-            self.chkUseColor4Point.setChecked(True)  # Цвета для точек
-            self.chkUseColor4Line.setChecked(True)  # Цвета для линий
-            self.chkUseColor4Poly.setChecked(False)  # Цвета для полигонов
-
-            # Настройки трансформации (отключаем)
-            self.chkTransform.setChecked(False)
-
-            # Настройки 3D
-            self.chk3D.setChecked(False)
-
-            # Параметры текста
-            self.txtFaktor.setText('1.3')
-            self.txtErsatz4Tab.setText(' | ')
-
-            # Кодировка
-            self.cbCharSet.setCurrentIndex(0)  # System
-            
-            # Показываем диалог для отображения прогресса
-            self.show()
-            self.raise_()
-            self.activateWindow()
-            
-            # Активируем режим выполнения (показывает только элементы прогресса)
-            self.FormRunning(True)
-            
-            # Принудительно обновляем UI
-            try:
-                from PyQt5.QtWidgets import QApplication
-                QApplication.processEvents()
-            except:
-                try:
-                    from PyQt4.QtGui import QApplication
-                    QApplication.processEvents()
-                except:
-                    pass
-            
-            # Запускаем процесс импорта
-            result = self._execute_import_process()
-            
-            # Деактивируем режим выполнения
-            self.FormRunning(False)
-            
-            # Скрываем диалог после завершения
-            self.hide()
-            
-            return result
-            
-        except Exception as e:
-            # В случае ошибки также восстанавливаем UI и скрываем диалог
-            self.FormRunning(False)
-            self.hide()
-            return False
-    
-    def _execute_import_process(self):
-        """
-        Выполняет процесс импорта DXF в QGIS
-        
-        :return: True если импорт успешен, False в противном случае
-        """
-        try:
-            # Проверяем наличие файла
-            if self.listDXFDatNam.count() == 0:
-                return False
-
-            dxf_file = self.listDXFDatNam.item(0).text()
-            if not os.path.exists(dxf_file):
-                return False
-
-            # Параметры для импорта
-            dblFaktor = float(self.txtFaktor.text().replace(",", "."))
-            DreiPassPunkte = None  # Без трансформации
-
-            # Временная директория для обработки
-            from .fnc4all import EZUTempDir
-            ZielPfad = EZUTempDir()
-            if ZielPfad[-1] != "/" and ZielPfad[-1] != "\\":
-                ZielPfad = ZielPfad + "/"
-
-            # Формат вывода (в памяти для QGIS)
-            out = "GPKG"
-
-            # Запускаем DXFImporter
-            Antw = DXFImporter(self, out, self.listDXFDatNam, ZielPfad, self.chkSHP.isChecked() or self.chkGPKG.isChecked(),
-                               self.cbCharSet.currentText(), self.chkCol.isChecked(), self.chkLay.isChecked(),
-                               self.chkUseTextFormat.isChecked(), self.chkUseColor4Point.isChecked(),
-                               self.chkUseColor4Line.isChecked(), self.chkUseColor4Poly.isChecked(), dblFaktor,
-                               self.chkTransform.isChecked(), DreiPassPunkte, self.chk3D.isChecked(),
-                               self.txtErsatz4Tab.text())
-            self.iface.read_multiple_dxf([dxf_file])
-            
-            # Настраиваем синхронизацию с QGIS после импорта
-            if hasattr(self.iface, 'setup_qgis_sync_for_imported_files'):
-                self.iface.setup_qgis_sync_for_imported_files([dxf_file])
-
-            return True
-            
-        except Exception as e:
-            return False
-
-

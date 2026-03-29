@@ -1,5 +1,5 @@
 from qgis.gui import QgsRubberBand, QgsMapToolEmitPoint, QgsMapTool
-from PyQt5 import QtGui
+from qgis.PyQt import QtGui
 from qgis.core import QgsWkbTypes
 
 class BaseMapTool(QgsMapToolEmitPoint):
@@ -30,4 +30,4 @@ class BaseMapTool(QgsMapToolEmitPoint):
 
     def update_dialog_coordinates(self, coord_text):
         self.dlg.show()
-        self.dlg.coord.setPlainText(coord_text)
+        self.dlg.coord_dit.setPlainText(coord_text)

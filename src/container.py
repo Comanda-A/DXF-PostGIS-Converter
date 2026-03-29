@@ -1,17 +1,17 @@
 
 import inject, os
-from .domain.services import IDXFReader, IDXFWriter
+from .domain.services import IDXFReader, IDXFWriter, IAreaSelector
 from .domain.repositories import IActiveDocumentRepository, IConnectionFactory, IRepositoryFactory
 
 from .application.interfaces import ISettings, ILogger, ILocalization
 from .application.events import IEvent, IAppEvents
 from .application.services import ActiveDocumentService, ConnectionConfigService
 from .application.database import DBSession
-from .application.use_cases import OpenDocumentUseCase, CloseDocumentUseCase, SelectEntityUseCase, ImportUseCase, ExportUseCase
+from .application.use_cases import OpenDocumentUseCase, CloseDocumentUseCase, SelectEntityUseCase, SelectAreaUseCase, ImportUseCase, ExportUseCase
 
 from .infrastructure.qgis import Settings, Logger, QtEvent, QtAppEvents
 from .infrastructure.localization.localization import Localization
-from .infrastructure.ezdxf import DXFReader
+from .infrastructure.ezdxf import DXFReader, EzdxfAreaSelector
 from .infrastructure.database import (
     ActiveDocumentRepository,
     ConnectionFactory,
@@ -38,6 +38,7 @@ class Container:
             logger = Logger(settings)
             localization = Localization(settings, logger, app_events)
             dxfreader = DXFReader()
+            area_selector = EzdxfAreaSelector()
             #dxfwriter = DXFWriter()
             active_repo = ActiveDocumentRepository()
             active_doc_service = ActiveDocumentService(active_repo, logger)
@@ -45,6 +46,7 @@ class Container:
             open_use_case = OpenDocumentUseCase(active_repo, dxfreader, app_events, logger)
             close_use_case = CloseDocumentUseCase(active_repo, dxfreader, app_events)
             select_use_case = SelectEntityUseCase(active_repo, app_events, logger)
+            select_area_use_case = SelectAreaUseCase(active_repo, area_selector, app_events, logger)
             import_use_case = ImportUseCase(active_repo, logger)
             export_use_case = ExportUseCase(logger)
 
@@ -71,6 +73,7 @@ class Container:
             binder.bind(ILogger, logger)
             binder.bind(ILocalization, localization)
             binder.bind(IDXFReader, dxfreader)
+            binder.bind(IAreaSelector, area_selector)
             binder.bind(IActiveDocumentRepository, active_repo)
             binder.bind(ActiveDocumentService, active_doc_service)
             binder.bind(ConnectionConfigService, connection_config_service)
@@ -78,6 +81,7 @@ class Container:
             binder.bind(OpenDocumentUseCase, open_use_case)
             binder.bind(CloseDocumentUseCase, close_use_case)
             binder.bind(SelectEntityUseCase, select_use_case)
+            binder.bind(SelectAreaUseCase, select_area_use_case)
             binder.bind(ImportUseCase, import_use_case)
             binder.bind(ExportUseCase, export_use_case)
 

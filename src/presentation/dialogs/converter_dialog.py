@@ -17,9 +17,9 @@ from ...application.interfaces import ILocalization, ISettings, ILogger
 from ...application.dtos import DXFDocumentDTO
 from ...application.events import IAppEvents
 from ...application.services import ActiveDocumentService
-from ...application.use_cases import OpenDocumentUseCase, SelectEntityUseCase
+from ...application.use_cases import OpenDocumentUseCase, SelectEntityUseCase, SelectAreaUseCase
 from ...presentation.widgets import SelectableDxfTreeHandler
-from ...presentation.services import DialogTranslator
+from ...presentation.services import DialogTranslator, AreaSelectionController
 from ...presentation.workers import LongTaskWorker
 
 
@@ -35,6 +35,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
     @inject.autoparams(
         'open_doc_use_case',
         'select_entity_use_case',
+        'select_area_use_case',
         'active_doc_service',
         'app_events',
         'localization',
@@ -46,6 +47,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
         iface,
         open_doc_use_case: OpenDocumentUseCase,
         select_entity_use_case: SelectEntityUseCase,
+        select_area_use_case: SelectAreaUseCase,
         active_doc_service: ActiveDocumentService,
         app_events: IAppEvents,
         localization: ILocalization,
@@ -63,6 +65,13 @@ class ConverterDialog(QDialog, FORM_CLASS):
         self._localization = localization
         self._settings = settings
         self._logger = logger
+
+        self.area_selection_controller = AreaSelectionController(
+            dialog=self,
+            iface=self.iface,
+            localization=self._localization,
+            select_area_use_case=select_area_use_case,
+        )
         
         # UI Handlers
         self.tree_widget_handler = SelectableDxfTreeHandler(self.dxf_tree_widget)
@@ -122,6 +131,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
         self._app_events.on_document_modified.connect(self._on_document_modified)
 
         self.open_dxf_button.clicked.connect(self._on_open_dxf_button_click)
+        self.select_area_button.clicked.connect(self._on_select_area_button_click)
         self.import_dxf_button.clicked.connect(self._on_import_dxf_button_click)
         self.save_dxf_button.clicked.connect(self._on_export_to_file)
         self.apply_filter_button.clicked.connect(self._on_apply_filter_button_click)
@@ -165,6 +175,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
         self.selection_mode.addItem(self._localization.tr("MAIN_DIALOG", "mode_join"))
         self.selection_mode.addItem(self._localization.tr("MAIN_DIALOG", "mode_replace"))
         self.selection_mode.addItem(self._localization.tr("MAIN_DIALOG", "mode_subtract"))
+        self.selection_mode.setCurrentIndex(1)
     
     def _switch_ui(self):
         enable = self._active_doc_service.get_documents_count() > 0
@@ -175,8 +186,14 @@ class ConverterDialog(QDialog, FORM_CLASS):
         self.dxf_tree_label.setEnabled(enable)
         self.dxf_tree_widget.setEnabled(enable)
 
-    # ========== events ==========
-
+# ========== events ==========
+    def refresh_documents_view(self):
+        """Полная синхронизация UI-списка документов/слоёв/сущностей."""
+        self._switch_ui()
+        self._update_file_filter_combo()
+        self.tree_widget_handler.rebuild_tree(self._active_doc_service.get_all())
+        self._update_file_check()
+        self._reset_selection_layers()
     def _on_document_opened(self, document: list[DXFDocumentDTO]):
         self._switch_ui()
         self._update_file_filter_combo()
@@ -298,6 +315,11 @@ class ConverterDialog(QDialog, FORM_CLASS):
     def _on_clear_filter_button_click(self):
         self._reset_selection_layers()
         self._update_layer_filter_list()
+
+    # ========== area selection ==========
+
+    def _on_select_area_button_click(self):
+        self.area_selection_controller.start_map_selection()
 
     # ========== open dxf button ==========
 
@@ -426,8 +448,9 @@ class ConverterDialog(QDialog, FORM_CLASS):
     def _show_help(self):
         """Показать справку."""
         QMessageBox.information(
-            self._lm.get_string("MAIN_DIALOG", "help_dialog_title"),
-            self._lm.get_string("HELP_CONTENT", "MAIN_DIALOG")
+            self,
+            self._localization.tr("MAIN_DIALOG", "help_dialog_title"),
+            self._localization.tr("HELP_CONTENT", "MAIN_DIALOG"),
         )
     
     def _show_window(self):

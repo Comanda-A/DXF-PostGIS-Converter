@@ -24,10 +24,11 @@ class CircleMapTool(BaseMapTool):
         if radius is not None:
             self.radius = radius
             center_str = f"({self.centerPoint.x():.2f}, {self.centerPoint.y():.2f})"
-            self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, self.centerPoint, self.radius)
-            self.update_dialog_coordinates(
-                self.dlg.lm.get_string("DRAW", "circle_coordinates", center_str, f"{self.radius:.2f}")
+            self.dlg.area_selection_controller.select_async(
+                self.centerPoint,
+                self.radius,
             )
+            self.update_dialog_coordinates(f"Circle: center={center_str}, radius={self.radius:.2f}")
             self.finish_drawing()
 
     def canvasMoveEvent(self, e):

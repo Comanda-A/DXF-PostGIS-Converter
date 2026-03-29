@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 from ...domain.entities import DXFBase, DXFDocument, DXFLayer, DXFEntity
 from ...application.dtos import DXFBaseDTO, DXFDocumentDTO, DXFLayerDTO, DXFEntityDTO

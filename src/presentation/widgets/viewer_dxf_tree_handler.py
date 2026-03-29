@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 from qgis.PyQt.QtWidgets import QTreeWidget, QTreeWidgetItem
 from qgis.PyQt.QtCore import QObject

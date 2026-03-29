@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 from abc import abstractmethod
 from ...domain.value_objects import Result, DxfEntityType

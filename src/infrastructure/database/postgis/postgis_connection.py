@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import psycopg2
 from psycopg2.extensions import connection as pg_connection
 from psycopg2.extras import RealDictCursor

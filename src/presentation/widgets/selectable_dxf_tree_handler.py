@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inject
 
 from qgis.PyQt.QtWidgets import QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView

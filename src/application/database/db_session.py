@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 from ...domain.value_objects import Result, Unit, ConnectionConfig
 from ...domain.repositories import (

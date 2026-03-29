@@ -5,7 +5,7 @@ from typing import Optional
 from ....domain.value_objects import Result, Unit
 from ....domain.entities import DXFContent
 from ....domain.repositories import IContentRepository
-from ....infrastructure.database.postgis import PostGISConnection
+from .postgis_connection import PostGISConnection
 
 
 class PostGISContentRepository(IContentRepository):
@@ -58,12 +58,14 @@ class PostGISContentRepository(IContentRepository):
             """
 
             data = {
-                'id': entity.id,
-                'document_id': entity.document_id,
+                'id': str(entity.id),
+                'document_id': str(entity.document_id),
                 'content': entity.content
             }
             
-            self._connection.execute_query(query, data)
+            result = self._connection.execute_query(query, data)
+            if result.is_fail:
+                return Result.fail(f"Failed to create content. {result.error}")
             return Result.success(entity)
             
         except Exception as e:
@@ -79,12 +81,14 @@ class PostGISContentRepository(IContentRepository):
             """
 
             data = {
-                'id': entity.id,
-                'document_id': entity.document_id,
+                'id': str(entity.id),
+                'document_id': str(entity.document_id),
                 'content': entity.content
             }
             
-            self._connection.execute_query(query, data)
+            result = self._connection.execute_query(query, data)
+            if result.is_fail:
+                return Result.fail(f"Failed to update content. {result.error}")
             return Result.success(entity)
             
         except Exception as e:
@@ -96,7 +100,9 @@ class PostGISContentRepository(IContentRepository):
                 DELETE FROM {self.full_name}
                 WHERE id = %(id)s
             """
-            self._connection.execute_query(query, {'id': id})
+            result = self._connection.execute_query(query, {'id': str(id)})
+            if result.is_fail:
+                return Result.fail(f"Failed to remove content. {result.error}")
             return Result.success(Unit())
         except Exception as e:
             return Result.fail(f"Failed to remove content: {e}")

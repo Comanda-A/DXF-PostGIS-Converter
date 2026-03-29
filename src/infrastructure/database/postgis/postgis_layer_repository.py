@@ -5,7 +5,7 @@ from typing import List, Optional
 from ....domain.value_objects import Result, Unit
 from ....domain.entities import DXFLayer
 from ....domain.repositories import ILayerRepository
-from ....infrastructure.database.postgis import PostGISConnection
+from .postgis_connection import PostGISConnection
 
 
 class PostGISLayerRepository(ILayerRepository):
@@ -60,14 +60,16 @@ class PostGISLayerRepository(ILayerRepository):
             """
 
             data = {
-                'id': entity.id,
-                'document_id': entity.document_id,
+                'id': str(entity.id),
+                'document_id': str(entity.document_id),
                 'name': entity.name,
                 'schema_name': entity._schema_name,
                 'table_name': entity.table_name
             }
             
-            self._connection.execute_query(query, data)
+            result = self._connection.execute_query(query, data)
+            if result.is_fail:
+                return Result.fail(f"Failed to create layer. {result.error}")
             return Result.success(entity)
             
         except Exception as e:
@@ -85,14 +87,16 @@ class PostGISLayerRepository(ILayerRepository):
             """
 
             data = {
-                'id': entity.id,
-                'document_id': entity.document_id,
+                'id': str(entity.id),
+                'document_id': str(entity.document_id),
                 'name': entity.name,
                 'schema_name': entity._schema_name,
                 'table_name': entity.table_name
             }
             
-            self._connection.execute_query(query, data)
+            result = self._connection.execute_query(query, data)
+            if result.is_fail:
+                return Result.fail(f"Failed to update layer. {result.error}")
             return Result.success(entity)
             
         except Exception as e:
@@ -104,7 +108,9 @@ class PostGISLayerRepository(ILayerRepository):
                 DELETE FROM {self.full_name}
                 WHERE id = %(id)s
             """
-            self._connection.execute_query(query, {'id': id})
+            result = self._connection.execute_query(query, {'id': str(id)})
+            if result.is_fail:
+                return Result.fail(f"Failed to remove layer. {result.error}")
             return Result.success(Unit())
         except Exception as e:
             return Result.fail(f"Failed to remove layer: {e}")
@@ -113,25 +119,32 @@ class PostGISLayerRepository(ILayerRepository):
         try:
             query = f"SELECT * FROM {self.full_name} WHERE id = %(id)s"
             result = self._connection.execute_query(query, {'id': str(id)})
-            if result and len(result) > 0:
+            if result.is_fail:
+                return Result.fail(f"Failed to get layer. {result.error}")
+            rows = result.value
+            if rows and len(rows) > 0:
                 layer = DXFLayer.create(
-                    document_id=result[0]['document_id'],
-                    name=result[0]['name'],
-                    schema_name=result[0]['schema_name'],
-                    table_name=result[0]['table_name'],
-                    id=result[0]['id']
+                    document_id=rows[0]['document_id'],
+                    name=rows[0]['name'],
+                    schema_name=rows[0]['schema_name'],
+                    table_name=rows[0]['table_name'],
+                    id=rows[0]['id']
                 )
                 return Result.success(layer)
-            return Result.success(None)
+            return Result.fail(f"Layer with id {id} not found")
         except Exception as e:
             return Result.fail(f"Failed to get layer: {e}")
 
     def get_by_document_id_and_layer_name(self, document_id: UUID, layer_name: str) -> Result[DXFLayer | None]:
         try:
-            query = f"SELECT * FROM {self.full_name} WHERE document_id = %(document_id)s"
-            result = self._connection.execute_query(query, {'document_id': str(document_id)})
-            layers = []
-            for row in result:
+            query = f"SELECT * FROM {self.full_name} WHERE document_id = %(document_id)s AND name = %(name)s LIMIT 1"
+            result = self._connection.execute_query(query, {'document_id': str(document_id), 'name': layer_name})
+            if result.is_fail:
+                return Result.fail(f"Failed to get layer by document ID and name. {result.error}")
+
+            rows = result.value
+            if rows and len(rows) > 0:
+                row = rows[0]
                 layer = DXFLayer.create(
                     document_id=row['document_id'],
                     name=row['name'],
@@ -139,8 +152,9 @@ class PostGISLayerRepository(ILayerRepository):
                     table_name=row['table_name'],
                     id=row['id']
                 )
-                layers.append(layer)
-            return Result.success(layers)
+                return Result.success(layer)
+
+            return Result.fail(f"Layer '{layer_name}' not found for document '{document_id}'")
         except Exception as e:
             return Result.fail(f"Failed to get layers by document ID: {e}")
 
@@ -148,8 +162,10 @@ class PostGISLayerRepository(ILayerRepository):
         try:
             query = f"SELECT * FROM {self.full_name} WHERE document_id = %(document_id)s"
             result = self._connection.execute_query(query, {'document_id': str(document_id)})
+            if result.is_fail:
+                return Result.fail(f"Failed to get layers by document ID. {result.error}")
             layers = []
-            for row in result:
+            for row in result.value:
                 layer = DXFLayer.create(
                     document_id=row['document_id'],
                     name=row['name'],
@@ -166,8 +182,10 @@ class PostGISLayerRepository(ILayerRepository):
         try:
             query = f"SELECT * FROM {self.full_name}"
             result = self._connection.execute_query(query)
+            if result.is_fail:
+                return Result.fail(f"Failed to get all layers. {result.error}")
             layers = []
-            for row in result:
+            for row in result.value:
                 layer = DXFLayer.create(
                     document_id=row['document_id'],
                     name=row['name'],

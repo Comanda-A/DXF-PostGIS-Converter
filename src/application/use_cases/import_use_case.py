@@ -29,7 +29,6 @@ class ImportUseCase:
         report_lines = []
         report_lines.append("Starting DXF import process")
         docs: dict[str, DXFDocument] = {}
-        self._session = inject.instance(DBSession)
         
         # check connection
         if not connection:
@@ -42,6 +41,8 @@ class ImportUseCase:
             return AppResult.fail("No configs"), "\n".join(report_lines)
         
         report_lines.append(f"Import configurations loaded: {len(configs)} file(s) to process")
+
+        self._session = inject.instance(DBSession)
 
         # check files
         for config in configs:
@@ -119,8 +120,8 @@ class ImportUseCase:
 
                     doc = result.value
 
-                    dxf_content = content_repo.get_by_document_id(doc.id).value
-                    if dxf_content is None:
+                    content_result = content_repo.get_by_document_id(doc.id)
+                    if content_result.is_fail:
                         report_lines.append(f"Creating new content record for document...")
                         dxf_content = content_repo.create(
                             DXFContent(
@@ -131,15 +132,21 @@ class ImportUseCase:
                         report_lines.append(f"Content record created (size: {len(docs[config.filename].content.content)} bytes)")
                     else:
                         report_lines.append(f"Updating existing content record...")
-                        dxf_content.content = docs[config.filename].content.content
-                        dxf_content = content_repo.update(dxf_content).value
+                        dxf_content = content_result.value
+                        dxf_content = content_repo.update(
+                            DXFContent(
+                                id=dxf_content.id,
+                                document_id=doc.id,
+                                content=docs[config.filename].content.content
+                            )
+                        ).value
                         report_lines.append(f"Content record updated (size: {len(docs[config.filename].content.content)} bytes)")
                     
                     layers_processed = 0
                     for layer in docs[config.filename].layers.values():
-                        ex_layer = layer_repo.get_by_document_id_and_layer_name(doc.id, layer.name).value
+                        ex_layer_result = layer_repo.get_by_document_id_and_layer_name(doc.id, layer.name)
 
-                        if ex_layer is None:
+                        if ex_layer_result.is_fail:
                             report_lines.append(f"Creating new layer record: '{layer.name}'")
                             ex_layer = layer_repo.create(
                                 DXFLayer(
@@ -151,6 +158,7 @@ class ImportUseCase:
                             ).value
                             layers_processed += 1
                         else:
+                            ex_layer = ex_layer_result.value
                             # если объекты слоя хранятся в другой схеме или таблице, то создаем еще одну сущность слоя
                             if ex_layer.schema_name != config.layer_schema or ex_layer.table_name != layer.table_name:
                                 report_lines.append(f"Layer '{layer.name}' already exists but with different schema/table, creating new layer record")

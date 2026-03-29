@@ -5,7 +5,7 @@ from uuid import UUID
 from ....domain.entities import DXFDocument
 from ....domain.repositories import IDocumentRepository
 from ....domain.value_objects import Result, Unit
-from ....infrastructure.database.postgis import PostGISConnection
+from .postgis_connection import PostGISConnection
 
 class PostGISDocumentRepository(IDocumentRepository):
     """PostGIS репозиторий для документов"""
@@ -60,13 +60,15 @@ class PostGISDocumentRepository(IDocumentRepository):
             """
 
             data = {
-                'id': entity.id,
+                'id': str(entity.id),
                 'filename': entity.filename,
                 'upload_date': entity.upload_date,
                 'update_date': entity.update_date
             }
             
-            self._connection.execute_query(query, data)
+            result = self._connection.execute_query(query, data)
+            if result.is_fail:
+                return Result.fail(f"Failed to create document. {result.error}")
             return Result.success(entity)
             
         except Exception as e:
@@ -104,7 +106,9 @@ class PostGISDocumentRepository(IDocumentRepository):
         """Удаление документа по id"""
         try:
             query = f"DELETE FROM {self.full_name} WHERE id = %(id)s"
-            self._connection.execute_query(query, {'id': str(id)})
+            result = self._connection.execute_query(query, {'id': str(id)})
+            if result.is_fail:
+                return Result.fail(f"Failed to remove document. {result.error}")
             return Result.success(Unit())
         except Exception as e:
             return Result.fail(f"Failed to remove document: {e}")

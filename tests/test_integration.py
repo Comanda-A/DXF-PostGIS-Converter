@@ -3,7 +3,6 @@
 
 import os
 import sys
-import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -32,6 +31,12 @@ from src.infrastructure.database.postgis.postgis_content_repository import PostG
 from src.infrastructure.database.postgis.postgis_document_repository import PostGISDocumentRepository
 from src.infrastructure.database.postgis.postgis_layer_repository import PostGISLayerRepository
 from src.infrastructure.ezdxf import DXFReader
+
+EXAMPLES_DIR = os.path.join(plugin_path, "dxf_examples")
+EXAMPLE_1 = os.path.join(EXAMPLES_DIR, "ex1.dxf")
+EXAMPLE_2 = os.path.join(EXAMPLES_DIR, "ex2.dxf")
+EXAMPLE_3 = os.path.join(EXAMPLES_DIR, "ex3.dxf")
+EXAMPLE_4 = os.path.join(EXAMPLES_DIR, "ex4.dxf")
 
 
 def _create_logger() -> ILogger:
@@ -74,19 +79,6 @@ def _build_db_session(logger: ILogger) -> DBSession:
     return DBSession(connection_factory, repository_factory, logger)
 
 
-def _create_sample_dxf(path: str):
-    try:
-        import ezdxf
-    except ImportError as exc:
-        raise unittest.SkipTest(f"ezdxf is not available: {exc}")
-
-    doc = ezdxf.new("R2010")
-    msp = doc.modelspace()
-    msp.add_line((0, 0), (10, 10), dxfattribs={"layer": "TEST_LAYER"})
-    msp.add_circle((5, 5), 2, dxfattribs={"layer": "TEST_LAYER"})
-    doc.saveas(path)
-
-
 class TestCoreWorkflowIntegration(unittest.TestCase):
     def setUp(self):
         self.repo = ActiveDocumentRepository()
@@ -94,29 +86,24 @@ class TestCoreWorkflowIntegration(unittest.TestCase):
         self.logger = _create_logger()
         self.reader = DXFReader()
         self.writer = MagicMock(spec=IDXFWriter)
+        self._source_paths = [EXAMPLE_1, EXAMPLE_2, EXAMPLE_3, EXAMPLE_4]
 
-        self._tmp_dir = tempfile.TemporaryDirectory()
-        self._source_path_1 = os.path.join(self._tmp_dir.name, "sample_1.dxf")
-        self._source_path_2 = os.path.join(self._tmp_dir.name, "sample_2.dxf")
-        _create_sample_dxf(self._source_path_1)
-        _create_sample_dxf(self._source_path_2)
+        if any(not os.path.exists(path) for path in self._source_paths):
+            raise unittest.SkipTest("Required fixture files are missing in dxf_examples")
 
         self.open_use_case = OpenDocumentUseCase(self.repo, self.reader, self.events, self.logger)
         self.select_use_case = SelectEntityUseCase(self.repo, self.events, self.logger)
         self.close_use_case = CloseDocumentUseCase(self.repo, self.writer, self.events)
 
-    def tearDown(self):
-        self._tmp_dir.cleanup()
-
     def test_open_select_close_workflow(self):
-        open_result = self.open_use_case.execute([self._source_path_1, self._source_path_2])
+        open_result = self.open_use_case.execute(self._source_paths)
         self.assertTrue(open_result.is_success)
-        self.assertEqual(len(open_result.value), 2)
+        self.assertEqual(len(open_result.value), 4)
         self.events.on_document_opened.emit.assert_called_once()
 
         docs_result = self.repo.get_all()
         self.assertTrue(docs_result.is_success)
-        self.assertEqual(len(docs_result.value), 2)
+        self.assertEqual(len(docs_result.value), 4)
 
         first_doc = docs_result.value[0]
         first_layer = next(iter(first_doc.layers.values()))
@@ -173,10 +160,19 @@ class TestDbImportExportIntegration(unittest.TestCase):
         self._import_use_case = ImportUseCase(self._active_repo, self._logger)
         self._export_use_case = ExportUseCase(self._logger)
 
-        self._tmp_dir = tempfile.TemporaryDirectory()
-        self._source_path = os.path.join(self._tmp_dir.name, "source.dxf")
-        self._export_path = os.path.join(self._tmp_dir.name, "exported.dxf")
-        _create_sample_dxf(self._source_path)
+        if any(not os.path.exists(path) for path in [EXAMPLE_1, EXAMPLE_2, EXAMPLE_3, EXAMPLE_4]):
+            raise unittest.SkipTest("Required fixture files are missing in dxf_examples")
+
+        self._source_path = EXAMPLE_1
+        self._second_source_path = EXAMPLE_2
+        self._third_source_path = EXAMPLE_3
+        self._fourth_source_path = EXAMPLE_4
+        self._tmp_export_dir = os.path.join(plugin_path, "tests", "_tmp_exports")
+        os.makedirs(self._tmp_export_dir, exist_ok=True)
+        self._export_path = os.path.join(self._tmp_export_dir, f"exported_{uuid4().hex[:8]}.dxf")
+        self._second_export_path = os.path.join(self._tmp_export_dir, f"exported_{uuid4().hex[:8]}_second.dxf")
+        self._third_export_path = os.path.join(self._tmp_export_dir, f"exported_{uuid4().hex[:8]}_third.dxf")
+        self._fourth_export_path = os.path.join(self._tmp_export_dir, f"exported_{uuid4().hex[:8]}_fourth.dxf")
 
         open_result = self._open_use_case.execute_single(self._source_path)
         if open_result.is_fail:
@@ -187,7 +183,9 @@ class TestDbImportExportIntegration(unittest.TestCase):
             self._drop_schema(schema_name)
 
         self._db_session.close()
-        self._tmp_dir.cleanup()
+        for path in [self._export_path, self._second_export_path, self._third_export_path, self._fourth_export_path]:
+            if os.path.exists(path):
+                os.remove(path)
 
     def _drop_schema(self, schema_name: str):
         connect_result = self._db_session.connect(self._connection)
@@ -350,18 +348,25 @@ class TestDbImportExportIntegration(unittest.TestCase):
         self.assertEqual(source_bytes, exported_bytes)
 
     def test_import_and_export_multiple_files(self):
-        second_source = os.path.join(self._tmp_dir.name, "source_second.dxf")
-        second_export = os.path.join(self._tmp_dir.name, "exported_second.dxf")
-        _create_sample_dxf(second_source)
-
-        open_result = self._open_use_case.execute([self._source_path, second_source])
+        open_result = self._open_use_case.execute([
+            self._source_path,
+            self._second_source_path,
+            self._third_source_path,
+            self._fourth_source_path,
+        ])
         self.assertTrue(open_result.is_success, msg=open_result.error if open_result.is_fail else "")
 
         first_import_success, first_report = self._import_document_to_db(self._source_path)
         self.assertTrue(first_import_success, msg=first_report)
 
-        second_import_success, second_report = self._import_document_to_db(second_source)
+        second_import_success, second_report = self._import_document_to_db(self._second_source_path)
         self.assertTrue(second_import_success, msg=second_report)
+
+        third_import_success, third_report = self._import_document_to_db(self._third_source_path)
+        self.assertTrue(third_import_success, msg=third_report)
+
+        fourth_import_success, fourth_report = self._import_document_to_db(self._fourth_source_path)
+        self.assertTrue(fourth_import_success, msg=fourth_report)
 
         export_configs = [
             ExportConfigDTO(
@@ -371,9 +376,21 @@ class TestDbImportExportIntegration(unittest.TestCase):
                 file_schema=self._file_schema,
             ),
             ExportConfigDTO(
-                filename=os.path.basename(second_source),
+                filename=os.path.basename(self._second_source_path),
                 export_mode=ExportMode.FILE,
-                output_path=second_export,
+                output_path=self._second_export_path,
+                file_schema=self._file_schema,
+            ),
+            ExportConfigDTO(
+                filename=os.path.basename(self._third_source_path),
+                export_mode=ExportMode.FILE,
+                output_path=self._third_export_path,
+                file_schema=self._file_schema,
+            ),
+            ExportConfigDTO(
+                filename=os.path.basename(self._fourth_source_path),
+                export_mode=ExportMode.FILE,
+                output_path=self._fourth_export_path,
                 file_schema=self._file_schema,
             ),
         ]
@@ -383,7 +400,9 @@ class TestDbImportExportIntegration(unittest.TestCase):
 
         self.assertTrue(export_result.is_success, msg=export_report)
         self.assertTrue(os.path.exists(self._export_path))
-        self.assertTrue(os.path.exists(second_export))
+        self.assertTrue(os.path.exists(self._second_export_path))
+        self.assertTrue(os.path.exists(self._third_export_path))
+        self.assertTrue(os.path.exists(self._fourth_export_path))
 
 
 if __name__ == "__main__":

@@ -26,6 +26,14 @@ from src.application.services import ConnectionConfigService
 from src.application.use_cases import ExportUseCase, ImportUseCase, OpenDocumentUseCase, SelectEntityUseCase
 from src.domain.entities import DXFContent, DXFDocument, DXFEntity, DXFLayer
 from src.domain.value_objects import DxfEntityType
+from src.infrastructure.database import ActiveDocumentRepository
+from src.infrastructure.ezdxf import DXFReader
+
+EXAMPLES_DIR = os.path.join(plugin_path, "dxf_examples")
+EXAMPLE_1 = os.path.join(EXAMPLES_DIR, "ex1.dxf")
+EXAMPLE_2 = os.path.join(EXAMPLES_DIR, "ex2.dxf")
+EXAMPLE_3 = os.path.join(EXAMPLES_DIR, "ex3.dxf")
+EXAMPLE_4 = os.path.join(EXAMPLES_DIR, "ex4.dxf")
 
 
 class _DummyEvent:
@@ -144,6 +152,22 @@ class TestOpenDocumentUseCase(unittest.TestCase):
         self.assertEqual(len(result.value), 1)
         self.assertEqual(len(self.events.on_document_opened.emitted), 1)
 
+    def test_execute_single_with_real_fixture_file(self):
+        fixture_paths = [EXAMPLE_1, EXAMPLE_2, EXAMPLE_3, EXAMPLE_4]
+        if any(not os.path.exists(path) for path in fixture_paths):
+            self.skipTest("One or more fixture files are missing in dxf_examples")
+
+        active_repo = ActiveDocumentRepository()
+        reader = DXFReader()
+        use_case = OpenDocumentUseCase(active_repo, reader, self.events, self.logger)
+
+        for fixture_path in fixture_paths:
+            with self.subTest(fixture=os.path.basename(fixture_path)):
+                result = use_case.execute_single(fixture_path)
+
+                self.assertTrue(result.is_success, msg=result.error if result.is_fail else "")
+                self.assertEqual(result.value.filename, os.path.basename(fixture_path))
+
 
 class TestSelectEntityUseCase(unittest.TestCase):
     def setUp(self):
@@ -241,6 +265,29 @@ class TestImportUseCase(unittest.TestCase):
         fake_session.commit.assert_called_once()
         fake_session.close.assert_called_once()
 
+    def test_execute_fails_when_layer_schema_not_found(self):
+        doc = DXFDocument(filename="ok.dxf", filepath="C:/tmp/ok.dxf")
+        doc.add_content(DXFContent(document_id=doc.id, content=b"0\nEOF\n"))
+        self.active_repo.get_by_filename.return_value = AppResult.success(doc)
+
+        config = ImportConfigDTO(
+            filename="ok.dxf",
+            import_mode=ImportMode.ADD_OBJECTS,
+            layer_schema="missing_layer_schema",
+            file_schema="file_schema",
+            import_layers_only=True,
+        )
+
+        fake_session = MagicMock()
+        fake_session.connect.return_value = AppResult.success(Unit())
+        fake_session.schema_exists.side_effect = [AppResult.success(False)]
+
+        with patch("src.application.use_cases.import_use_case.inject.instance", return_value=fake_session):
+            result, report = self.use_case.execute(self.connection, [config])
+
+        self.assertTrue(result.is_fail)
+        self.assertIn("does not exist", report)
+
 
 class TestExportUseCase(unittest.TestCase):
     def setUp(self):
@@ -296,6 +343,31 @@ class TestExportUseCase(unittest.TestCase):
             self.assertTrue(result.is_success)
             self.assertTrue(os.path.exists(out_path))
             self.assertIn("EXPORT COMPLETED SUCCESSFULLY", report)
+
+    def test_execute_fails_when_document_not_found(self):
+        doc_repo = MagicMock()
+        doc_repo.get_by_filename.return_value = AppResult.fail("not found")
+
+        content_repo = MagicMock()
+
+        fake_session = MagicMock()
+        fake_session.connect.return_value = AppResult.success(Unit())
+        fake_session.schema_exists.return_value = AppResult.success(True)
+        fake_session._get_document_repository.return_value = AppResult.success(doc_repo)
+        fake_session._get_content_repository.return_value = AppResult.success(content_repo)
+
+        config = ExportConfigDTO(
+            filename="missing.dxf",
+            export_mode=ExportMode.FILE,
+            output_path=os.path.join(tempfile.gettempdir(), "missing_export.dxf"),
+            file_schema="file_schema",
+        )
+
+        with patch("src.application.use_cases.export_use_case.inject.instance", return_value=fake_session):
+            result, report = self.use_case.execute(self.connection, [config])
+
+        self.assertTrue(result.is_fail)
+        self.assertIn("not found", report)
 
 
 if __name__ == "__main__":

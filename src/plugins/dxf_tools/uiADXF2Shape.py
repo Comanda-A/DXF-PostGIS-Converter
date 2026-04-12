@@ -410,6 +410,9 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
         self.chk3D.setChecked(bGen3D)
         self.chk3D_clicked()
 
+        bOpenInQgis = True if s.value("bOpenInQgis", "Ja") == "Ja" else False
+        self.chkQgis.setChecked(bOpenInQgis)
+
         bGenSHP = True if s.value("bGenSHP", "Nein") == "Ja" else False
         self.chkSHP.setChecked(bGenSHP)
         self.chkSHP_clicked()
@@ -510,6 +513,7 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
         s.setValue("bUseColor4Point", "Ja" if self.chkUseColor4Point.isChecked() == True else "Nein")
         s.setValue("bUseColor4Line", "Ja" if self.chkUseColor4Line.isChecked() == True else "Nein")
         s.setValue("bUseColor4Poly", "Ja" if self.chkUseColor4Poly.isChecked() == True else "Nein")
+        s.setValue("bOpenInQgis", "Ja" if self.chkQgis.isChecked() == True else "Nein")
 
         s.setValue("iCodePage", self.cbCharSet.currentIndex())
 

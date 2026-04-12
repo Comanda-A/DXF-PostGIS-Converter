@@ -49,6 +49,21 @@ class PostGISContentRepository(IContentRepository):
         except Exception as e:
             print(f"Error initializing table: {e}")
 
+    def _get_columns(self) -> set[str]:
+        query = """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+        """
+        result = self._connection.execute_query(query, (self._schema, self._table_name))
+        if result.is_fail:
+            return set()
+        return {row.get('column_name') for row in result.value}
+
+    def _is_legacy_file_table(self) -> bool:
+        columns = self._get_columns()
+        return {'id', 'filename', 'file_content'}.issubset(columns)
+
     def create(self, entity: DXFContent) -> Result[DXFContent]:
         try:
             query = f"""
@@ -109,13 +124,31 @@ class PostGISContentRepository(IContentRepository):
     
     def get_by_id(self, id: UUID) -> Result[Optional[DXFContent]]:
         try:
+            if self._is_legacy_file_table():
+                query = f"SELECT id, file_content FROM {self.full_name} WHERE id = %(id)s"
+                result = self._connection.execute_query(query, {'id': str(id)})
+                if result.is_fail:
+                    return Result.fail(f"Database query failed: {result.error}")
+                rows = result.value
+                if rows and len(rows) > 0:
+                    content = DXFContent.create(
+                        document_id=rows[0]['id'],
+                        content=rows[0]['file_content'],
+                        id=rows[0]['id'],
+                    )
+                    return Result.success(content)
+                return Result.success(None)
+
             query = f"SELECT * FROM {self.full_name} WHERE id = %(id)s"
             result = self._connection.execute_query(query, {'id': str(id)})
-            if result and len(result) > 0:
+            if result.is_fail:
+                return Result.fail(f"Database query failed: {result.error}")
+            rows = result.value
+            if rows and len(rows) > 0:
                 content = DXFContent.create(
-                    document_id=result[0]['document_id'],
-                    content=result[0]['content'],
-                    id=result[0]['id'],
+                    document_id=rows[0]['document_id'],
+                    content=rows[0]['content'],
+                    id=rows[0]['id'],
                 )
                 return Result.success(content)
             return Result.success(None)
@@ -124,6 +157,24 @@ class PostGISContentRepository(IContentRepository):
 
     def get_by_document_id(self, document_id: UUID) -> Result[DXFContent | None]:
         try:
+            if self._is_legacy_file_table():
+                query = f"SELECT id, file_content FROM {self.full_name} WHERE id = %(id)s"
+                result = self._connection.execute_query(query, {'id': str(document_id)})
+
+                if result.is_fail:
+                    return Result.fail(f"Database query failed: {result.error}")
+
+                rows = result.value
+                if rows and len(rows) > 0:
+                    content = DXFContent.create(
+                        document_id=rows[0]['id'],
+                        content=rows[0]['file_content'],
+                        id=rows[0]['id']
+                    )
+                    return Result.success(content)
+
+                return Result.success(None)
+
             query = f"SELECT * FROM {self.full_name} WHERE document_id = %(document_id)s"
             result = self._connection.execute_query(query, {'document_id': str(document_id)})
             

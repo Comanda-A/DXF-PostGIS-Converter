@@ -14,7 +14,6 @@ class ExportDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.lm = LocalizationManager.instance()
         self.selected_destination = None
 
         self.setWindowTitle("Выбор места")

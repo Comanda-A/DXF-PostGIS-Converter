@@ -125,8 +125,8 @@ class PostGISDocumentRepository(IDocumentRepository):
                 doc = DXFDocument.create(
                     id=data[0]['id'],
                     filename=data[0]['filename'],
-                    upload_date=data[0]['upload_date'],
-                    update_date=data[0]['update_date']
+                    upload_date=data[0].get('upload_date'),
+                    update_date=data[0].get('update_date')
                 ) 
                 return Result.success(doc)
             return Result.success(None)
@@ -145,8 +145,8 @@ class PostGISDocumentRepository(IDocumentRepository):
                 doc = DXFDocument.create(
                     id=data[0]['id'],
                     filename=data[0]['filename'],
-                    upload_date=data[0]['upload_date'],
-                    update_date=data[0]['update_date']
+                    upload_date=data[0].get('upload_date'),
+                    update_date=data[0].get('update_date')
                 ) 
                 return Result.success(doc)
             return Result.success(None)
@@ -167,8 +167,8 @@ class PostGISDocumentRepository(IDocumentRepository):
                 DXFDocument.create(
                     id=row['id'],
                     filename=row['filename'],
-                    upload_date=row['upload_date'],
-                    update_date=row['update_date']
+                    upload_date=row.get('upload_date'),
+                    update_date=row.get('update_date')
                 ) for row in data
             ]
             return Result.success(docs)

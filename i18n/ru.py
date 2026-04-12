@@ -18,6 +18,11 @@ MAIN_DIALOG = {
     "open_dxf_button": "Открыть DXF",
     "import_dxf_button": "Импорт в БД",
     "save_dxf_button": "Сохранить в файл..",
+    "connection_editor_button": "Редактор подключений",
+    "current_connection_label": "Текущее подключение:",
+    "schema_label": "Схема файлов:",
+    "refresh_db_button": "Обновить файлы",
+    "export_db_button": "Экспортировать",
     "apply_filter_button": "Применить",
     "clear_filter_button": "Сбросить",
     "select_area_button": "Выбрать область на карте",
@@ -48,7 +53,16 @@ MAIN_DIALOG = {
     "mode_replace": "Заменить",
     "mode_subtract": "Вычесть",
 
-    "logging_check": "Включить логирование операций"
+    "logging_check": "Включить логирование операций",
+    "db_files_empty": "Файлы не найдены",
+    "select_files_to_export": "Выберите хотя бы один файл для экспорта.",
+    "select_connection_first": "Сначала выберите подключение к базе данных.",
+    "select_schema_first": "Сначала выберите схему с DXF-файлами.",
+    "choose_export_folder": "Выберите папку для экспорта",
+    "export_success_qgis": "Экспорт завершен. Файлов загружено в QGIS: {}",
+    "export_success_folder": "Экспорт завершен. Файлы сохранены в: {}",
+    "export_in_progress": "Выполняется экспорт...",
+    "cancel": "Отмена"
 }
 
 IMPORT_DIALOG = {

@@ -18,6 +18,11 @@ MAIN_DIALOG = {
     "open_dxf_button": "Open DXF",
     "import_dxf_button": "Import to DB",
     "save_dxf_button": "Save to file..",
+    "connection_editor_button": "Connection Editor",
+    "current_connection_label": "Current connection:",
+    "schema_label": "File schema:",
+    "refresh_db_button": "Refresh files",
+    "export_db_button": "Export",
     "apply_filter_button": "Apply",
     "clear_filter_button": "Clear",
     "select_area_button": "Select area on map",
@@ -48,7 +53,16 @@ MAIN_DIALOG = {
     "mode_replace": "Replace",
     "mode_subtract": "Subtract",
 
-    "logging_check": "Enable operation logging"
+    "logging_check": "Enable operation logging",
+    "db_files_empty": "No files found",
+    "select_files_to_export": "Select at least one file to export.",
+    "select_connection_first": "Select a database connection first.",
+    "select_schema_first": "Select a schema with DXF files first.",
+    "choose_export_folder": "Select export folder",
+    "export_success_qgis": "Export completed. Files loaded into QGIS: {}",
+    "export_success_folder": "Export completed. Files saved to: {}",
+    "export_in_progress": "Export in progress...",
+    "cancel": "Cancel"
 }
 
 IMPORT_DIALOG = {

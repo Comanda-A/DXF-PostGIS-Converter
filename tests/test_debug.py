@@ -7,12 +7,11 @@ import unittest
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-from src.application.interfaces import ILogger
-
 plugin_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if plugin_path not in sys.path:
     sys.path.insert(0, plugin_path)
 
+from src.application.interfaces import ILogger
 from src.application.dtos import ConnectionConfigDTO, ExportConfigDTO, ExportMode, ImportConfigDTO, ImportMode
 from src.application.results import AppResult, Unit
 from src.application.use_cases import ExportUseCase, ImportUseCase

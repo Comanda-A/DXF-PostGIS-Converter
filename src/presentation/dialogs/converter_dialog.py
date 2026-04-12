@@ -16,10 +16,16 @@ from functools import partial
 from ...application.interfaces import ILocalization, ISettings, ILogger
 from ...application.dtos import DXFDocumentDTO
 from ...application.events import IAppEvents
-from ...application.services import ActiveDocumentService
-from ...application.use_cases import OpenDocumentUseCase, SelectEntityUseCase, SelectAreaUseCase
+from ...application.services import ActiveDocumentService, ConnectionConfigService
+from ...application.use_cases import (
+    OpenDocumentUseCase,
+    SelectEntityUseCase,
+    SelectAreaUseCase,
+    ExportUseCase,
+    DataViewerUseCase,
+)
 from ...presentation.widgets import SelectableDxfTreeHandler
-from ...presentation.services import DialogTranslator, AreaSelectionController
+from ...presentation.services import DialogTranslator, AreaSelectionController, ExportTabController
 from ...presentation.workers import LongTaskWorker
 
 
@@ -36,7 +42,10 @@ class ConverterDialog(QDialog, FORM_CLASS):
         'open_doc_use_case',
         'select_entity_use_case',
         'select_area_use_case',
+        'export_use_case',
+        'data_viewer_use_case',
         'active_doc_service',
+        'connection_service',
         'app_events',
         'localization',
         'settings',
@@ -48,7 +57,10 @@ class ConverterDialog(QDialog, FORM_CLASS):
         open_doc_use_case: OpenDocumentUseCase,
         select_entity_use_case: SelectEntityUseCase,
         select_area_use_case: SelectAreaUseCase,
+        export_use_case: ExportUseCase,
+        data_viewer_use_case: DataViewerUseCase,
         active_doc_service: ActiveDocumentService,
+        connection_service: ConnectionConfigService,
         app_events: IAppEvents,
         localization: ILocalization,
         settings: ISettings,
@@ -60,11 +72,24 @@ class ConverterDialog(QDialog, FORM_CLASS):
         self.iface = iface
         self._open_doc_use_case = open_doc_use_case
         self._select_entity_use_case = select_entity_use_case
+        self._export_use_case = export_use_case
+        self._data_viewer_use_case = data_viewer_use_case
         self._active_doc_service = active_doc_service
+        self._connection_service = connection_service
         self._app_events = app_events
         self._localization = localization
         self._settings = settings
         self._logger = logger
+
+        self._export_tab_controller = ExportTabController(
+            dialog=self,
+            iface=self.iface,
+            connection_service=self._connection_service,
+            data_viewer_use_case=self._data_viewer_use_case,
+            export_use_case=self._export_use_case,
+            localization=self._localization,
+            logger=self._logger,
+        )
 
         self.area_selection_controller = AreaSelectionController(
             dialog=self,
@@ -97,6 +122,8 @@ class ConverterDialog(QDialog, FORM_CLASS):
             self.language_combo.addItem(lang)
 
         self.language_combo.setCurrentText(self._localization.language_name)
+
+        self._export_tab_controller.update_connection_combo()
     
     def _init_info_button(self):
         if hasattr(self, "info_button"):
@@ -134,6 +161,13 @@ class ConverterDialog(QDialog, FORM_CLASS):
         self.select_area_button.clicked.connect(self._on_select_area_button_click)
         self.import_dxf_button.clicked.connect(self._on_import_dxf_button_click)
         self.save_dxf_button.clicked.connect(self._on_export_to_file)
+
+        self.connection_editor_button.clicked.connect(self._on_connection_editor_button_click)
+        self.connection_combo.currentTextChanged.connect(self._on_connection_combo_changed)
+        self.schema_combo.currentTextChanged.connect(self._on_schema_combo_changed)
+        self.refresh_db_button.clicked.connect(self._refresh_db_files)
+        self.export_db_button.clicked.connect(self._on_export_to_file)
+
         self.apply_filter_button.clicked.connect(self._on_apply_filter_button_click)
         self.clear_filter_button.clicked.connect(self._on_clear_filter_button_click)
         self.tabWidget.currentChanged.connect(self._on_tab_changed)
@@ -176,6 +210,8 @@ class ConverterDialog(QDialog, FORM_CLASS):
         self.selection_mode.addItem(self._localization.tr("MAIN_DIALOG", "mode_replace"))
         self.selection_mode.addItem(self._localization.tr("MAIN_DIALOG", "mode_subtract"))
         self.selection_mode.setCurrentIndex(1)
+
+        self._export_tab_controller.update_ui_language()
     
     def _switch_ui(self):
         enable = self._active_doc_service.get_documents_count() > 0
@@ -185,6 +221,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
         self.selection_group.setEnabled(enable)
         self.dxf_tree_label.setEnabled(enable)
         self.dxf_tree_widget.setEnabled(enable)
+        self._export_tab_controller.update_export_ui()
 
 # ========== events ==========
     def refresh_documents_view(self):
@@ -405,6 +442,26 @@ class ConverterDialog(QDialog, FORM_CLASS):
         )
         dialog.exec_()
 
+    # ========== export tab ==========
+
+    def _update_connection_combo(self):
+        self._export_tab_controller.update_connection_combo()
+
+    def _on_connection_editor_button_click(self):
+        self._export_tab_controller.on_connection_editor_button_click()
+
+    def _on_connection_combo_changed(self, name: str):
+        self._export_tab_controller.on_connection_combo_changed(name)
+
+    def _on_schema_combo_changed(self, schema_name: str):
+        self._export_tab_controller.on_schema_combo_changed(schema_name)
+
+    def _refresh_db_files(self):
+        self._export_tab_controller.refresh_db_files()
+
+    def _update_export_ui(self):
+        self._export_tab_controller.update_export_ui()
+
 
 
 
@@ -432,13 +489,12 @@ class ConverterDialog(QDialog, FORM_CLASS):
     
     def _on_export_to_file(self):
         """Экспорт в файл."""
-        pass
+        self._export_tab_controller.on_export_clicked()
     
     def _on_tab_changed(self, index):
         """Смена вкладки."""
         if index == 1:  # PostGIS → DXF
-            # self._refresh_db_tree()
-            pass
+            self._export_tab_controller.on_tab_activated()
     
     def _toggle_logging(self, state):
         """Переключить логирование."""

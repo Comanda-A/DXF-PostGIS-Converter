@@ -65,41 +65,18 @@ class ExportUseCase:
 
 				report_lines.append(f"\n--- Processing file: {config.filename} ---")
 
-				doc_repo_result = session._get_document_repository(config.file_schema)
-				if doc_repo_result.is_fail:
-					error_msg = f"Failed to get document repository: {doc_repo_result.error}"
-					report_lines.append(f"ERROR: {error_msg}")
-					return AppResult.fail(error_msg), "\n".join(report_lines)
+				content_result = self._read_content(
+					session=session,
+					file_schema=config.file_schema,
+					filename=config.filename,
+				)
 
-				content_repo_result = session._get_content_repository(config.file_schema)
-				if content_repo_result.is_fail:
-					error_msg = f"Failed to get content repository: {content_repo_result.error}"
-					report_lines.append(f"ERROR: {error_msg}")
-					return AppResult.fail(error_msg), "\n".join(report_lines)
-
-				doc_result = doc_repo_result.value.get_by_filename(config.filename)
-				if doc_result.is_fail:
-					error_msg = f"Failed to get file by filename '{config.filename}': {doc_result.error}"
-					report_lines.append(f"ERROR: {error_msg}")
-					return AppResult.fail(error_msg), "\n".join(report_lines)
-
-				document = doc_result.value
-				if document is None:
-					error_msg = f"Document '{config.filename}' not found in database"
-					report_lines.append(f"ERROR: {error_msg}")
-					return AppResult.fail(error_msg), "\n".join(report_lines)
-
-				content_result = content_repo_result.value.get_by_document_id(document.id)
 				if content_result.is_fail:
 					error_msg = f"Failed to get content for '{config.filename}': {content_result.error}"
 					report_lines.append(f"ERROR: {error_msg}")
 					return AppResult.fail(error_msg), "\n".join(report_lines)
 
-				content = content_result.value
-				if content is None:
-					error_msg = f"Content for '{config.filename}' not found in database"
-					report_lines.append(f"ERROR: {error_msg}")
-					return AppResult.fail(error_msg), "\n".join(report_lines)
+				content_bytes = content_result.value
 
 				output_path = self._resolve_output_path(config)
 				if not output_path:
@@ -107,7 +84,7 @@ class ExportUseCase:
 					report_lines.append(f"ERROR: {error_msg}")
 					return AppResult.fail(error_msg), "\n".join(report_lines)
 
-				write_result = self._write_file(output_path, content.content)
+				write_result = self._write_file(output_path, content_bytes)
 				if write_result.is_fail:
 					error_msg = f"Failed to write file '{output_path}': {write_result.error}"
 					report_lines.append(f"ERROR: {error_msg}")
@@ -156,3 +133,34 @@ class ExportUseCase:
 			return AppResult.success(Unit())
 		except Exception as exc:
 			return AppResult.fail(str(exc))
+
+	def _read_content(
+		self,
+		session: DBSession,
+		file_schema: str,
+		filename: str,
+	) -> AppResult[bytes]:
+		doc_repo_result = session._get_document_repository(file_schema)
+		if doc_repo_result.is_fail:
+			return AppResult.fail(doc_repo_result.error)
+
+		doc_result = doc_repo_result.value.get_by_filename(filename)
+		if doc_result.is_fail:
+			return AppResult.fail(doc_result.error)
+
+		document = doc_result.value
+		if document is None:
+			return AppResult.fail(f"Document '{filename}' not found in database")
+
+		content_repo_result = session._get_content_repository(file_schema)
+		if content_repo_result.is_fail:
+			return AppResult.fail(content_repo_result.error)
+
+		content_result = content_repo_result.value.get_by_document_id(document.id)
+		if content_result.is_fail:
+			return AppResult.fail(content_result.error)
+
+		if content_result.value is None:
+			return AppResult.fail(f"Content for '{filename}' not found in database")
+
+		return AppResult.success(content_result.value.content)

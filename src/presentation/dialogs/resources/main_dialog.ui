@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>720</width>
-    <height>562</height>
+    <width>825</width>
+    <height>682</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -92,7 +92,7 @@
       <enum>QTabWidget::Rounded</enum>
      </property>
      <property name="currentIndex">
-      <number>0</number>
+      <number>1</number>
      </property>
      <property name="documentMode">
       <bool>false</bool>
@@ -839,23 +839,69 @@
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayout_5">
        <item>
-        <widget class="QLabel" name="db_structure_label">
-         <property name="font">
-          <font>
-           <family>Segoe UI</family>
-           <pointsize>10</pointsize>
-           <weight>50</weight>
-           <bold>false</bold>
-           <underline>false</underline>
-          </font>
+        <layout class="QHBoxLayout" name="horizontalLayout_10">
+         <property name="topMargin">
+          <number>0</number>
          </property>
-         <property name="text">
-          <string>Структура баз данных:</string>
-         </property>
-        </widget>
+         <item>
+          <widget class="QPushButton" name="connection_editor_button">
+           <property name="minimumSize">
+            <size>
+             <width>140</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="text">
+            <string>Редактор подключений</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="horizontalSpacer_6">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QLabel" name="current_connection_label">
+           <property name="text">
+            <string>Текущее подключение:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="connection_combo">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>200</width>
+             <height>0</height>
+            </size>
+           </property>
+          </widget>
+         </item>
+        </layout>
        </item>
        <item>
-        <widget class="QTreeWidget" name="db_structure_tree_widget">
+        <widget class="QTreeWidget" name="db_tree_widget">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
          <property name="columnCount">
           <number>2</number>
          </property>

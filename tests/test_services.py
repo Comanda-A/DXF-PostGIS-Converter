@@ -588,7 +588,9 @@ class TestImportUseCase(unittest.TestCase):
     def setUp(self):
         self.active_repo = MagicMock()
         self.logger = _DummyLogger()
-        self.use_case = ImportUseCase(self.active_repo, self.logger)
+        self.dxf_reader = MagicMock()
+        self.dxf_reader.save_svg_preview.return_value = AppResult.success("preview.svg")
+        self.use_case = ImportUseCase(self.active_repo, self.dxf_reader, self.logger)
 
         self.connection = ConnectionConfigDTO(
             db_type="postgis",

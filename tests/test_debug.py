@@ -61,7 +61,9 @@ class TestDebugReports(unittest.TestCase):
         """
         active_repo = MagicMock()
         logger = _Logger()
-        use_case = ImportUseCase(active_repo, logger)
+        dxf_reader = MagicMock()
+        dxf_reader.save_svg_preview.return_value = AppResult.success("preview.svg")
+        use_case = ImportUseCase(active_repo, dxf_reader, logger)
 
         doc = DXFDocument(filename="debug.dxf", filepath="C:/tmp/debug.dxf")
         doc.add_content(DXFContent(document_id=doc.id, content=b"0\nEOF\n"))

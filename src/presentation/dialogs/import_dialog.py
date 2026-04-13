@@ -426,8 +426,8 @@ class ImportDialog(QDialog, FORM_CLASS):
         """Показать справку."""
         from .info_dialog import InfoDialog
         dialog = InfoDialog(
-            self._localization.tr("EXPORT_DIALOG", "help_dialog_title"),
-            self._localization.tr("HELP_CONTENT", "EXPORT_DIALOG"),
+            self._localization.tr("IMPORT_DIALOG", "help_dialog_title"),
+            self._localization.tr("HELP_CONTENT", "IMPORT_DIALOG"),
             self
         )
         dialog.exec_()

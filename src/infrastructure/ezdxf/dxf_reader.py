@@ -1,6 +1,7 @@
 
 import os
 import ezdxf
+from ezdxf.addons.drawing import Frontend, RenderContext, layout, svg
 from ezdxf.entities import DXFEntity as EzDXFEntity
 from ...domain.value_objects import Result, DxfEntityType
 from ...domain.entities import DXFDocument, DXFContent, DXFLayer, DXFEntity
@@ -87,3 +88,31 @@ class DXFReader(IDXFReader):
             return Result.success(doc)
         except Exception as e:
             return Result.fail(f"Failed to open DXF file: {str(e)}")
+
+    def save_svg_preview(
+        self,
+        filepath: str,
+        output_dir: str,
+        filename: str = "",
+    ) -> Result[str]:
+        if not filepath:
+            return Result.fail("Empty filepath")
+
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+
+            drawing = ezdxf.readfile(filepath)
+            msp = drawing.modelspace()
+
+            stem = os.path.splitext(filename or os.path.basename(filepath))[0]
+            preview_path = os.path.join(output_dir, f"{stem}.svg")
+
+            backend = svg.SVGBackend()
+            Frontend(RenderContext(drawing), backend).draw_layout(msp)
+
+            with open(preview_path, "wt", encoding="utf-8") as preview_file:
+                preview_file.write(backend.get_string(layout.Page(0, 0)))
+
+            return Result.success(preview_path)
+        except Exception as e:
+            return Result.fail(f"Failed to save SVG preview: {e}")

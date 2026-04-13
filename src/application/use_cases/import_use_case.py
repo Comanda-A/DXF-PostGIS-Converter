@@ -1,7 +1,10 @@
 import inject
+import os
+import tempfile
 
 from ...domain.entities import DXFDocument, DXFContent, DXFLayer, DXFEntity
 from ...domain.repositories import IActiveDocumentRepository
+from ...domain.services import IDXFReader
 
 from ...application.dtos import ImportConfigDTO, ConnectionConfigDTO, ImportMode
 from ...application.results import AppResult, Unit
@@ -14,9 +17,11 @@ class ImportUseCase:
     def __init__(
         self,
         active_repo: IActiveDocumentRepository,
+        dxf_reader: IDXFReader,
         logger: ILogger
     ):
         self._active_repo = active_repo
+        self._dxf_reader = dxf_reader
         self._logger = logger
     
     def execute(
@@ -96,8 +101,37 @@ class ImportUseCase:
 
         # start import
         try:
+            previews_dir = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "..", "..", "previews")
+            )
+
             for config in configs:
                 report_lines.append(f"\n--- Processing file: {config.filename} ---")
+
+                doc_for_preview = docs[config.filename]
+                preview_source_path = doc_for_preview.filepath
+                temp_preview_file = ""
+
+                if (not preview_source_path or not os.path.exists(preview_source_path)) and doc_for_preview.content:
+                    fd, temp_preview_file = tempfile.mkstemp(suffix=".dxf")
+                    os.close(fd)
+                    with open(temp_preview_file, "wb") as tmp_file:
+                        tmp_file.write(doc_for_preview.content.content)
+                    preview_source_path = temp_preview_file
+
+                if preview_source_path and os.path.exists(preview_source_path):
+                    preview_result = self._dxf_reader.save_svg_preview(
+                        filepath=preview_source_path,
+                        output_dir=previews_dir,
+                        filename=config.filename,
+                    )
+                    if preview_result.is_success:
+                        report_lines.append(f"Preview saved: {preview_result.value}")
+                    else:
+                        report_lines.append(f"WARNING: Failed to save preview for '{config.filename}': {preview_result.error}")
+
+                if temp_preview_file and os.path.exists(temp_preview_file):
+                    os.remove(temp_preview_file)
                 
                 # Импортируем файлы
                 if not config.import_layers_only:
@@ -175,44 +209,7 @@ class ImportUseCase:
                                 report_lines.append(f"Layer '{layer.name}' already exists in target schema, skipping")
                     
                     report_lines.append(f"Layers processed: {layers_processed} created, {len(docs[config.filename].layers.values()) - layers_processed} existing")
-                
-                # Импортируем слои
-                if False:
-                    report_lines.append(f"Importing layer entities to schema '{config.layer_schema}' with mode: {config.import_mode.value}")
-                    
-                    for layer in docs[config.filename].layers.values():
-                        report_lines.append(f"  Processing layer: '{layer.name}' ({len(layer.entities.values())} entities)")
-                        
-                        doc_repo = self._session._get_entity_repository(config.layer_schema, layer.table_name).value
-                        
-                        entities_created = 0
-                        entities_updated = 0
-                        entities_skipped = 0
-                        
-                        for entity in layer.entities.values():
-                            ex_entity = doc_repo.get_by_name_and_type(entity.name, entity.entity_type).value
-                            if ex_entity is None:
-                                # создаем объект вне зависимости от режима
-                                ex_entity = doc_repo.create(entity).value
-                                entities_created += 1
-                            elif config.import_mode == ImportMode.OVERWRITE_OBJECTS:
-                                # обновляем существующий объект если выбран режим перезаписи
-                                ex_entity = doc_repo.update(
-                                    DXFEntity(
-                                        id=ex_entity.id,
-                                        entity_type=entity.entity_type,
-                                        name=entity.name,
-                                        attributes=entity.attributes,
-                                        geometries=entity.geometries,
-                                        extra_data=entity.extra_data
-                                    )
-                                ).value
-                                entities_updated += 1
-                            else:
-                                entities_skipped += 1
-                        
-                        report_lines.append(f"    Layer '{layer.name}' results: {entities_created} created, {entities_updated} updated, {entities_skipped} skipped")
-            
+
             self._session.commit()
             self._session.close()
             report_lines.append("\n" + "="*50)

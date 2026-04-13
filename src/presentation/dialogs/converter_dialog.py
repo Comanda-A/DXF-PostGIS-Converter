@@ -25,7 +25,7 @@ from ...application.use_cases import (
     DataViewerUseCase,
     SaveSelectedToFileUseCase,
 )
-from ...presentation.widgets import SelectableDxfTreeHandler
+from ...presentation.widgets import SelectableDxfTreeHandler, QGISLayerSyncManager
 from ...presentation.services import DialogTranslator, AreaSelectionController, ExportTabController
 from ...presentation.workers import LongTaskWorker
 
@@ -104,6 +104,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
         
         # UI Handlers
         self.tree_widget_handler = SelectableDxfTreeHandler(self.dxf_tree_widget)
+        self._qgis_layer_sync_manager = QGISLayerSyncManager()
 
         self._selection_layers_file = ""
         self._selection_layers = {}
@@ -112,6 +113,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
         self._init_components()
         self._connect_signals()
         self._init_ui()
+        self._qgis_layer_sync_manager.sync_now()
         
         self._logger.message("MainDialog initialized")
     
@@ -241,6 +243,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
         self.tree_widget_handler.rebuild_tree(
             self._active_doc_service.get_all()
         )
+        self._qgis_layer_sync_manager.sync_now()
 
     def _on_document_closed(self, document: list[DXFDocumentDTO]):
         self._switch_ui()
@@ -248,6 +251,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
         self.tree_widget_handler.rebuild_tree(
             self._active_doc_service.get_all()
         )
+        self._qgis_layer_sync_manager.sync_now()
 
     def _on_document_modified(self, document: list[DXFDocumentDTO]):
         self._update_file_check()

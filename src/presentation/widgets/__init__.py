@@ -1,8 +1,10 @@
 
 from .selectable_dxf_tree_handler import SelectableDxfTreeHandler
 from .viewer_dxf_tree_handler import ViewerDxfTreeHandler
+from .qgis_layer_sync_manager import QGISLayerSyncManager
 
 __all__ = [
     'SelectableDxfTreeHandler',
-    'ViewerDxfTreeHandler'
+    'ViewerDxfTreeHandler',
+    'QGISLayerSyncManager',
 ]

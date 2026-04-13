@@ -26,7 +26,7 @@ from ...application.use_cases import (
     SaveSelectedToFileUseCase,
 )
 from ...presentation.widgets import SelectableDxfTreeHandler, QGISLayerSyncManager
-from ...presentation.services import DialogTranslator, AreaSelectionController, ExportTabController
+from ...presentation.services import DialogTranslator, AreaSelectionController, ExportTabController, ProgressTaskRunner
 from ...presentation.workers import LongTaskWorker
 
 
@@ -93,6 +93,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
             export_use_case=self._export_use_case,
             localization=self._localization,
             logger=self._logger,
+            on_qgis_export_ready=self._on_export_qgis_files_ready,
         )
 
         self.area_selection_controller = AreaSelectionController(
@@ -389,45 +390,55 @@ class ConverterDialog(QDialog, FORM_CLASS):
                 self._logger.error(f"Error loading {files}: {result.error}")
                 return []
             return result.value
-        
-        def _on_dxf_loading_finished(result: object, progress_dialog):
-            progress_dialog.close()
 
-        def _on_dxf_loading_error(error: str, progress_dialog):
+        def _on_dxf_loading_finished(result: object):
+            _ = result
+
+        def _on_dxf_loading_error(error: str):
             self._logger.error(f'error {error}')
-            progress_dialog.close()
-        
-        # Создаем и настраиваем воркер
-        self.dxf_loader_worker = LongTaskWorker(load_dxf_files, selected_files)
-        
-        # Создаем диалог прогресса
-        progress_dialog = QProgressDialog(
-            "progress", 
-            "cancel", 
-            0, 0, 
-            self
+
+        self.dxf_loader_worker = ProgressTaskRunner.run(
+            self,
+            load_dxf_files,
+            selected_files,
+            on_finished=_on_dxf_loading_finished,
+            on_error=_on_dxf_loading_error,
+            progress_text="progress",
+            cancel_text="cancel",
         )
-        progress_dialog.setWindowModality(Qt.WindowModal)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setAutoClose(True)
-        progress_dialog.setAutoReset(True)
-        progress_dialog.repaint()
-        
-        self.dxf_loader_worker.finished.connect(
-            lambda task_id, result: _on_dxf_loading_finished(result, progress_dialog)
+
+    def _on_export_qgis_files_ready(self, filepaths: list[str]) -> None:
+        """После экспорта из БД: загрузить файлы в import-вкладку и переключиться на нее."""
+        if not filepaths:
+            return
+
+        normalized = [p for p in filepaths if p]
+        if not normalized:
+            return
+
+        def load_exported_files(paths: list[str]):
+            return self._open_doc_use_case.execute(paths)
+
+        def _on_loaded(result: object):
+            app_result = result
+            if app_result is not None and hasattr(app_result, "is_fail") and app_result.is_fail:
+                QMessageBox.warning(self, "Ошибка", f"Не удалось открыть экспортированные файлы: {app_result.error}")
+                return
+            self.tabWidget.setCurrentIndex(0)
+
+        def _on_load_error(error: str):
+            self._logger.error(f"Failed to open exported files: {error}")
+            QMessageBox.warning(self, "Ошибка", f"Не удалось открыть экспортированные файлы: {error}")
+
+        self.export_to_import_worker = ProgressTaskRunner.run(
+            self,
+            load_exported_files,
+            normalized,
+            on_finished=_on_loaded,
+            on_error=_on_load_error,
+            progress_text="Открытие экспортированных DXF...",
+            cancel_text=self._localization.tr("MAIN_DIALOG", "cancel"),
         )
-        self.dxf_loader_worker.error.connect(
-            lambda error: _on_dxf_loading_error(error, progress_dialog)
-        )
-        
-        # Подключаем отмену
-        #progress_dialog.canceled.connect(self._cancel_dxf_loading)
-        
-        # Запускаем воркер
-        self.dxf_loader_worker.start()
-        
-        # Показываем диалог прогресса
-        progress_dialog.exec_()
 
 
 

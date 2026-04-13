@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Callable
 from functools import partial
 from datetime import datetime
 from pathlib import Path
@@ -14,7 +15,6 @@ from PyQt5.QtWidgets import (
     QTreeWidgetItem,
     QDialog,
     QFileDialog,
-    QProgressDialog,
     QWidget,
     QHBoxLayout,
     QVBoxLayout,
@@ -28,7 +28,7 @@ from ...application.dtos import ConnectionConfigDTO, ExportConfigDTO, ExportMode
 from ...application.interfaces import ILocalization, ILogger
 from ...application.services import ConnectionConfigService
 from ...application.use_cases import DataViewerUseCase, ExportUseCase
-from ...presentation.workers import LongTaskWorker
+from ...presentation.services.progress_task_runner import ProgressTaskRunner
 from ...presentation.widgets import SvgPreviewDialog
 
 
@@ -104,6 +104,7 @@ class ExportTabController:
         export_use_case: ExportUseCase,
         localization: ILocalization,
         logger: ILogger,
+        on_qgis_export_ready: Callable[[list[str]], None] | None = None,
     ):
         self._dialog = dialog
         self._iface = iface
@@ -112,6 +113,7 @@ class ExportTabController:
         self._export_use_case = export_use_case
         self._localization = localization
         self._logger = logger
+        self._on_qgis_export_ready = on_qgis_export_ready
 
         self._selected_connection: ConnectionConfigDTO | None = None
         self._export_schema = ""
@@ -660,8 +662,7 @@ class ExportTabController:
         def export_task():
             return self._export_use_case.execute(self._selected_connection, export_configs)
 
-        def _on_export_finished(result, progress_dialog):
-            progress_dialog.close()
+        def _on_export_finished(result):
             app_result, report = result
             self._logger.message(report)
 
@@ -670,12 +671,24 @@ class ExportTabController:
                 return
 
             if export_mode == ExportMode.QGIS:
-                loaded_count = self._load_exported_files_to_qgis(selected_files)
-                QMessageBox.information(
-                    self._dialog,
-                    "Успех",
-                    self._localization.tr("MAIN_DIALOG", "export_success_qgis", loaded_count),
-                )
+                exported_paths = self._resolve_exported_paths(selected_files)
+                opened = self._open_qgis_import_dialog(exported_paths)
+
+                if self._on_qgis_export_ready is not None and exported_paths:
+                    self._on_qgis_export_ready(exported_paths)
+
+                if opened:
+                    QMessageBox.information(
+                        self._dialog,
+                        "Успех",
+                        "Файлы экспортированы. Окно DXF Import открыто с готовым списком файлов.",
+                    )
+                else:
+                    QMessageBox.warning(
+                        self._dialog,
+                        "Предупреждение",
+                        "Файлы экспортированы, но не удалось открыть окно DXF Import.",
+                    )
             else:
                 QMessageBox.information(
                     self._dialog,
@@ -683,45 +696,60 @@ class ExportTabController:
                     self._localization.tr("MAIN_DIALOG", "export_success_folder", output_dir),
                 )
 
-        def _on_export_error(error: str, progress_dialog):
-            progress_dialog.close()
+        def _on_export_error(error: str):
             QMessageBox.critical(self._dialog, "Ошибка", f"Ошибка экспорта: {error}")
 
-        self.export_worker = LongTaskWorker(export_task)
-
-        progress_dialog = QProgressDialog(
-            self._localization.tr("MAIN_DIALOG", "export_in_progress"),
-            self._localization.tr("MAIN_DIALOG", "cancel"),
-            0,
-            0,
+        self.export_worker = ProgressTaskRunner.run(
             self._dialog,
-        )
-        progress_dialog.setWindowModality(Qt.WindowModal)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setAutoClose(True)
-        progress_dialog.setAutoReset(True)
-        progress_dialog.repaint()
-
-        self.export_worker.finished.connect(
-            lambda task_id, result: _on_export_finished(result, progress_dialog)
-        )
-        self.export_worker.error.connect(
-            lambda error: _on_export_error(error, progress_dialog)
+            export_task,
+            on_finished=_on_export_finished,
+            on_error=_on_export_error,
+            progress_text=self._localization.tr("MAIN_DIALOG", "export_in_progress"),
+            cancel_text=self._localization.tr("MAIN_DIALOG", "cancel"),
         )
 
-        self.export_worker.start()
-        progress_dialog.exec_()
-
-    def _load_exported_files_to_qgis(self, filenames: list[str]) -> int:
-        loaded_count = 0
+    def _resolve_exported_paths(self, filenames: list[str]) -> list[str]:
+        existing_paths: list[str] = []
         for filename in filenames:
             file_path = os.path.join(tempfile.gettempdir(), filename)
-            if not os.path.exists(file_path):
-                continue
+            if os.path.exists(file_path):
+                existing_paths.append(file_path)
 
-            layer_name = os.path.splitext(filename)[0]
-            layer = self._iface.addVectorLayer(file_path, layer_name, "ogr")
-            if layer:
-                loaded_count += 1
+        return existing_paths
 
-        return loaded_count
+    def _open_qgis_import_dialog(self, existing_paths: list[str]) -> bool:
+
+        if not existing_paths:
+            return False
+
+        try:
+            # Открываем тот же плагинный диалог DXF, как в конвертере, уже с готовым списком файлов.
+            from ...plugins.dxf_tools.clsADXF2Shape import clsADXF2Shape
+
+            adxf2shape = clsADXF2Shape(self._iface)
+            dlg = adxf2shape.dlg
+
+            dlg.current_files = existing_paths
+            dlg.listDXFDatNam.clear()
+            dlg.listDXFDatNam.setEnabled(True)
+            for file_path in existing_paths:
+                dlg.listDXFDatNam.addItem(file_path.replace("\\", "/"))
+
+            if dlg.listDXFDatNam.count() > 0:
+                dlg.listDXFDatNam.item(0).setSelected(True)
+                if hasattr(dlg, "wld4listDXFDatNam"):
+                    dlg.wld4listDXFDatNam()
+
+            # Для последующего запуска импорта в проект QGIS оставляем соответствующие опции.
+            if hasattr(dlg, "chkQgis"):
+                dlg.chkQgis.setChecked(True)
+            if hasattr(dlg, "chkSHP"):
+                dlg.chkSHP.setChecked(False)
+            if hasattr(dlg, "chkGPKG"):
+                dlg.chkGPKG.setChecked(False)
+
+            adxf2shape.run()
+            return True
+        except Exception as exc:
+            self._logger.warning(f"Failed to open plugin-based QGIS import dialog: {exc}")
+            return False

@@ -96,6 +96,18 @@ class TestCoreWorkflowIntegration(unittest.TestCase):
         self.close_use_case = CloseDocumentUseCase(self.repo, self.writer, self.events)
 
     def test_open_select_close_workflow(self):
+        """
+        Интеграционный сценарий базового жизненного цикла DXF-документа.
+
+        Что тестируется:
+        1. Открытие нескольких реальных DXF-файлов и добавление в активный репозиторий.
+        2. Изменение выбора одной сущности через SelectEntityUseCase.
+        3. Закрытие документа через CloseDocumentUseCase.
+        4. Публикация событий opened/modified/closed.
+
+        Почему это важно:
+        Проверяет согласованность use case между собой на реальных данных, а не только на моках.
+        """
         open_result = self.open_use_case.execute(self._source_paths)
         self.assertTrue(open_result.is_success)
         self.assertEqual(len(open_result.value), 4)
@@ -296,6 +308,17 @@ class TestDbImportExportIntegration(unittest.TestCase):
             self._db_session.close()
 
     def test_import_to_db_creates_document_and_content(self):
+        """
+        Проверяет, что импорт в БД создает и документ, и бинарный контент.
+
+        Что тестируется:
+        1. Импорт реального DXF в выделенные тестовые схемы БД.
+        2. Наличие записи документа в file-schema после импорта.
+        3. Наличие связанного бинарного содержимого DXF.
+
+        Почему это важно:
+        Без целостной пары document/content экспорт и повторное открытие файла работать не будут.
+        """
         is_success, report = self._import_document_to_db(self._source_path)
 
         self.assertTrue(is_success, msg=report)
@@ -320,6 +343,17 @@ class TestDbImportExportIntegration(unittest.TestCase):
         self.assertGreater(len(content_result.value.content), 0)
 
     def test_roundtrip_db_to_dxf_preserves_content(self):
+        """
+        Проверяет roundtrip "файл -> БД -> файл" без изменения бинарного содержимого.
+
+        Что тестируется:
+        1. Импорт исходного DXF в БД.
+        2. Экспорт того же файла обратно на диск.
+        3. Побайтовое равенство исходного и экспортированного файлов.
+
+        Почему это важно:
+        Гарантирует, что экспорт не вносит скрытых модификаций в содержимое DXF.
+        """
         is_success, report = self._import_document_to_db(self._source_path)
         self.assertTrue(is_success, msg=report)
 
@@ -348,6 +382,18 @@ class TestDbImportExportIntegration(unittest.TestCase):
         self.assertEqual(source_bytes, exported_bytes)
 
     def test_import_and_export_multiple_files(self):
+        """
+        Проверяет пакетный сценарий для нескольких файлов подряд.
+
+        Что тестируется:
+        1. Открытие нескольких реальных DXF.
+        2. Последовательный импорт каждого файла в БД.
+        3. Пакетный экспорт набора конфигов за один вызов ExportUseCase.
+        4. Фактическое создание всех результирующих файлов на диске.
+
+        Почему это важно:
+        Подтверждает корректную работу use case в батч-режиме, который используется в реальном UI.
+        """
         open_result = self._open_use_case.execute([
             self._source_path,
             self._second_source_path,

@@ -48,6 +48,17 @@ class TestDebugReports(unittest.TestCase):
         )
 
     def test_import_report_contains_pipeline_steps(self):
+        """
+        Проверяет, что отчет ImportUseCase содержит ключевые этапы пайплайна.
+
+        Что тестируется:
+        1. Импорт завершается успешно на мок-сессии БД.
+        2. Текстовый отчет содержит стартовую запись процесса.
+        3. Текстовый отчет содержит финальный маркер успешного завершения.
+
+        Почему это важно:
+        Отчет используется для диагностики и должен быть информативным даже при smoke-проверках.
+        """
         active_repo = MagicMock()
         logger = _Logger()
         use_case = ImportUseCase(active_repo, logger)
@@ -76,6 +87,16 @@ class TestDebugReports(unittest.TestCase):
         self.assertIn("IMPORT COMPLETED SUCCESSFULLY", report)
 
     def test_export_report_contains_success_footer(self):
+        """
+        Проверяет, что отчет ExportUseCase содержит итоговый success-footer.
+
+        Что тестируется:
+        1. Экспорт завершается успешно при корректных данных из репозиториев.
+        2. В отчете присутствует строка об успешном завершении экспорта.
+
+        Почему это важно:
+        Этот маркер нужен для быстрой проверки результата экспорта в debug-режиме и логах.
+        """
         logger = _Logger()
         use_case = ExportUseCase(logger)
 

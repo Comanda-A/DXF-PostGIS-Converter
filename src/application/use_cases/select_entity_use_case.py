@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from uuid import UUID
-from ...domain.entities import DXFBase, DXFDocument
+from ...domain.entities import DXFBase, DXFDocument, DXFLayer
 from ...domain.repositories import IActiveDocumentRepository
 
 from ...application.dtos import DXFDocumentDTO
@@ -30,25 +30,24 @@ class SelectEntityUseCase:
             return AppResult.fail(result.error)
         
         documents = result.value
-        modified_documents = []
-        
-        # Для каждого ID ищем объект
+        modified_documents: dict[UUID, DXFDocument] = {}
+
         for entity_id, selected in entities.items():
-            for doc in documents:
-                entity = self._find_entity_by_id([doc], entity_id)
-            
-                if entity:
-                    entity.set_selected(selected)
-                    if doc not in modified_documents:
-                        modified_documents.append(doc)
+            target_doc, entity = self._find_entity_by_id(documents, entity_id)
+            if entity is None or target_doc is None:
+                continue
+
+            self._set_selected_recursive(entity, selected)
+            modified_documents[target_doc.id] = target_doc
         
-        for doc in modified_documents[:]:
+        updated_docs = list(modified_documents.values())
+        for doc in updated_docs[:]:
             result = self._active_repo.update(doc)
             if result.is_fail:
                 self._logger.error(f"Error updating active documents: {result.error}")
-                modified_documents.remove(doc)
+                updated_docs.remove(doc)
         
-        dtos = DXFMapper.to_dto(modified_documents)
+        dtos = DXFMapper.to_dto(updated_docs)
         self._app_events.on_document_modified.emit(dtos)
         return AppResult.success(dtos)
     
@@ -64,20 +63,32 @@ class SelectEntityUseCase:
         
         return AppResult.fail(f"Unexpected error: object '{entity_id}' was not returned in result")
     
-    def _find_entity_by_id(self, documents: list[DXFDocument], entity_id: UUID) -> DXFBase | None:
+    def _find_entity_by_id(self, documents: list[DXFDocument], entity_id: UUID) -> tuple[DXFDocument | None, DXFBase | None]:
 
         for document in documents:
             # Проверяем документ
             if document.id == entity_id:
-                return document
+                return document, document
             
             # Проверяем слои документа
             if entity_id in document.layers:
-                return document.layers[entity_id]
+                return document, document.layers[entity_id]
             
             # Проверяем сущности в слоях
             for layer in document.layers.values():
                 if entity_id in layer.entities:
-                    return layer.entities[entity_id]
+                    return document, layer.entities[entity_id]
         
-        return None
+        return None, None
+
+    def _set_selected_recursive(self, entity: DXFBase, selected: bool) -> None:
+        entity.set_selected(selected)
+
+        if isinstance(entity, DXFDocument):
+            for layer in entity.layers.values():
+                self._set_selected_recursive(layer, selected)
+            return
+
+        if isinstance(entity, DXFLayer):
+            for layer_entity in entity.entities.values():
+                self._set_selected_recursive(layer_entity, selected)

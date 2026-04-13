@@ -6,7 +6,7 @@ import os
 from qgis.PyQt import uic, QtWidgets
 from qgis.PyQt.QtWidgets import (
     QMessageBox, QTreeWidgetItem, QPushButton, QWidget, QDialog,
-    QHBoxLayout, QHeaderView, QProgressDialog, QListWidgetItem
+    QHBoxLayout, QHeaderView, QProgressDialog, QListWidgetItem, QFileDialog
 )
 from qgis.PyQt.QtCore import Qt, QSignalBlocker
 from qgis.core import QgsProviderRegistry, QgsDataSourceUri
@@ -23,6 +23,7 @@ from ...application.use_cases import (
     SelectAreaUseCase,
     ExportUseCase,
     DataViewerUseCase,
+    SaveSelectedToFileUseCase,
 )
 from ...presentation.widgets import SelectableDxfTreeHandler
 from ...presentation.services import DialogTranslator, AreaSelectionController, ExportTabController
@@ -44,6 +45,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
         'select_area_use_case',
         'export_use_case',
         'data_viewer_use_case',
+        'save_selected_to_file_use_case',
         'active_doc_service',
         'connection_service',
         'app_events',
@@ -59,6 +61,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
         select_area_use_case: SelectAreaUseCase,
         export_use_case: ExportUseCase,
         data_viewer_use_case: DataViewerUseCase,
+        save_selected_to_file_use_case: SaveSelectedToFileUseCase,
         active_doc_service: ActiveDocumentService,
         connection_service: ConnectionConfigService,
         app_events: IAppEvents,
@@ -74,6 +77,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
         self._select_entity_use_case = select_entity_use_case
         self._export_use_case = export_use_case
         self._data_viewer_use_case = data_viewer_use_case
+        self._save_selected_to_file_use_case = save_selected_to_file_use_case
         self._active_doc_service = active_doc_service
         self._connection_service = connection_service
         self._app_events = app_events
@@ -160,13 +164,13 @@ class ConverterDialog(QDialog, FORM_CLASS):
         self.open_dxf_button.clicked.connect(self._on_open_dxf_button_click)
         self.select_area_button.clicked.connect(self._on_select_area_button_click)
         self.import_dxf_button.clicked.connect(self._on_import_dxf_button_click)
-        self.save_dxf_button.clicked.connect(self._on_export_to_file)
+        self.save_dxf_button.clicked.connect(self._on_save_selected_to_file_click)
 
         self.connection_editor_button.clicked.connect(self._on_connection_editor_button_click)
         self.connection_combo.currentTextChanged.connect(self._on_connection_combo_changed)
         self.schema_combo.currentTextChanged.connect(self._on_schema_combo_changed)
         self.refresh_db_button.clicked.connect(self._refresh_db_files)
-        self.export_db_button.clicked.connect(self._on_export_to_file)
+        self.export_db_button.clicked.connect(self._on_export_db_to_file)
 
         self.apply_filter_button.clicked.connect(self._on_apply_filter_button_click)
         self.clear_filter_button.clicked.connect(self._on_clear_filter_button_click)
@@ -462,34 +466,80 @@ class ConverterDialog(QDialog, FORM_CLASS):
     def _update_export_ui(self):
         self._export_tab_controller.update_export_ui()
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-    def _on_export_to_file(self):
-        """Экспорт в файл."""
+    def _on_export_db_to_file(self):
+        """Экспорт PostGIS -> DXF."""
         self._export_tab_controller.on_export_clicked()
+
+    def _on_save_selected_to_file_click(self):
+        """Сохранить выделенные сущности текущего DXF в новый файл."""
+        current_filename = self.file_filter_combo.currentText().strip()
+        if not current_filename:
+            QMessageBox.information(
+                self,
+                "Информация",
+                self._localization.tr("MAIN_DIALOG", "select_file_first"),
+            )
+            return
+
+        default_name = os.path.splitext(current_filename)[0] + "_selected.dxf"
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            self._localization.tr("MAIN_DIALOG", "save_as"),
+            default_name,
+            "DXF Files (*.dxf)",
+        )
+        if not output_path:
+            return
+
+        if not output_path.lower().endswith(".dxf"):
+            output_path = output_path + ".dxf"
+
+        def save_task():
+            return self._save_selected_to_file_use_case.execute(current_filename, output_path)
+
+        def _on_save_finished(result: object, progress_dialog):
+            progress_dialog.close()
+            app_result, report = result
+            self._logger.message(report)
+
+            if app_result.is_fail:
+                QMessageBox.critical(self, "Ошибка", f"Сохранение завершилось с ошибкой: {app_result.error}")
+                return
+
+            QMessageBox.information(
+                self,
+                "Успех",
+                self._localization.tr("MAIN_DIALOG", "export_success_folder", os.path.dirname(output_path)),
+            )
+
+        def _on_save_error(error: str, progress_dialog):
+            progress_dialog.close()
+            QMessageBox.critical(self, "Ошибка", f"Ошибка сохранения: {error}")
+
+        self.save_selected_worker = LongTaskWorker(save_task)
+
+        progress_dialog = QProgressDialog(
+            self._localization.tr("MAIN_DIALOG", "export_in_progress"),
+            self._localization.tr("MAIN_DIALOG", "cancel"),
+            0,
+            0,
+            self,
+        )
+        progress_dialog.setWindowModality(Qt.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setAutoClose(True)
+        progress_dialog.setAutoReset(True)
+        progress_dialog.repaint()
+
+        self.save_selected_worker.finished.connect(
+            lambda task_id, result: _on_save_finished(result, progress_dialog)
+        )
+        self.save_selected_worker.error.connect(
+            lambda error: _on_save_error(error, progress_dialog)
+        )
+
+        self.save_selected_worker.start()
+        progress_dialog.exec_()
     
     def _on_tab_changed(self, index):
         """Смена вкладки."""

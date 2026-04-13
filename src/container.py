@@ -7,7 +7,7 @@ from .application.interfaces import ISettings, ILogger, ILocalization
 from .application.events import IEvent, IAppEvents
 from .application.services import ActiveDocumentService, ConnectionConfigService
 from .application.database import DBSession
-from .application.use_cases import OpenDocumentUseCase, CloseDocumentUseCase, SelectEntityUseCase, SelectAreaUseCase, ImportUseCase, ExportUseCase, DataViewerUseCase
+from .application.use_cases import OpenDocumentUseCase, CloseDocumentUseCase, SelectEntityUseCase, SelectAreaUseCase, ImportUseCase, ExportUseCase, DataViewerUseCase, SaveSelectedToFileUseCase
 
 from .infrastructure.qgis import Settings, Logger, QtEvent, QtAppEvents
 from .infrastructure.localization.localization import Localization
@@ -50,6 +50,7 @@ class Container:
             import_use_case = ImportUseCase(active_repo, logger)
             export_use_case = ExportUseCase(logger)
             data_viewer_use_case = DataViewerUseCase(logger)
+            save_selected_to_file_use_case = SaveSelectedToFileUseCase(active_repo, logger)
 
             # Реализации репозиториев и подключений к разным БД
             connection_factory = ConnectionFactory([PostGISConnection])
@@ -86,6 +87,7 @@ class Container:
             binder.bind(ImportUseCase, import_use_case)
             binder.bind(ExportUseCase, export_use_case)
             binder.bind(DataViewerUseCase, data_viewer_use_case)
+            binder.bind(SaveSelectedToFileUseCase, save_selected_to_file_use_case)
 
             binder.bind(IConnectionFactory, connection_factory)
             binder.bind(IRepositoryFactory, repository_factory)

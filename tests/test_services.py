@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
+import ezdxf
 
 from src.application.interfaces import ILogger
 
@@ -23,7 +24,13 @@ from src.application.dtos import (
 )
 from src.application.results import AppResult, Unit
 from src.application.services import ConnectionConfigService
-from src.application.use_cases import ExportUseCase, ImportUseCase, OpenDocumentUseCase, SelectEntityUseCase
+from src.application.use_cases import (
+    ExportUseCase,
+    ImportUseCase,
+    OpenDocumentUseCase,
+    SaveSelectedToFileUseCase,
+    SelectEntityUseCase,
+)
 from src.domain.entities import DXFContent, DXFDocument, DXFEntity, DXFLayer
 from src.domain.value_objects import DxfEntityType
 from src.infrastructure.database import ActiveDocumentRepository
@@ -368,6 +375,80 @@ class TestExportUseCase(unittest.TestCase):
 
         self.assertTrue(result.is_fail)
         self.assertIn("not found", report)
+
+
+class TestSaveSelectedToFileUseCase(unittest.TestCase):
+    def setUp(self):
+        self.logger = _DummyLogger()
+        self.events = _DummyAppEvents()
+        self.active_repo = ActiveDocumentRepository()
+        self.reader = DXFReader()
+        self.open_use_case = OpenDocumentUseCase(self.active_repo, self.reader, self.events, self.logger)
+        self.select_use_case = SelectEntityUseCase(self.active_repo, self.events, self.logger)
+        self.save_use_case = SaveSelectedToFileUseCase(self.active_repo, self.logger)
+
+    def test_save_only_selected_entities_with_real_file(self):
+        open_result = self.open_use_case.execute_single(EXAMPLE_3)
+        self.assertTrue(open_result.is_success, msg=open_result.error if open_result.is_fail else "")
+
+        doc = open_result.value
+        all_entities = [
+            entity
+            for layer in doc.layers
+            for entity in layer.entities
+        ]
+        self.assertGreater(len(all_entities), 0)
+
+        selected_entity = next(
+            (entity for entity in all_entities if str(entity.attributes.get("handle", "")).strip()),
+            None,
+        )
+        if selected_entity is None:
+            self.skipTest("No entities with non-empty handle in fixture file")
+
+        selection_map = {entity.id: entity.id == selected_entity.id for entity in all_entities}
+        select_result = self.select_use_case.execute(selection_map)
+        self.assertTrue(select_result.is_success, msg=select_result.error if select_result.is_fail else "")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_path = os.path.join(tmp_dir, "selected_only.dxf")
+            save_result, report = self.save_use_case.execute(doc.filename, out_path)
+
+            self.assertTrue(save_result.is_success, msg=save_result.error if save_result.is_fail else report)
+            self.assertTrue(os.path.exists(out_path))
+
+            drawing = ezdxf.readfile(out_path)
+            exported_handles = {
+                str(getattr(entity.dxf, "handle", "")).strip().upper()
+                for entity in drawing.modelspace()
+            }
+            selected_handle = str(selected_entity.attributes.get("handle", "")).strip().upper()
+
+            self.assertIn(selected_handle, exported_handles)
+            self.assertEqual(len(exported_handles), 1)
+
+    def test_save_fails_when_nothing_selected(self):
+        open_result = self.open_use_case.execute_single(EXAMPLE_2)
+        self.assertTrue(open_result.is_success, msg=open_result.error if open_result.is_fail else "")
+
+        doc = open_result.value
+        all_entities = [
+            entity
+            for layer in doc.layers
+            for entity in layer.entities
+        ]
+        self.assertGreater(len(all_entities), 0)
+
+        select_result = self.select_use_case.execute({entity.id: False for entity in all_entities})
+        self.assertTrue(select_result.is_success, msg=select_result.error if select_result.is_fail else "")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_path = os.path.join(tmp_dir, "nothing_selected.dxf")
+            save_result, report = self.save_use_case.execute(doc.filename, out_path)
+
+            self.assertTrue(save_result.is_fail)
+            self.assertIn("No selected entities", save_result.error)
+            self.assertIn("No selected entities", report)
 
 
 if __name__ == "__main__":

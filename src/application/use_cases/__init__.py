@@ -6,6 +6,7 @@ from .select_area_use_case import SelectAreaUseCase
 from .import_use_case import ImportUseCase
 from .export_use_case import ExportUseCase
 from .data_viewer_use_case import DataViewerUseCase
+from .save_selected_to_file_use_case import SaveSelectedToFileUseCase
 
 __all__ = [
     'OpenDocumentUseCase',
@@ -14,6 +15,7 @@ __all__ = [
     'SelectAreaUseCase',
     'ImportUseCase',
     'ExportUseCase',
-    'DataViewerUseCase'
+    'DataViewerUseCase',
+    'SaveSelectedToFileUseCase'
 ]
 

@@ -161,6 +161,10 @@ class clsADXF2Shape:
         cls = uiAbout()
         cls.exec_()
 
+    def get_current_files(self):
+        if self.dlg is None:
+            return []
+        return self.dlg.current_files
+
     def run(self):
-        cls = uiADXF2Shape(self.iface)
-        cls.RunMenu()
+        self.dlg.RunMenu()

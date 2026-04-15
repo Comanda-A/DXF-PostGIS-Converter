@@ -1,6 +1,6 @@
 from .BaseMapTool import BaseMapTool
 from qgis.gui import QgsRubberBand
-from PyQt5 import QtGui, QtCore
+from qgis.PyQt import QtGui, QtCore
 from qgis.core import QgsWkbTypes
 
 class PolygonMapTool(BaseMapTool):
@@ -51,10 +51,10 @@ class PolygonMapTool(BaseMapTool):
         
         coords_str = ", ".join([f"({x:.2f}, {y:.2f})" for x, y in self.geom])
         
-        self.dlg.start_long_task("select_entities_in_area", self.dlg.dxf_handler.select_entities_in_area, self.geom)
-        self.update_dialog_coordinates(
-            self.dlg.lm.get_string("DRAW", "polygon_coordinates", coords_str)
+        self.dlg.area_selection_controller.select_async(
+            self.geom,
         )
+        self.update_dialog_coordinates(f"Polygon: {coords_str}")
         self.finish_drawing()
         
     def showTemporaryPolygon(self, point):

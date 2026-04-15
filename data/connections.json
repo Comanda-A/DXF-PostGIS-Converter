@@ -1,0 +1,29 @@
+{
+  "dxf": {
+    "db_type": "PostgreSQL/PostGIS",
+    "host": "localhost",
+    "port": "5432",
+    "database": "dxf",
+    "username": "postgres",
+    "password": "12345",
+    "name": "dxf"
+  },
+  "wereww": {
+    "db_type": "PostgreSQL/PostGIS",
+    "host": "er",
+    "port": "wer",
+    "database": "wer",
+    "username": "wer",
+    "password": "wer",
+    "name": "wereww"
+  },
+  "123": {
+    "db_type": "PostgreSQL/PostGIS",
+    "host": "localhost",
+    "port": "5432",
+    "database": "converter",
+    "username": "postgres",
+    "password": "12345",
+    "name": "123"
+  }
+}

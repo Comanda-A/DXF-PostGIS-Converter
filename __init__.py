@@ -23,7 +23,6 @@
  This script initializes the plugin, making it known to QGIS.
 """
 
-
 def classFactory(iface):  # pylint: disable=invalid-name
     """Load Converter class from file Converter.
 
@@ -39,9 +38,10 @@ def classFactory(iface):  # pylint: disable=invalid-name
         'geoalchemy2',
         'psycopg2',
         'shapely',
-        'numpy'
+        'numpy', 
+        'inject',
     ])
 
     # Import and return the main plugin class
-    from .src.dxf_postgis_converter import DxfPostGISConverter
+    from .src import DxfPostGISConverter
     return DxfPostGISConverter(iface)

@@ -47,9 +47,16 @@ class PostGISLayerRepository(ILayerRepository):
             )
         """
         try:
-            self._connection.execute_query(create_table_query)
+            result = self._connection.execute_query(create_table_query)
+            if hasattr(result, 'is_fail') and result.is_fail:
+                # Откатываем транзакцию при ошибке инициализации таблицы
+                self._connection.rollback()
         except Exception as e:
-            print(f"Error initializing table: {e}")
+            # Откатываем транзакцию при ошибке инициализации таблицы
+            try:
+                self._connection.rollback()
+            except:
+                pass
 
     def create(self, entity: DXFLayer) -> Result[DXFLayer]:
         try:

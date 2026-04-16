@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import inject
 import json
 from uuid import UUID
-from typing import List, Optional
+from typing import List, Optional, Any
 from ....domain.value_objects import Result, Unit, DxfEntityType
 from ....domain.entities import DXFEntity
 from ....domain.repositories import IEntityRepository
-from ....infrastructure.database.postgis import PostGISConnection, PostGISEntityConverter
+from ....application.interfaces import ILogger
+from .postgis_connection import PostGISConnection
+from .postgis_entity_converter import PostGISEntityConverter
 
 
 class PostGISEntityRepository(IEntityRepository):
@@ -21,6 +24,10 @@ class PostGISEntityRepository(IEntityRepository):
         self._schema = schema
         self._table_name = table_name
         self._converter = PostGISEntityConverter()
+        try:
+            self._logger = inject.instance(ILogger)
+        except:
+            self._logger = None
         
         # Инициализация схемы и таблицы
         self._init_schema()
@@ -28,14 +35,17 @@ class PostGISEntityRepository(IEntityRepository):
 
     @property  
     def full_name(self) -> str:
-        """Полное имя таблицы со схемой"""
-        return f"{self._schema}.{self._table_name}"
+        """Полное имя таблицы со схемой с экранированием для PostgreSQL"""
+        return f'"{self._schema}"."{self._table_name}"'
     
     def _init_schema(self):
         """Создание схемы если не существует"""
         result = self._connection.schema_exists(self._schema)
         if result.is_success and not result.value:
-            self._connection.create_schema(self._schema)
+            schema_result = self._connection.create_schema(self._schema)
+            if hasattr(schema_result, 'is_fail') and schema_result.is_fail:
+                if self._logger:
+                    self._logger.warning(f"Failed to create schema {self._schema}: {schema_result.error}")
     
     def _init_table(self):
         """Создание таблицы с сущностями"""
@@ -51,9 +61,41 @@ class PostGISEntityRepository(IEntityRepository):
             )
         """
         try:
-            self._connection.execute_query(create_table_query)
+            result = self._connection.execute_query(create_table_query)
+            if hasattr(result, 'is_fail') and result.is_fail:
+                # Откатываем транзакцию при ошибке инициализации таблицы
+                self._connection.rollback()
+                if self._logger:
+                    self._logger.warning(f"Failed to initialize table {self.full_name}: {result.error}")
         except Exception as e:
-            print(f"Error initializing table: {e}")
+            # Откатываем транзакцию при ошибке инициализации таблицы
+            try:
+                self._connection.rollback()
+            except:
+                pass
+            if self._logger:
+                self._logger.warning(f"Error initializing table {self.full_name}: {e}")
+    
+    def _make_serializable(self, obj: Any) -> Any:
+        """Преобразует non-JSON-serializable объекты в совместимые типы"""
+        if obj is None or isinstance(obj, (int, float, str, bool)):
+            return obj
+        
+        if isinstance(obj, dict):
+            return {k: self._make_serializable(v) for k, v in obj.items()}
+        
+        if isinstance(obj, (list, tuple)):
+            return [self._make_serializable(v) for v in obj]
+        
+        # Для ezdxf Vec3, Vec2 и похожих объектов с координатами
+        if hasattr(obj, 'x') and hasattr(obj, 'y'):
+            if hasattr(obj, 'z'):
+                return (float(obj.x), float(obj.y), float(obj.z))
+            else:
+                return (float(obj.x), float(obj.y))
+        
+        # Для других non-serializable объектов используем str()
+        return str(obj)
 
     def create(self, entity: DXFEntity) -> Result[DXFEntity]:
         try:
@@ -69,15 +111,15 @@ class PostGISEntityRepository(IEntityRepository):
 
             geometry, extra_data = result.value
             entity.add_extra_data(extra_data)
-
+            
             data = {
-                'id': entity.id,
+                'id': str(entity.id),
                 'entity_type': entity.entity_type.value,
-                #'geometry': geometry,
-                'geometry': None,
-                'attributes': json.dumps(entity.attributes),
-                'geometries': json.dumps(entity.geometries),
-                'extra_data': json.dumps(entity.extra_data) 
+                'name': entity.name,
+                'geometry': geometry,
+                'attributes': json.dumps(self._make_serializable(entity.attributes)),
+                'geometries': json.dumps(self._make_serializable(entity.geometries)),
+                'extra_data': json.dumps(self._make_serializable(entity.extra_data))
             }
             
             self._connection.execute_query(query, data)
@@ -105,16 +147,15 @@ class PostGISEntityRepository(IEntityRepository):
 
             geometry, extra_data = result.value
             entity.add_extra_data(extra_data)
-
+            
             data = {
-                'id': entity.id,
+                'id': str(entity.id),
                 'entity_type': entity.entity_type.value,
                 'name': entity.name,
-                #'geometry': geometry,
-                'geometry': None,
-                'attributes': json.dumps(entity.attributes),
-                'geometries': json.dumps(entity.geometries),
-                'extra_data': json.dumps(entity.extra_data)
+                'geometry': geometry,
+                'attributes': json.dumps(self._make_serializable(entity.attributes)),
+                'geometries': json.dumps(self._make_serializable(entity.geometries)),
+                'extra_data': json.dumps(self._make_serializable(entity.extra_data))
             }
             
             self._connection.execute_query(query, data)
@@ -129,7 +170,7 @@ class PostGISEntityRepository(IEntityRepository):
                 DELETE FROM {self.full_name}
                 WHERE id = %(id)s
             """
-            self._connection.execute_query(query, {'id': id})
+            self._connection.execute_query(query, {'id': str(id)})
             return Result.success(Unit())
         except Exception as e:
             return Result.fail(f"Failed to remove layer: {e}")

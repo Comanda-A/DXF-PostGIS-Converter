@@ -117,7 +117,14 @@ TREE_WIDGET_HANDLER = {
 
     "file_text": "{} | selected layers: {}/{} | selected entities: {}/{}",
     "layer_text": "{} | selected entities: {}/{}",
+    "preview_button": "Preview",
     "remove_button": "Close"
+}
+
+DB_TREE_HANDLER = {
+    "preview_button": "Preview",
+    "info_button": "Info",
+    "delete_button": "Delete"
 }
 
 CONNECTION_EDITOR_DIALOG = {

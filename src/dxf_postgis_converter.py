@@ -2,6 +2,8 @@
 DXF-PostGIS Converter Plugin Entry Point
 """
 
+from .. import resources
+
 class DxfPostGISConverter:
     """
     QGIS Plugin Implementation.

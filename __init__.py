@@ -34,12 +34,12 @@ def classFactory(iface):  # pylint: disable=invalid-name
     from .install_packages import check_dependencies
     check_dependencies.check([
         'ezdxf',
-        'sqlalchemy',
         'geoalchemy2',
         'psycopg2',
         'shapely',
         'numpy', 
         'inject',
+        'unidecode'
     ])
 
     # Import and return the main plugin class

@@ -177,7 +177,8 @@ class uiADXF2Shape(QDialog, FORM_CLASS):
                 QCoreApplication.installTranslator(translator)
 
         self.setupUi(self)
-        self.setWindowTitle(fncCGFensterTitel())
+        #self.setWindowTitle(fncCGFensterTitel())Открытие DXF-файла
+        self.setWindowTitle('Открытие DXF-файла')
         self.browseDXFDatei.clicked.connect(self.browseDXFDatei_clicked)
         self.chkSHP.clicked.connect(self.chkSHP_clicked)
         self.chkGPKG.clicked.connect(self.chkGPKG_clicked)

@@ -104,7 +104,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
         )
         
         # UI Handlers
-        self.tree_widget_handler = SelectableDxfTreeHandler(self.dxf_tree_widget)
+        self.tree_widget_handler = SelectableDxfTreeHandler(self.dxf_tree_widget, parent=self)
         self._qgis_layer_sync_manager = QGISLayerSyncManager()
 
         self._selection_layers_file = ""

@@ -1,6 +1,8 @@
 import inject
 import os
 import tempfile
+from datetime import datetime
+from unidecode import unidecode
 
 from ...domain.entities import DXFDocument, DXFContent, DXFLayer, DXFEntity
 from ...domain.repositories import IActiveDocumentRepository
@@ -23,6 +25,17 @@ class ImportUseCase:
         self._active_repo = active_repo
         self._dxf_reader = dxf_reader
         self._logger = logger
+    
+    def _transliterate_layer_name(self, layer_name: str) -> str:
+        """Транслитерирует русские названия слоев в английские"""
+        return unidecode(layer_name)
+    
+    def _make_short_id(self, uuid_obj) -> str:
+        """Создает компактный идентификатор из UUID (первые 6 символов без дефисов)"""
+        if not uuid_obj:
+            return ""
+        uuid_str = str(uuid_obj).replace("-", "")
+        return uuid_str[:6]
     
     def execute(
         self,
@@ -134,6 +147,11 @@ class ImportUseCase:
                     os.remove(temp_preview_file)
                 
                 # Импортируем файлы
+                doc = None
+                doc_repo = None
+                content_repo = None
+                layer_repo = None
+                
                 if not config.import_layers_only:
                     report_lines.append(f"Importing document structure to schema '{config.file_schema}'")
                     
@@ -143,13 +161,39 @@ class ImportUseCase:
                     
                     report_lines.append(f"All repositories initialized for schema '{config.file_schema}'")
 
+                    # Подготавливаем документ с датами
+                    now = datetime.now()
+                    doc_to_save = DXFDocument(
+                        id=docs[config.filename].id,
+                        filename=docs[config.filename].filename,
+                        filepath=docs[config.filename].filepath,
+                        layers=list(docs[config.filename].layers.values()),
+                        content=docs[config.filename].content,
+                        upload_date=now,
+                        update_date=now
+                    )
+
                     if doc_repo.exists(config.filename).value:
                         report_lines.append(f"Document already exists in database, updating...")
-                        result = doc_repo.update(docs[config.filename])
+                        # Сохраняем дату создания, обновляем дату обновления
+                        existing_doc_result = doc_repo.get_by_filename(config.filename)
+                        if existing_doc_result.is_success and existing_doc_result.value:
+                            existing_doc = existing_doc_result.value
+                            doc_to_save = DXFDocument(
+                                id=docs[config.filename].id,
+                                filename=docs[config.filename].filename,
+                                filepath=docs[config.filename].filepath,
+                                layers=list(docs[config.filename].layers.values()),
+                                content=docs[config.filename].content,
+                                upload_date=existing_doc.upload_date,  # Сохраняем оригинальную дату
+                                update_date=now  # Обновляем дату изменения
+                            )
+                        
+                        result = doc_repo.update(doc_to_save)
                         report_lines.append(f"Document updated successfully (ID: {result.value.id})")
                     else:
                         report_lines.append(f"Creating new document in database...")
-                        result = doc_repo.create(docs[config.filename])
+                        result = doc_repo.create(doc_to_save)
                         report_lines.append(f"Document created successfully (ID: {result.value.id})")
 
                     doc = result.value
@@ -175,40 +219,103 @@ class ImportUseCase:
                             )
                         ).value
                         report_lines.append(f"Content record updated (size: {len(docs[config.filename].content.content)} bytes)")
+                else:
+                    # Если импортируем только слои, нужно найти/создать документ
+                    report_lines.append(f"Importing layers only to schema '{config.layer_schema}'")
                     
+                    doc = docs[config.filename]
+                
+                # Обработка слоев - выполняется для обоих режимов
+                if doc and layer_repo:
                     layers_processed = 0
-                    for layer in docs[config.filename].layers.values():
-                        ex_layer_result = layer_repo.get_by_document_id_and_layer_name(doc.id, layer.name)
+                    # Создаем компактный идентификатор документа для имен таблиц
+                    doc_short_id = self._make_short_id(doc.id)
+                    
+                    if not config.import_layers_only:
+                        for layer in docs[config.filename].layers.values():
+                            # Применяем транслитерацию если включено в конфиге
+                            base_table_name = self._transliterate_layer_name(layer.name) if config.transliterate_layer_names else layer.name
+                            
+                            # Добавляем компактный префикс для уникальности имени таблицы при импорте разных файлов
+                            table_name = f"l{doc_short_id}_{base_table_name}" if doc_short_id else base_table_name
+                            
+                            ex_layer_result = layer_repo.get_by_document_id_and_layer_name(doc.id, layer.name)
 
-                        if ex_layer_result.is_fail:
-                            report_lines.append(f"Creating new layer record: '{layer.name}'")
-                            ex_layer = layer_repo.create(
-                                DXFLayer(
-                                    document_id=doc.id,
-                                    name=layer.name,
-                                    schema_name=config.layer_schema,
-                                    table_name=layer.name
-                                )
-                            ).value
-                            layers_processed += 1
-                        else:
-                            ex_layer = ex_layer_result.value
-                            # если объекты слоя хранятся в другой схеме или таблице, то создаем еще одну сущность слоя
-                            if ex_layer.schema_name != config.layer_schema or ex_layer.table_name != layer.table_name:
-                                report_lines.append(f"Layer '{layer.name}' already exists but with different schema/table, creating new layer record")
+                            if ex_layer_result.is_fail:
+                                report_lines.append(f"Creating new layer record: '{layer.name}' (table: {table_name})")
                                 ex_layer = layer_repo.create(
                                     DXFLayer(
                                         document_id=doc.id,
                                         name=layer.name,
                                         schema_name=config.layer_schema,
-                                        table_name=layer.name,
+                                        table_name=table_name
                                     )
                                 ).value
                                 layers_processed += 1
                             else:
-                                report_lines.append(f"Layer '{layer.name}' already exists in target schema, skipping")
+                                ex_layer = ex_layer_result.value
+                                # если объекты слоя хранятся в другой схеме или таблице, то создаем еще одну сущность слоя
+                                if ex_layer.schema_name != config.layer_schema or ex_layer.table_name != table_name:
+                                    report_lines.append(f"Layer '{layer.name}' already exists but with different schema/table, creating new layer record")
+                                    ex_layer = layer_repo.create(
+                                        DXFLayer(
+                                            document_id=doc.id,
+                                            name=layer.name,
+                                            schema_name=config.layer_schema,
+                                            table_name=table_name,
+                                        )
+                                    ).value
+                                    layers_processed += 1
+                                else:
+                                    report_lines.append(f"Layer '{layer.name}' already exists in target schema, skipping")
+                        
+                        report_lines.append(f"Layers processed: {layers_processed} created, {len(docs[config.filename].layers.values()) - layers_processed} existing")
                     
-                    report_lines.append(f"Layers processed: {layers_processed} created, {len(docs[config.filename].layers.values()) - layers_processed} existing")
+                    # Теперь сохраняем сущности (entities) слоев в базу данных
+                    report_lines.append(f"\nSaving layer entities for schema '{config.layer_schema}'...")
+                    
+                    total_entities = 0
+                    
+                    for layer in docs[config.filename].layers.values():
+                        # Применяем транслитерацию если включено в конфиге
+                        base_table_name = self._transliterate_layer_name(layer.name) if config.transliterate_layer_names else layer.name
+                        
+                        # Добавляем компактный префикс для уникальности имени таблицы при импорте разных файлов
+                        table_name = f"l{doc_short_id}_{base_table_name}" if doc_short_id else base_table_name
+                        
+                        # Для каждого слоя получаем свой repository с правильным именем таблицы
+                        entity_repo_result = self._session._get_entity_repository(config.layer_schema, table_name)
+                        if entity_repo_result.is_fail:
+                            report_lines.append(f"ERROR: Failed to get repository for layer '{layer.name}': {entity_repo_result.error}")
+                            continue
+                        
+                        entity_repo = entity_repo_result.value
+                        report_lines.append(f"Processing layer '{layer.name}' (table: {table_name})...")
+                        
+                        layer_entity_count = 0
+                        # Для каждого слоя сохраняем все его сущности
+                        for entity in layer.entities.values():
+                            # Проверяем, существует ли сущность с таким именем и типом
+                            check_result = entity_repo.get_by_name_and_type(entity.name, entity.entity_type)
+                            
+                            if check_result.is_success and check_result.value:
+                                # Обновляем существующую сущность
+                                result = entity_repo.update(entity)
+                                if result.is_success:
+                                    total_entities += 1
+                                    layer_entity_count += 1
+                            else:
+                                # Создаём новую сущность в базе
+                                result = entity_repo.create(entity)
+                                if result.is_success:
+                                    total_entities += 1
+                                    layer_entity_count += 1
+                                else:
+                                    report_lines.append(f"WARNING: Failed to create entity '{entity.name}': {result.error}")
+                        
+                        report_lines.append(f"Layer '{layer.name}' completed: {layer_entity_count} entities saved")
+                    
+                    report_lines.append(f"Total entities saved: {total_entities}")
 
             self._session.commit()
             self._session.close()

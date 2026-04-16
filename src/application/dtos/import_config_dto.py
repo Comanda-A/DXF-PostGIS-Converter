@@ -13,4 +13,5 @@ class ImportConfigDTO:
     file_schema: str
     
     import_layers_only: bool = False    # Импортировать только слои
+    transliterate_layer_names: bool = False  # Транслитерировать русские названия слоев в английские
     

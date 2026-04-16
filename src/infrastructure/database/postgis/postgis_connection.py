@@ -45,8 +45,11 @@ class PostGISConnection(IConnection):
             self._connection = psycopg2.connect(**conn_params)
             self._connection.autocommit = False
 
-            # Пробуем включить PostGIS, но не падаем если не получилось
-            self._enable_postgis()
+            # Установка PostGIS расширения - обязательно
+            postgis_result = self._enable_postgis()
+            if postgis_result.is_fail:
+                self._connection = None
+                return Result.fail(f"Failed to enable PostGIS extension: {postgis_result.error}")
 
             return Result.success(Unit())
 

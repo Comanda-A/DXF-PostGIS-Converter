@@ -174,7 +174,14 @@ TREE_WIDGET_HANDLER = {
 
     "file_text": "{} | выделено слоев: {}/{} | выделено сущностей: {}/{}",
     "layer_text": "{} | выделено сущностей: {}/{}",
+    "preview_button": "Превью",
     "remove_button": "Закрыть"
+}
+
+DB_TREE_HANDLER = {
+    "preview_button": "Превью",
+    "info_button": "Инфо",
+    "delete_button": "Удалить"
 }
 
 # Контент справки для диалогов

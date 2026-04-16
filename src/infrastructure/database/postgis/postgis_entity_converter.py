@@ -1,12 +1,30 @@
+# -*- coding: utf-8 -*-
+"""
+PostGIS Converter - конвертация DXF сущностей в PostGIS формат.
 
-import json
-from typing import Any, Dict, Optional, Tuple
-from shapely.geometry.base import BaseGeometry
+Преобразует DXF сущности (POINT, LINE, POLYLINE и т.д.) в WKTElement объекты для 
+хранения в PostgreSQL/PostGIS. Использует метод максимальной схожести для преобразования 
+всех возможных типов геометрии.
+"""
+
+from typing import Any, Dict, Optional, Tuple, Union
+import numpy as np
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
+from shapely.geometry.base import BaseGeometry
+from geoalchemy2 import WKTElement
+
 from ....domain.value_objects import Result
 from ....domain.entities import DXFEntity
 
+
 class PostGISEntityConverter:
+    """
+    Конвертер DXF сущностей в формат PostGIS.
+    
+    Преобразует различные типы DXF сущностей (POINT, LINE, POLYLINE,
+    CIRCLE, ARC, MULTILEADER и т.д.) в WKTElement объекты для
+    хранения в PostgreSQL/PostGIS с использованием SRID 4326.
+    """
     
     _CONVERSION_FUNCTIONS = {
         '3DFACE': '_convert_3dface',
@@ -47,518 +65,685 @@ class PostGISEntityConverter:
         'UNDERLAY': '_convert_underlay',
         'VIEWPORT': '_convert_viewport',
         'WIPEOUT': '_convert_wipeout',
-        'XLINE': '_convert_xline'
+        'XLINE': '_convert_xline',
+        'IMAGEDEF': '_convert_imagedef'
     }
 
-    def to_db(self, entity: DXFEntity) -> Result[Tuple[Any, Dict[str, Any]]]:
+    def to_db(self, entity: DXFEntity) -> Result[Tuple[Optional[str], Dict[str, Any]]]:
+        """
+        Конвертирует DXF сущность в WKT строку и дополнительные данные для БД.
+        
+        Args:
+            entity: DXFEntity объект с геометрией и атрибутами
+            
+        Returns:
+            Result с кортежем (wkt_string, extra_data) или ошибка
+        """
         convert_func_name = self._CONVERSION_FUNCTIONS.get(entity.entity_type.value)
-        if convert_func_name:
-            convert_func = getattr(self, convert_func_name)
-            return convert_func(entity)
-        return Result.fail(f"Unsupported entity type: {entity.entity_type}")
-    
+        if not convert_func_name:
+            return Result.fail(f"Unsupported entity type: {entity.entity_type}")
+
+        convert_func = getattr(self, convert_func_name)
+        result = convert_func(entity)
+        
+        if not result.is_success:
+            return result
+
+        geometry, extra_data = result.value
+        
+        # Если нет геометрии, возвращаем None и extra_data
+        if geometry is None:
+            return Result.success((None, extra_data))
+
+        # Если geometry уже строка (WKT)
+        if isinstance(geometry, str):
+            return Result.success((geometry, extra_data))
+
+        # Конвертируем Shapely объект в WKT строку
+        try:
+            wkt_str = geometry.wkt
+            return Result.success((wkt_str, extra_data))
+        except AttributeError:
+            return Result.fail(
+                f"Conversion error for {entity.entity_type}: "
+                f"Expected Shapely object, got {type(geometry).__name__}"
+            )
+
     def from_db(self, data: Dict[str, Any]) -> Result[DXFEntity]:
-        pass
-    
-    def _convert_3dface(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        '''`3DFACE` в DXF представляет собой треугольник или четырехугольник. В Shapely можно представить его как `Polygon`.'''
-        points = [
-            (entity.dxf.vtx0.x, entity.dxf.vtx0.y, entity.dxf.vtx0.z),
-            (entity.dxf.vtx1.x, entity.dxf.vtx1.y, entity.dxf.vtx1.z),
-            (entity.dxf.vtx2.x, entity.dxf.vtx2.y, entity.dxf.vtx2.z),
-            (entity.dxf.vtx3.x, entity.dxf.vtx3.y, entity.dxf.vtx3.z)
-        ]
-        # Если четвертая вершина совпадает с первой, это треугольник
-        if points[0] == points[3]:
-            points.pop()
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['points'] = points
-        return Polygon(points), extra_data
-
-    def _convert_3dsolid(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
+        """Конвертирует данные из БД обратно в DXFEntity"""
+        # TODO: Реализовать обратную конвертацию
         pass
 
-    def _convert_acad_proxy_entity(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
+    # ========== Helper Methods ==========
 
-    def _convert_arc(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
+    def _extract_point(self, point_data) -> Tuple[float, float, float]:
+        """
+        Извлекает координаты из различных форматов точек.
+        Поддерживает списки, кортежи и словари.
+        """
+        if isinstance(point_data, (list, tuple)):
+            if len(point_data) >= 3:
+                return (float(point_data[0]), float(point_data[1]), float(point_data[2]))
+            elif len(point_data) == 2:
+                return (float(point_data[0]), float(point_data[1]), 0.0)
+        elif isinstance(point_data, dict):
+            return (
+                float(point_data.get('x', 0)),
+                float(point_data.get('y', 0)),
+                float(point_data.get('z', 0))
+            )
+        return (0.0, 0.0, 0.0)
 
-    def _convert_attrib(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
+    def _build_extra_data(self, entity: DXFEntity, additional_data: Dict = None) -> Dict[str, Any]:
+        """Формирует словарь с дополнительными данными сущности"""
+        extra_data = {
+            'attributes': entity.attributes.copy(),
+            'entity_type': entity.entity_type.value,
+            'name': entity.name
+        }
+        if additional_data:
+            extra_data.update(additional_data)
+        if entity.extra_data:
+            extra_data['extra'] = entity.extra_data
+        return extra_data
 
-    def _convert_body(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
+    def _get_geometry_value(self, entity: DXFEntity, key: str, default=None):
+        """Безопасное получение значения из geometries"""
+        return entity.geometries.get(key, default)
 
-    def _convert_circle(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
+    def _get_attribute_value(self, entity: DXFEntity, key: str, default=None):
+        """Безопасное получение значения из attributes"""
+        return entity.attributes.get(key, default)
 
-    def _convert_dimension(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
+    # ========== Point Converters ==========
 
-    def _convert_arc_dimension(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass 
-
-    def _convert_ellipse(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_hatch(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_helix(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_image(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_insert(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_leader(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_line(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_lwpolyline(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_mline(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-    
-    def _convert_mesh(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_mpolygon(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_mtext(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_multileader(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_point(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_polyline(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_vertex(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_polymesh(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_polyface(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_ray(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_region(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_shape(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_solid(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_spline(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_surface(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_text(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_trace(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_underlay(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_viewport(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_wipeout(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-    def _convert_xline(self, entity: DXFEntity) -> Result[Tuple[BaseGeometry, Dict[str, Any]]]:
-        pass
-
-
-"""
-def _convert_point_to_postgis(self, entity: DXFPoint) -> Tuple[BaseGeometry, Dict]:
-        extra_data = self._attributes_to_dict(entity)
-        return Point(entity.dxf.location.x, entity.dxf.location.y, entity.dxf.location.z), extra_data
-
-    def _convert_line_to_postgis(self, entity: Line) -> Tuple[BaseGeometry, Dict]:
-        extra_data = self._attributes_to_dict(entity)
-
-        start = (entity.dxf.start.x, entity.dxf.start.y, entity.dxf.start.z)
-        end = (entity.dxf.end.x, entity.dxf.end.y, entity.dxf.end.z)
-        return LineString([start, end]), extra_data
-
-    def _convert_polyline_to_postgis(self, entity: Polyline) -> Tuple[BaseGeometry, dict]:
-        points = [(v.x, v.y, v.z) for v in entity.points()]
+    def _convert_point(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация POINT"""
+        location = self._get_geometry_value(entity, 'location')
+        if not location:
+            return Result.fail("POINT: missing location")
         
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['points'] = points
-        extra_data['attributes']['is_closed'] = entity.is_closed
+        point = self._extract_point(location)
+        extra_data = self._build_extra_data(entity)
         
-        if entity.is_closed:
-            return Polygon(points), extra_data
+        return Result.success((Point(*point), extra_data))
+
+    # ========== Line Converters ==========
+
+    def _convert_line(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация LINE"""
+        start = self._get_geometry_value(entity, 'start')
+        end = self._get_geometry_value(entity, 'end')
+        
+        if not start or not end:
+            return Result.fail("LINE: missing start or end point")
+        
+        start_point = self._extract_point(start)
+        end_point = self._extract_point(end)
+        
+        extra_data = self._build_extra_data(entity)
+        
+        return Result.success((LineString([start_point, end_point]), extra_data))
+
+    def _convert_ray(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация RAY"""
+        start = self._get_geometry_value(entity, 'start')
+        unit_vector = self._get_geometry_value(entity, 'unit_vector')
+        
+        if start and unit_vector:
+            start_point = self._extract_point(start)
+            # Создаем конечную точку для луча (в 10 раз дальше стартовой)
+            end_point = (
+                start_point[0] + 10 * self._extract_point(unit_vector)[0],
+                start_point[1] + 10 * self._extract_point(unit_vector)[1],
+                start_point[2] + 10 * self._extract_point(unit_vector)[2]
+            )
+            extra_data = self._build_extra_data(entity, {'start': start_point, 'unit_vector': unit_vector})
+            return Result.success((LineString([start_point, end_point]), extra_data))
+        
+        extra_data = self._build_extra_data(entity)
+        return Result.success((None, extra_data))
+
+    def _convert_xline(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация XLINE (бесконечная линия)"""
+        start = self._get_geometry_value(entity, 'start')
+        unit_vector = self._get_geometry_value(entity, 'unit_vector')
+        
+        if start and unit_vector:
+            start_point = self._extract_point(start)
+            # Создаем бесконечную линию с большим диапазоном
+            end_point = (
+                start_point[0] + 1000 * self._extract_point(unit_vector)[0],
+                start_point[1] + 1000 * self._extract_point(unit_vector)[1],
+                start_point[2] + 1000 * self._extract_point(unit_vector)[2]
+            )
+            extra_data = self._build_extra_data(entity, {'start': start_point, 'unit_vector': unit_vector})
+            return Result.success((LineString([start_point, end_point]), extra_data))
+        
+        extra_data = self._build_extra_data(entity)
+        return Result.success((None, extra_data))
+
+    # ========== Polyline Converters ==========
+
+    def _convert_polyline(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация POLYLINE"""
+        points_data = self._get_geometry_value(entity, 'points')
+        if not points_data:
+            return Result.fail("POLYLINE: missing points")
+        
+        points = [self._extract_point(p) for p in points_data]
+        is_closed = self._get_geometry_value(entity, 'is_closed', False)
+        
+        extra_data = self._build_extra_data(entity, {'points': points, 'is_closed': is_closed})
+        
+        if is_closed and len(points) >= 3:
+            return Result.success((Polygon(points), extra_data))
         else:
-            return LineString(points), extra_data
+            return Result.success((LineString(points), extra_data))
+
+    def _convert_lwpolyline(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация LWPOLYLINE (Light Weight Polyline)"""
+        points_data = self._get_geometry_value(entity, 'points')
+        if not points_data:
+            return Result.fail("LWPOLYLINE: missing points")
         
-    def _convert_lwpolyline_to_postgis(self, entity: LWPolyline) -> Tuple[BaseGeometry, dict]:
-        points = [(v.x, v.y, v.z) for v in entity.vertices_in_ocs()]
+        points = [self._extract_point(p) for p in points_data]
+        is_closed = self._get_geometry_value(entity, 'is_closed', False)
+        elevation = self._get_geometry_value(entity, 'elevation', 0)
         
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['points'] = list(entity.get_points(format='xy'))
-        extra_data['attributes']['is_closed'] = entity.is_closed
+        extra_data = self._build_extra_data(entity, {
+            'points': points,
+            'is_closed': is_closed,
+            'elevation': elevation
+        })
         
-        if entity.is_closed:
-            return Polygon(points), extra_data
+        if is_closed and len(points) >= 3:
+            return Result.success((Polygon(points), extra_data))
         else:
-            return LineString(points), extra_data
+            return Result.success((LineString(points), extra_data))
+
+    # ========== Circle & Arc Converters ==========
+
+    def _convert_circle(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация CIRCLE"""
+        center = self._get_geometry_value(entity, 'center')
+        radius = self._get_geometry_value(entity, 'radius')
         
-    def _convert_text_to_postgis(self, entity: Text) -> Tuple[BaseGeometry, dict]:
-        extra_data = self._attributes_to_dict(entity)
-
-        return Point(entity.dxf.insert.x, entity.dxf.insert.y, entity.dxf.insert.z), extra_data
-
-    def _convert_circle_to_postgis(self, entity: Circle) -> Tuple[BaseGeometry, dict]:
-        center = (entity.dxf.center.x, entity.dxf.center.y, entity.dxf.center.z)
-        radius = entity.dxf.radius
-
-        # Создаем 100 точек для круга
+        if not center or radius is None:
+            return Result.fail("CIRCLE: missing center or radius")
+        
+        center_point = self._extract_point(center)
+        
+        # Создаем 100 точек для круга (достаточно для гладкого представления)
         angles = np.linspace(0, 2 * np.pi, 100)
         circle_points = [
-            (center[0] + radius * np.cos(angle), center[1] + radius * np.sin(angle), center[2])
+            (center_point[0] + radius * np.cos(angle), 
+             center_point[1] + radius * np.sin(angle), 
+             center_point[2])
             for angle in angles
         ]
-
-        # Создаем многоугольник из точек
-        circle = Polygon(circle_points)  # Используем Polygon для создания круга с Z
-
-        extra_data = self._attributes_to_dict(entity)
-        return circle, extra_data
-
-    def _convert_arc_to_postgis(self, entity: Arc) -> Tuple[BaseGeometry, dict]:
-        center = (entity.dxf.center.x, entity.dxf.center.y, entity.dxf.center.z)  # Убедитесь, что Z-координаты присутствуют
-        radius = entity.dxf.radius  # Получение радиуса
-        angle_start = entity.dxf.start_angle
-        angle_end = entity.dxf.end_angle
-
-        # Для создания дуги используйте buffer на точке
-        arc = Point(center).buffer(radius, resolution=100).boundary  # Создаем окружность и берем ее границу
-        arc = arc.parallel_offset(-radius, side='right')  # Двигаем границу на радиус для получения дуги
-
-        # Примените фильтрацию по углу, чтобы получить нужный отрезок
-        arc = arc.intersection(LineString([
-            (center[0] + radius * np.cos(np.radians(angle_start)), center[1] + radius * np.sin(np.radians(angle_start)), center[2]),
-            (center[0] + radius * np.cos(np.radians(angle_end)), center[1] + radius * np.sin(np.radians(angle_end)), center[2])
-        ]))
-
-        extra_data = self._attributes_to_dict(entity)
-        return arc, extra_data
-
-    def _convert_multileader_to_postgis(self, entity: MultiLeader) -> Tuple[Union[Polygon, Point], dict]:
-        extra_data = self._attributes_to_dict(entity)
-        #Logger.log_message(f'MULTILEADER: {extra_data}')
-        # Note: dxf_handler not passed, assuming it's available or not needed
-        # text_style_entity = dxf_handler.get_entity_db(extra_data['attributes']['text_style_handle'])
-
-        # extra_data['text_style'] = text_style_entity.dxf.name
-        extra_data['char_height'] = entity.context.char_height
-        extra_data['rotation'] = entity.context.mtext.rotation
-
-       # Извлекаем текстовое содержимое, если есть
-        if entity.has_mtext_content:
-            extra_data['text'] = entity.get_mtext_content()
-        elif entity.has_block_content:
-            extra_data['block_attributes'] = entity.get_block_content()
-
-        if entity.has_block_content:
-            Logger.log_message(entity.get_block_content())
-        # Извлекаем линии-указатели
-        leader_lines = []
-        for leader in entity.context.leaders:
-            for line in leader.lines:
-                leader_lines.append(line.vertices)
-                #Logger.log_message(f'Линия лидера с вершинами: {leader_lines}')
-        extra_data['leader_lines'] = leader_lines
-
-        # Попытка получить координаты из dxf.insert, если есть
-        base_point = entity.context.base_point
-        if base_point is None:
-            base_point = (0, 0, 0)
-        else:
-            base_point = (base_point.x, base_point.y, base_point.z)
-            #Logger.log_message(f'MULTILEADER base_point: {base_point}')
-
-        extra_data['base_point'] = base_point
         
-        geometry = Point(*base_point) if base_point else None
-        return geometry, extra_data
-
-    def _convert_insert_to_postgis(self, entity: Insert) -> Tuple[BaseGeometry, dict]:
-        insertion_point = (entity.dxf.insert.x, entity.dxf.insert.y, entity.dxf.insert.z)
-
-        # Получаем имя блока
-        block_name = entity.dxf.name
-
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['block_name'] = block_name
-
-        # Возвращаем точку как представление вставки
-        return Point(insertion_point), extra_data  # Используем точку как геометрию, можно изменить на нужный тип
-
-    def _convert_3dsolid_to_postgis(self, entity: Solid3d) -> Tuple[Point, dict]:
-        try:
-            # Экспорт данных ACIS из объекта 3DSOLID
-            acis_data = entity.acis_data  # Получаем двоичные данные ACIS
-        except Exception as e:
-            Logger.log_error("_convert_3dsolid_to_postgis() ERROR. e: " + str(e))
-            return None, {}
+        extra_data = self._build_extra_data(entity, {'radius': radius})
         
-        # Собираем дополнительные данные, такие как объем, если он доступен
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['acis_data'] = acis_data
+        return Result.success((Polygon(circle_points), extra_data))
 
-        return None, extra_data
+    def _convert_arc(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация ARC"""
+        center = self._get_geometry_value(entity, 'center')
+        radius = self._get_geometry_value(entity, 'radius')
+        start_angle = self._get_geometry_value(entity, 'start_angle')
+        end_angle = self._get_geometry_value(entity, 'end_angle')
+        
+        if not center or radius is None or start_angle is None or end_angle is None:
+            return Result.fail("ARC: missing required parameters")
+        
+        center_point = self._extract_point(center)
+        
+        # Создаем точки для дуги (100 точек для гладкости)
+        angles = np.linspace(np.radians(start_angle), np.radians(end_angle), 100)
+        arc_points = [
+            (center_point[0] + radius * np.cos(angle),
+             center_point[1] + radius * np.sin(angle),
+             center_point[2])
+            for angle in angles
+        ]
+        
+        extra_data = self._build_extra_data(entity, {
+            'radius': radius,
+            'start_angle': start_angle,
+            'end_angle': end_angle
+        })
+        
+        return Result.success((LineString(arc_points), extra_data))
 
-    def _convert_spline_to_postgis(self, entity: Spline) -> Tuple[BaseGeometry, dict]:
-        SPLINE в DXF представляет собой кривую Безье или Б-сплайн. В Shapely нет прямого эквивалента, но можно аппроксимировать кривую точками.
-        points = [tuple(v) for v in entity.flattening(0.01)]
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['points'] = points
-        return LineString(points), extra_data
+    # ========== Ellipse Converter ==========
 
-    def _convert_ellipse_to_postgis(self, entity: Ellipse) -> Tuple[BaseGeometry, dict]:
-        ELLIPSE в DXF представляет собой эллипс. В Shapely можно аппроксимировать эллипс точками.
-        center = (entity.dxf.center.x, entity.dxf.center.y, entity.dxf.center.z)
-        major_axis = (entity.dxf.major_axis.x, entity.dxf.major_axis.y, entity.dxf.major_axis.z)
-        ratio = entity.dxf.ratio
-        extrusion = entity.dxf.extrusion
-        start_param = entity.dxf.start_param
-        end_param = entity.dxf.end_param
-
-        # Создаем точки для аппроксимации эллипса
+    def _convert_ellipse(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация ELLIPSE"""
+        center = self._get_geometry_value(entity, 'center')
+        major_axis = self._get_geometry_value(entity, 'major_axis')
+        ratio = self._get_geometry_value(entity, 'ratio', 1.0)
+        start_param = self._get_geometry_value(entity, 'start_param', 0)
+        end_param = self._get_geometry_value(entity, 'end_param', 2 * np.pi)
+        
+        if not center or not major_axis:
+            return Result.fail("ELLIPSE: missing center or major_axis")
+        
+        center_point = self._extract_point(center)
+        major_axis_vec = self._extract_point(major_axis)
+        
+        # Создаем точки для эллипса
         angles = np.linspace(start_param, end_param, 100)
         ellipse_points = [
-            (
-                center[0] + major_axis[0] * np.cos(angle) * ratio,
-                center[1] + major_axis[1] * np.sin(angle),
-                center[2]
-            )
+            (center_point[0] + major_axis_vec[0] * np.cos(angle) * ratio,
+             center_point[1] + major_axis_vec[1] * np.sin(angle),
+             center_point[2])
             for angle in angles
         ]
+        
+        extra_data = self._build_extra_data(entity, {
+            'ratio': ratio,
+            'start_param': start_param,
+            'end_param': end_param
+        })
+        
+        return Result.success((LineString(ellipse_points), extra_data))
 
-        extra_data = self._attributes_to_dict(entity)
-        return LineString(ellipse_points), extra_data
+    # ========== Text Converters ==========
 
-    def _convert_mtext_to_postgis(self, entity: MText) -> Tuple[BaseGeometry, dict]:
-        MTEXT в DXF представляет собой многострочный текст. В Shapely нет прямого эквивалента, но можно сохранить текст и его позицию.
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['text'] = entity.text
-        Logger.log_message(extra_data)
-        return None, extra_data
+    def _convert_text(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация TEXT"""
+        insert = self._get_geometry_value(entity, 'insert')
+        text = self._get_geometry_value(entity, 'text', '')
+        height = self._get_geometry_value(entity, 'height', 0)
+        rotation = self._get_geometry_value(entity, 'rotation', 0)
+        
+        if not insert:
+            return Result.fail("TEXT: missing insert point")
+        
+        insert_point = self._extract_point(insert)
+        extra_data = self._build_extra_data(entity, {
+            'text': text,
+            'height': height,
+            'rotation': rotation
+        })
+        
+        return Result.success((Point(*insert_point), extra_data))
 
-    def _convert_solid_to_postgis(self, entity: Solid) -> Tuple[BaseGeometry, dict]:
-        SOLID` в DXF представляет собой четырехугольник. В Shapely можно представить его как `Polygon`
+    def _convert_mtext(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация MTEXT (многострочный текст)"""
+        insert = self._get_geometry_value(entity, 'insert')
+        text = self._get_geometry_value(entity, 'text', '')
+        height = self._get_geometry_value(entity, 'height', 0)
+        rotation = self._get_geometry_value(entity, 'rotation', 0)
+        
+        if insert:
+            insert_point = self._extract_point(insert)
+            geom = Point(*insert_point)
+        else:
+            geom = None
+        
+        extra_data = self._build_extra_data(entity, {
+            'text': text,
+            'height': height,
+            'rotation': rotation
+        })
+        
+        return Result.success((geom, extra_data))
+
+    def _convert_attrib(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация ATTRIB (атрибут блока)"""
+        insert = self._get_geometry_value(entity, 'insert')
+        tag = self._get_geometry_value(entity, 'tag', '')
+        text = self._get_geometry_value(entity, 'text', '')
+        
+        if insert:
+            insert_point = self._extract_point(insert)
+            geom = Point(*insert_point)
+        else:
+            geom = None
+        
+        extra_data = self._build_extra_data(entity, {
+            'tag': tag,
+            'text': text
+        })
+        
+        return Result.success((geom, extra_data))
+
+    # ========== Spline Converter ==========
+
+    def _convert_spline(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация SPLINE (кривая Безье/Б-сплайн)"""
+        points_data = self._get_geometry_value(entity, 'points')
+        
+        if not points_data or len(points_data) < 2:
+            return Result.fail("SPLINE: missing or insufficient points")
+        
+        points = [self._extract_point(p) for p in points_data]
+        extra_data = self._build_extra_data(entity, {'points': points})
+        
+        return Result.success((LineString(points), extra_data))
+
+    # ========== 3D Face Converters ==========
+
+    def _convert_3dface(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация 3DFACE"""
+        vtx0 = self._get_geometry_value(entity, 'vtx0')
+        vtx1 = self._get_geometry_value(entity, 'vtx1')
+        vtx2 = self._get_geometry_value(entity, 'vtx2')
+        vtx3 = self._get_geometry_value(entity, 'vtx3')
+        
+        if not all([vtx0, vtx1, vtx2, vtx3]):
+            return Result.fail("3DFACE: missing vertices")
+        
         points = [
-            (entity.dxf.vtx0.x, entity.dxf.vtx0.y, entity.dxf.vtx0.z),
-            (entity.dxf.vtx1.x, entity.dxf.vtx1.y, entity.dxf.vtx1.z),
-            (entity.dxf.vtx2.x, entity.dxf.vtx2.y, entity.dxf.vtx2.z),
-            (entity.dxf.vtx3.x, entity.dxf.vtx3.y, entity.dxf.vtx3.z)
+            self._extract_point(vtx0),
+            self._extract_point(vtx1),
+            self._extract_point(vtx2),
+            self._extract_point(vtx3)
         ]
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['points'] = points
-        return Polygon(points), extra_data
-
-    def _convert_trace_to_postgis(self, entity: Trace) -> Tuple[BaseGeometry, dict]:
-        `TRACE` в DXF также представляет собой четырехугольник. Обработка аналогична `SOLID`.
-        points = [
-            (entity.dxf.vtx0.x, entity.dxf.vtx0.y, entity.dxf.vtx0.z),
-            (entity.dxf.vtx1.x, entity.dxf.vtx1.y, entity.dxf.vtx1.z),
-            (entity.dxf.vtx2.x, entity.dxf.vtx2.y, entity.dxf.vtx2.z),
-            (entity.dxf.vtx3.x, entity.dxf.vtx3.y, entity.dxf.vtx3.z)
-        ]
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['points'] = points
-        return Polygon(points), extra_data
-
-    def _convert_3dface_to_postgis(self, entity: Face3d) -> Tuple[BaseGeometry, dict]:
-        '''`3DFACE` в DXF представляет собой треугольник или четырехугольник. В Shapely можно представить его как `Polygon`.'''
-        points = [
-            (entity.dxf.vtx0.x, entity.dxf.vtx0.y, entity.dxf.vtx0.z),
-            (entity.dxf.vtx1.x, entity.dxf.vtx1.y, entity.dxf.vtx1.z),
-            (entity.dxf.vtx2.x, entity.dxf.vtx2.y, entity.dxf.vtx2.z),
-            (entity.dxf.vtx3.x, entity.dxf.vtx3.y, entity.dxf.vtx3.z)
-        ]
+        
         # Если четвертая вершина совпадает с первой, это треугольник
         if points[0] == points[3]:
             points.pop()
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['points'] = points
-        return Polygon(points), extra_data
-
-    def _convert_region_to_postgis(self, entity: Region) -> Tuple[BaseGeometry, dict]:
-        '''`REGION` в DXF представляет собой трехмерный регион. В Shapely нет прямого эквивалента, но можно сохранить ACIS данные.'''
-        try:
-            acis_data = entity.acis_data
-        except Exception as e:
-            Logger.log_error("_convert_region_to_postgis() ERROR. e: " + str(e))
-            return None, {}
-
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['acis_data'] = acis_data
-
-        return None, extra_data
-
-    def _convert_body_to_postgis(self, entity: Body) -> Tuple[BaseGeometry, dict]:
-        '''`BODY` в DXF представляет собой трехмерное тело. В Shapely нет прямого эквивалента, но можно сохранить ACIS данные.'''
-        try:
-            acis_data = entity.acis_data
-        except Exception as e:
-            Logger.log_error("_convert_body_to_postgis() ERROR. e: " + str(e))
-            return None, {}
-
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['acis_data'] = acis_data
-
-        return None, extra_data
-
-    def _convert_mesh_to_postgis(self, entity: Mesh) -> Tuple[BaseGeometry, dict]:
-        '''`MESH` в DXF представляет собой сетку. В Shapely нет прямого эквивалента, но можно сохранить вершины и грани.'''
-        vertices = [tuple(v) for v in entity.vertices()]
-        faces = [tuple(f) for f in entity.faces()]
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['vertices'] = vertices
-        extra_data['faces'] = faces
-        return None, extra_data
-
-    def _convert_hatch_to_postgis(self, entity: Hatch) -> Tuple[BaseGeometry, dict]:
-        '''`HATCH` в DXF представляет собой заливку. В Shapely можно представить его как `Polygon`.'''
-        Logger.log_message(f'HATCH: {entity.dxf.pattern_name}')
-        polygons = []
-        for boundary in entity.paths:
-            points = [tuple(v) for v in boundary.vertices()]
-            polygons.append(Polygon(points))
-        extra_data = self._attributes_to_dict(entity)
-        if len(polygons) == 1:
-            return polygons[0], extra_data
+        
+        extra_data = self._build_extra_data(entity, {'vertices': points})
+        
+        if len(points) >= 3:
+            return Result.success((Polygon(points), extra_data))
         else:
-            return MultiPolygon(polygons), extra_data
+            return Result.success((None, extra_data))
 
-    def _convert_leader_to_postgis(self, entity: Leader) -> Tuple[BaseGeometry, dict]:
-        '''`LEADER` в DXF представляет собой линию с текстом. В Shapely можно представить его как `LineString` и сохранить текст.'''
-        points = [tuple(v) for v in entity.vertices()]
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['text'] = entity.dxf.text
-        return LineString(points), extra_data
+    def _convert_solid(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация SOLID (четырехугольник)"""
+        return self._convert_3dface(entity)
 
-    def _convert_shape_to_postgis(self, entity: Shape) -> Tuple[BaseGeometry, dict]:
-        '''`SHAPE` в DXF представляет собой встроенный двумерный объект. В Shapely нет прямого эквивалента, но можно сохранить данные о блоке.'''
-        insertion_point = (entity.dxf.insert.x, entity.dxf.insert.y, entity.dxf.insert.z)
-        block_name = entity.dxf.name
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['block_name'] = block_name
-        return Point(insertion_point), extra_data
+    def _convert_trace(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация TRACE (аналогична SOLID)"""
+        return self._convert_3dface(entity)
 
-    def _convert_viewport_to_postgis(self, entity: Viewport) -> Tuple[BaseGeometry, dict]:
-        '''`VIEWPORT` в DXF представляет собой область просмотра. В Shapely нет прямого эквивалента, но можно сохранить данные о области.'''
-        center = (entity.dxf.center.x, entity.dxf.center.y, entity.dxf.center.z)
-        width = entity.dxf.width
-        height = entity.dxf.height
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['width'] = width
-        extra_data['height'] = height
-        return Point(center), extra_data
+    # ========== 3D Object Converters ==========
 
-    def _convert_image_to_postgis(self, entity: Image) -> Tuple[BaseGeometry, dict]:
-        '''`IMAGE` в DXF представляет собой изображение. В Shapely нет прямого эквивалента, но можно сохранить данные о изображении.'''
-        insertion_point = (entity.dxf.insert.x, entity.dxf.insert.y, entity.dxf.insert.z)
-        u_size = entity.dxf.u_size
-        v_size = entity.dxf.v_size
-        image_def_handle = entity.dxf.image_def_handle
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['insertion_point'] = insertion_point
-        extra_data['u_size'] = u_size
-        extra_data['v_size'] = v_size
-        extra_data['image_def_handle'] = image_def_handle
-        return Point(insertion_point), extra_data
+    def _convert_3dsolid(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация 3DSOLID (3D объект)"""
+        acis_data = self._get_geometry_value(entity, 'acis_data')
+        extra_data = self._build_extra_data(entity, {'acis_data': acis_data})
+        
+        return Result.success((None, extra_data))
 
-    def _convert_imagedef_to_postgis(self, entity: ImageDef) -> Tuple[BaseGeometry, dict]:
-        '''`IMAGEDEF` в DXF представляет собой определение изображения. В Shapely нет прямого эквивалента, но можно сохранить данные о изображении.'''
-        filename = entity.dxf.filename
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['filename'] = filename
-        return None, extra_data
+    def _convert_body(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация BODY (3D тело)"""
+        acis_data = self._get_geometry_value(entity, 'acis_data')
+        extra_data = self._build_extra_data(entity, {'acis_data': acis_data})
+        return Result.success((None, extra_data))
 
-    def _convert_dimension_to_postgis(self, entity: Dimension) -> Tuple[BaseGeometry, dict]:
-        '''`DIMENSION` в DXF представляет собой измерение. В Shapely нет прямого эквивалента, но можно сохранить данные об измерении.'''
-        extra_data = self._attributes_to_dict(entity)
-        return None, extra_data
+    def _convert_region(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация REGION (3D регион)"""
+        acis_data = self._get_geometry_value(entity, 'acis_data')
+        extra_data = self._build_extra_data(entity, {'acis_data': acis_data})
+        return Result.success((None, extra_data))
 
-    def _convert_ray_to_postgis(self, entity: Ray) -> Tuple[BaseGeometry, dict]:
-        '''`RAY` в DXF представляет собой луч. В Shapely нет прямого эквивалента, но можно сохранить данные о луче.'''
-        start_point = (entity.dxf.start.x, entity.dxf.start.y, entity.dxf.start.z)
-        unit_vector = (entity.dxf.unit_vector.x, entity.dxf.unit_vector.y, entity.dxf.unit_vector.z)
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['start_point'] = start_point
-        extra_data['unit_vector'] = unit_vector
-        return Point(start_point), extra_data
+    # ========== Mesh Converters ==========
 
-    def _convert_xline_to_postgis(self, entity: XLine) -> Tuple[BaseGeometry, dict]:
-        '''`XLINE` в DXF представляет собой бесконечную линию. В Shapely нет прямого эквивалента, но можно сохранить данные о линии.'''
-        start_point = (entity.dxf.start.x, entity.dxf.start.y, entity.dxf.start.z)
-        unit_vector = (entity.dxf.unit_vector.x, entity.dxf.unit_vector.y, entity.dxf.unit_vector.z)
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['start_point'] = start_point
-        extra_data['unit_vector'] = unit_vector
-        return Point(start_point), extra_data
+    def _convert_mesh(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация MESH (сетка)"""
+        vertices = self._get_geometry_value(entity, 'vertices', [])
+        faces = self._get_geometry_value(entity, 'faces', [])
+        
+        extra_data = self._build_extra_data(entity, {
+            'vertices': vertices,
+            'faces': faces
+        })
+        
+        return Result.success((None, extra_data))
 
-    def _convert_attrib_to_postgis(self, entity: Attrib):
-        '''`ATTRIB` в DXF представляет собой атрибут блока. В Shapely нет прямого эквивалента, но можно сохранить данные об атрибуте.'''
-        return Point(entity.dxf.insert.x, entity.dxf.insert.y, entity.dxf.insert.z), self._attributes_to_dict(entity)
+    def _convert_polymesh(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация POLYMESH"""
+        extra_data = self._build_extra_data(entity)
+        return Result.success((None, extra_data))
 
-    def _convert_vertex_to_postgis(self, entity: Vertex) -> Tuple[BaseGeometry, dict]:
-        '''`VERTEX` в DXF представляет собой вершину. В Shapely нет прямого эквивалента, но можно сохранить данные о вершине.'''
-        location = (entity.point.location.x, entity.point.location.y, entity.point.location.z)
-        extra_data = self._attributes_to_dict(entity)
-        extra_data['location'] = location
-        return Point(location), extra_data
+    def _convert_polyface(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация POLYFACE"""
+        extra_data = self._build_extra_data(entity)
+        return Result.success((None, extra_data))
 
-    def _convert_seqend_to_postgis(self, entity: SeqEnd) -> Tuple[BaseGeometry, dict]:
-        '''`SEQEND` в DXF представляет собой конец последовательности. В Shapely нет прямого эквивалента, но можно сохранить данные о последовательности.'''
-        extra_data = self._attributes_to_dict(entity)
-        return None, extra_data
+    # ========== Hatch Converter ==========
 
-    def _convert_helix_to_postgis(self, entity: Helix) -> Tuple[BaseGeometry, dict]:
-        '''HELIX в DXF представляет собой спираль. В Shapely можно аппроксимировать спираль точками.'''
-        base_point = (entity.dxf.base_point.x, entity.dxf.base_point.y, entity.dxf.base_point.z)
-        axis_vector = (entity.dxf.axis_vector.x, entity.dxf.axis_vector.y, entity.dxf.axis_vector.z)
-        radius = entity.dxf.radius
-        turns = entity.dxf.turns
-        height = entity.dxf.height
+    def _convert_hatch(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация HATCH (заливка)"""
+        boundaries = self._get_geometry_value(entity, 'boundaries', [])
+        pattern_name = self._get_geometry_value(entity, 'pattern_name', '')
+        solid_fill = self._get_geometry_value(entity, 'solid_fill', False)
+        
+        if not boundaries:
+            extra_data = self._build_extra_data(entity, {
+                'pattern_name': pattern_name,
+                'solid_fill': solid_fill
+            })
+            return Result.success((None, extra_data))
+        
+        polygons = []
+        for boundary in boundaries:
+            if isinstance(boundary, list) and len(boundary) >= 3:
+                points = [self._extract_point(p) for p in boundary]
+                if len(points) >= 3:
+                    polygons.append(Polygon(points))
+        
+        extra_data = self._build_extra_data(entity, {
+            'pattern_name': pattern_name,
+            'solid_fill': solid_fill,
+            'boundary_count': len(boundaries)
+        })
+        
+        if len(polygons) == 0:
+            return Result.success((None, extra_data))
+        elif len(polygons) == 1:
+            return Result.success((polygons[0], extra_data))
+        else:
+            return Result.success((MultiPolygon(polygons), extra_data))
 
+    # ========== Leader Converter ==========
+
+    def _convert_leader(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация LEADER"""
+        vertices = self._get_geometry_value(entity, 'vertices', [])
+        text = self._get_geometry_value(entity, 'text', '')
+        
+        if not vertices or len(vertices) < 2:
+            extra_data = self._build_extra_data(entity, {'text': text})
+            return Result.success((None, extra_data))
+        
+        points = [self._extract_point(v) for v in vertices]
+        extra_data = self._build_extra_data(entity, {'text': text})
+        
+        return Result.success((LineString(points), extra_data))
+
+    # ========== MultiLeader Converter ==========
+
+    def _convert_multileader(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация MULTILEADER"""
+        base_point = self._get_geometry_value(entity, 'base_point')
+        text = self._get_geometry_value(entity, 'text', '')
+        leader_lines = self._get_geometry_value(entity, 'leader_lines', [])
+        char_height = self._get_geometry_value(entity, 'char_height')
+        rotation = self._get_geometry_value(entity, 'rotation')
+        
+        if base_point:
+            point = self._extract_point(base_point)
+            geom = Point(*point)
+        else:
+            geom = Point(0, 0, 0)
+        
+        extra_data = self._build_extra_data(entity, {
+            'text': text,
+            'leader_lines': leader_lines,
+            'char_height': char_height,
+            'rotation': rotation
+        })
+        
+        return Result.success((geom, extra_data))
+
+    # ========== Block Insert Converter ==========
+
+    def _convert_insert(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация INSERT (вставка блока)"""
+        insert = self._get_geometry_value(entity, 'insert')
+        name = self._get_geometry_value(entity, 'name', '')
+        xscale = self._get_geometry_value(entity, 'xscale', 1.0)
+        yscale = self._get_geometry_value(entity, 'yscale', 1.0)
+        zscale = self._get_geometry_value(entity, 'zscale', 1.0)
+        rotation = self._get_geometry_value(entity, 'rotation', 0)
+        
+        if not insert:
+            extra_data = self._build_extra_data(entity, {'block_name': name})
+            return Result.success((None, extra_data))
+        
+        insert_point = self._extract_point(insert)
+        extra_data = self._build_extra_data(entity, {
+            'block_name': name,
+            'xscale': xscale,
+            'yscale': yscale,
+            'zscale': zscale,
+            'rotation': rotation
+        })
+        
+        return Result.success((Point(*insert_point), extra_data))
+
+    def _convert_shape(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация SHAPE"""
+        insert = self._get_geometry_value(entity, 'insert')
+        name = self._get_geometry_value(entity, 'name', '')
+        
+        if insert:
+            point = self._extract_point(insert)
+            geom = Point(*point)
+        else:
+            geom = None
+        
+        extra_data = self._build_extra_data(entity, {'shape_name': name})
+        return Result.success((geom, extra_data))
+
+    # ========== Viewport & Image Converters ==========
+
+    def _convert_viewport(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация VIEWPORT"""
+        center = self._get_geometry_value(entity, 'center')
+        width = self._get_geometry_value(entity, 'width')
+        height = self._get_geometry_value(entity, 'height')
+        
+        if center:
+            point = self._extract_point(center)
+            geom = Point(*point)
+        else:
+            geom = None
+        
+        extra_data = self._build_extra_data(entity, {
+            'width': width,
+            'height': height
+        })
+        return Result.success((geom, extra_data))
+
+    def _convert_image(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация IMAGE"""
+        insert = self._get_geometry_value(entity, 'insert')
+        u_pixel = self._get_geometry_value(entity, 'u_pixel')
+        v_pixel = self._get_geometry_value(entity, 'v_pixel')
+        
+        if insert:
+            point = self._extract_point(insert)
+            geom = Point(*point)
+        else:
+            geom = None
+        
+        extra_data = self._build_extra_data(entity, {
+            'u_pixel': u_pixel,
+            'v_pixel': v_pixel
+        })
+        return Result.success((geom, extra_data))
+
+    def _convert_imagedef(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация IMAGEDEF"""
+        filename = self._get_geometry_value(entity, 'filename', '')
+        extra_data = self._build_extra_data(entity, {'filename': filename})
+        return Result.success((None, extra_data))
+
+    # ========== Helix Converter ==========
+
+    def _convert_helix(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация HELIX (спираль)"""
+        base_point = self._get_geometry_value(entity, 'base_point')
+        axis_vector = self._get_geometry_value(entity, 'axis_vector')
+        radius = self._get_geometry_value(entity, 'radius', 1.0)
+        turns = self._get_geometry_value(entity, 'turns', 1)
+        height = self._get_geometry_value(entity, 'height', 1.0)
+        
+        if not base_point:
+            extra_data = self._build_extra_data(entity)
+            return Result.success((None, extra_data))
+        
+        base = self._extract_point(base_point)
+        
         # Создаем точки для аппроксимации спирали
         angles = np.linspace(0, 2 * np.pi * turns, 100)
         helix_points = [
-            (
-                base_point[0] + radius * np.cos(angle),
-                base_point[1] + radius * np.sin(angle),
-                base_point[2] + (angle / (2 * np.pi * turns)) * height
-            )
+            (base[0] + radius * np.cos(angle),
+             base[1] + radius * np.sin(angle),
+             base[2] + (angle / (2 * np.pi * turns)) * height)
             for angle in angles
         ]
+        
+        extra_data = self._build_extra_data(entity, {
+            'radius': radius,
+            'turns': turns,
+            'height': height
+        })
+        
+        return Result.success((LineString(helix_points), extra_data))
 
-        extra_data = self._attributes_to_dict(entity)
-        return LineString(helix_points), extra_data
-"""
+    def _convert_vertex(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация VERTEX"""
+        location = self._get_geometry_value(entity, 'insert')  # может быть как insert так и location
+        if not location:
+            location = self._get_geometry_value(entity, 'location')
+        
+        if location:
+            point = self._extract_point(location)
+            geom = Point(*point)
+        else:
+            geom = None
+        
+        extra_data = self._build_extra_data(entity)
+        return Result.success((geom, extra_data))
+
+    # ========== Dimension Converter ==========
+
+    def _convert_dimension(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        """Конвертация DIMENSION"""
+        extra_data = self._build_extra_data(entity)
+        return Result.success((None, extra_data))
+
+    # ========== Stub Converters (no geometry support) ==========
+
+    def _convert_acad_proxy_entity(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        extra_data = self._build_extra_data(entity)
+        return Result.success((None, extra_data))
+
+    def _convert_mline(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        extra_data = self._build_extra_data(entity)
+        return Result.success((None, extra_data))
+
+    def _convert_mpolygon(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        extra_data = self._build_extra_data(entity)
+        return Result.success((None, extra_data))
+
+    def _convert_surface(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        extra_data = self._build_extra_data(entity)
+        return Result.success((None, extra_data))
+
+    def _convert_underlay(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        extra_data = self._build_extra_data(entity)
+        return Result.success((None, extra_data))
+
+    def _convert_wipeout(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:
+        extra_data = self._build_extra_data(entity)
+        return Result.success((None, extra_data))

@@ -3,23 +3,16 @@ from __future__ import annotations
 import os
 import tempfile
 from collections.abc import Callable
-from functools import partial
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
 
-from PyQt5.QtGui import QColor, QFont, QIcon, QImage, QPainter, QPixmap
-from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import (
     QMessageBox,
     QTreeWidgetItem,
     QDialog,
     QFileDialog,
     QWidget,
-    QHBoxLayout,
-    QVBoxLayout,
-    QLabel,
-    QPushButton,
 )
 from PyQt5.QtCore import Qt, QSignalBlocker
 from PyQt5.QtCore import QTimer
@@ -29,71 +22,10 @@ from ...application.interfaces import ILocalization, ILogger
 from ...application.services import ConnectionConfigService
 from ...application.use_cases import DataViewerUseCase, ExportUseCase
 from ...presentation.services.progress_task_runner import ProgressTaskRunner
-from ...presentation.widgets import SvgPreviewDialog
-
-
-class _PreviewButton(QPushButton):
-    """Clickable preview button that shows magnifier hint on hover."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._pixmap: QPixmap | None = None
-        self._placeholder_text = "N/A"
-        self._hovered = False
-        self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip("Нажмите для открытия превью")
-
-    def set_preview_pixmap(self, pixmap: QPixmap | None) -> None:
-        self._pixmap = pixmap
-        if pixmap is not None and not pixmap.isNull():
-            scaled = QPixmap(pixmap).scaled(self.iconSize(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.setIcon(QIcon(scaled))
-            self.setText("")
-        else:
-            self.setIcon(QIcon())
-            self.setText(self._placeholder_text)
-
-    def set_placeholder(self, text: str) -> None:
-        self._placeholder_text = text
-        if self._pixmap is None:
-            self.setText(text)
-
-    def enterEvent(self, event):
-        self._hovered = True
-        self.update()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self._hovered = False
-        self.update()
-        super().leaveEvent(event)
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-
-        if not self._hovered or not self.isEnabled():
-            return
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        badge_size = 26
-        badge_x = self.width() - badge_size - 6
-        badge_y = 6
-        painter.setBrush(QColor(0, 0, 0, 130))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(badge_x, badge_y, badge_size, badge_size)
-
-        painter.setPen(QColor(255, 255, 255))
-        painter.setFont(QFont("Arial", 14))
-        painter.drawText(badge_x, badge_y, badge_size, badge_size, Qt.AlignCenter, "\U0001F50D")
-
+from ...presentation.widgets import SvgPreviewDialog, DbTreeWidgetHandler
 
 class ExportTabController:
     """Презентационный контроллер для вкладки экспорта PostGIS -> DXF."""
-
-    _PREVIEW_SIZE = 128
-    _ACTION_BUTTON_SIZE = 36
 
     def __init__(
         self,
@@ -118,13 +50,18 @@ class ExportTabController:
         self._selected_connection: ConnectionConfigDTO | None = None
         self._export_schema = ""
         self._preview_dir = Path(__file__).resolve().parents[3] / "previews"
-        self._thumbs_dir = self._preview_dir / ".thumbs"
         self._doc_info_cache: dict[str, dict] = {}
-        self._pixmap_cache: dict[str, QPixmap] = {}
-        self._pending_thumb_buttons: dict[str, list[_PreviewButton]] = {}
-        self._thumb_queue: list[Path] = []
-        self._thumb_queue_set: set[str] = set()
-        self._thumb_generation_active = False
+
+        # Инициализируем обработчик db_tree_widget
+        self._db_tree_handler = DbTreeWidgetHandler(
+            self._dialog.db_tree_widget,
+            localization=localization,
+            logger=logger,
+            on_preview_click=self._on_db_preview_click,
+            on_info_click=self._on_db_info_click,
+            on_delete_click=self._on_db_delete_click,
+            parent=self._dialog
+        )
 
     def update_ui_language(self):
         self._dialog.db_tree_widget.setColumnCount(2)
@@ -151,8 +88,20 @@ class ExportTabController:
             self._export_schema = ""
             with QSignalBlocker(self._dialog.schema_combo):
                 self._dialog.schema_combo.clear()
-            self._dialog.db_tree_widget.clear()
+            self._db_tree_handler.clear()
             self._update_export_ui()
+
+    def _on_db_preview_click(self, filename: str):
+        """Callback когда нажата кнопка превью в db_tree_widget"""
+        pass  # Превью открывается непосредственно в DbTreeWidgetHandler
+
+    def _on_db_info_click(self, filename: str):
+        """Callback когда нажата кнопка инфо в db_tree_widget"""
+        self._show_document_info(filename)
+
+    def _on_db_delete_click(self, filename: str):
+        """Callback когда нажата кнопка удалить в db_tree_widget"""
+        self._delete_document(filename)
 
     def on_connection_editor_button_click(self):
         from ...presentation.dialogs import ConnectionEditorDialog
@@ -172,14 +121,14 @@ class ExportTabController:
             self._export_schema = ""
             with QSignalBlocker(self._dialog.schema_combo):
                 self._dialog.schema_combo.clear()
-            self._dialog.db_tree_widget.clear()
+            self._db_tree_handler.clear()
             self._update_export_ui()
             return
 
         config = self._connection_service.get_config_by_name(connection_name)
         if config is None:
             self._selected_connection = None
-            self._dialog.db_tree_widget.clear()
+            self._db_tree_handler.clear()
             self._update_export_ui()
             return
 
@@ -212,12 +161,8 @@ class ExportTabController:
 
     def refresh_db_files(self):
         t0 = perf_counter()
-        self._dialog.db_tree_widget.clear()
+        self._db_tree_handler.clear()
         self._doc_info_cache = {}
-        self._pending_thumb_buttons = {}
-        self._thumb_queue = []
-        self._thumb_queue_set = set()
-        self._thumb_generation_active = False
 
         if self._selected_connection is None or not self._export_schema:
             self._update_export_ui()
@@ -239,14 +184,10 @@ class ExportTabController:
         for filename in result.value:
             if not filename:
                 continue
-            item = QTreeWidgetItem([filename])
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable | Qt.ItemIsEnabled)
-            item.setCheckState(0, Qt.Unchecked)
-            self._dialog.db_tree_widget.addTopLevelItem(item)
             has_preview = (self._preview_dir / f"{Path(filename).stem}.svg").exists()
             if has_preview:
                 preview_present += 1
-            self._dialog.db_tree_widget.setItemWidget(item, 1, self._build_actions_widget(item, has_preview))
+            self._db_tree_handler.add_item(filename, has_preview)
 
         if self._dialog.db_tree_widget.topLevelItemCount() == 0:
             empty_item = QTreeWidgetItem([self._localization.tr("MAIN_DIALOG", "db_files_empty")])
@@ -255,10 +196,6 @@ class ExportTabController:
 
         self._dialog.db_tree_widget.setUpdatesEnabled(True)
         self._update_export_ui()
-
-        if self._thumb_queue:
-            self._thumb_generation_active = True
-            QTimer.singleShot(0, self._process_thumb_queue_step)
 
         t_done = perf_counter()
         self._logger.message(
@@ -269,118 +206,7 @@ class ExportTabController:
             f"files={len(result.value)}, previews={preview_present}"
         )
 
-    def _build_actions_widget(self, item: QTreeWidgetItem, has_preview: bool) -> QWidget:
-        container = QWidget(self._dialog.db_tree_widget)
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(6)
 
-        preview_column = QVBoxLayout()
-        preview_column.setContentsMargins(0, 0, 0, 0)
-        preview_column.setSpacing(4)
-
-        filename = item.text(0)
-        preview_path = self._preview_dir / f"{Path(filename).stem}.svg"
-
-        preview_button = _PreviewButton(container)
-        preview_button.setFixedSize(self._PREVIEW_SIZE, self._PREVIEW_SIZE)
-        preview_button.setIconSize(preview_button.size())
-        preview_button.setStyleSheet(
-            "border: 1px solid #C9C9C9; border-radius: 4px; background: #FAFAFA;"
-            "font-size: 12px; font-weight: 600; color: #606060;"
-        )
-        preview_button.clicked.connect(lambda: self._show_preview(str(preview_path)))
-
-        load_preview_button = QPushButton("Подгрузить превью", container)
-        load_preview_button.setFixedHeight(24)
-        load_preview_button.clicked.connect(
-            partial(
-                self._on_load_preview_click,
-                filename,
-                preview_path,
-                preview_button,
-                load_preview_button,
-            )
-        )
-
-        if has_preview:
-            pixmap = self._get_cached_thumb_pixmap(preview_path)
-            if pixmap is not None:
-                preview_button.set_preview_pixmap(pixmap)
-            else:
-                preview_button.set_placeholder("SVG")
-                key = str(preview_path)
-                self._pending_thumb_buttons.setdefault(key, []).append(preview_button)
-                if key not in self._thumb_queue_set:
-                    self._thumb_queue.append(preview_path)
-                    self._thumb_queue_set.add(key)
-            load_preview_button.setVisible(False)
-        else:
-            preview_button.set_placeholder("N/A")
-            preview_button.setEnabled(False)
-            load_preview_button.setVisible(True)
-
-        info_button = QPushButton("i", container)
-        info_button.setFixedSize(self._ACTION_BUTTON_SIZE, self._ACTION_BUTTON_SIZE)
-        info_button.setToolTip("Информация")
-        info_button.clicked.connect(lambda _checked=False: self._show_document_info(item.text(0)))
-
-        delete_button = QPushButton("x", container)
-        delete_button.setFixedSize(self._ACTION_BUTTON_SIZE, self._ACTION_BUTTON_SIZE)
-        delete_button.setToolTip("Удалить из БД")
-        delete_button.clicked.connect(lambda _checked=False: self._delete_document(item.text(0)))
-
-        preview_column.addWidget(preview_button)
-        preview_column.addWidget(load_preview_button)
-
-        layout.addLayout(preview_column)
-        layout.addWidget(info_button)
-        layout.addWidget(delete_button)
-        layout.addStretch(1)
-
-        return container
-
-    def _on_load_preview_click(
-        self,
-        filename: str,
-        preview_path: Path,
-        preview_button: _PreviewButton,
-        load_button: QPushButton,
-    ) -> None:
-        result = self._data_viewer_use_case.generate_preview_by_filename(
-            self._selected_connection,
-            self._export_schema,
-            filename,
-            str(self._preview_dir),
-        )
-        if result.is_fail:
-            QMessageBox.critical(self._dialog, "Ошибка", f"Не удалось создать превью: {result.error}")
-            return
-
-        created_path = Path(result.value)
-        pixmap = self._get_cached_thumb_pixmap(created_path)
-        if pixmap is None:
-            self._build_thumb_to_disk(created_path)
-            pixmap = self._get_cached_thumb_pixmap(created_path)
-
-        if pixmap is not None:
-            preview_button.setEnabled(True)
-            preview_button.set_preview_pixmap(pixmap)
-            preview_button.clicked.disconnect()
-            preview_button.clicked.connect(lambda: self._show_preview(str(preview_path)))
-        else:
-            preview_button.setEnabled(True)
-            preview_button.set_placeholder("SVG")
-
-        load_button.setVisible(False)
-
-    def _show_preview(self, svg_path: str) -> None:
-        if not os.path.exists(svg_path):
-            QMessageBox.information(self._dialog, "Информация", "Превью не найдено")
-            return
-
-        dialog = SvgPreviewDialog(svg_path, self._dialog)
-        dialog.exec_()
 
     def _show_document_info(self, filename: str) -> None:
         if not filename:
@@ -448,71 +274,7 @@ class ExportTabController:
             return f"{int(size)} {units[idx]}"
         return f"{size:.2f} {units[idx]}"
 
-    def _get_cached_thumb_pixmap(self, svg_path: Path) -> QPixmap | None:
-        cache_key = str(svg_path)
-        cached = self._pixmap_cache.get(cache_key)
-        if cached is not None and not cached.isNull():
-            return cached
 
-        try:
-            self._thumbs_dir.mkdir(parents=True, exist_ok=True)
-            thumb_path = self._thumbs_dir / f"{svg_path.stem}_{self._PREVIEW_SIZE}.png"
-
-            if thumb_path.exists() and thumb_path.stat().st_mtime >= svg_path.stat().st_mtime:
-                pixmap = QPixmap(str(thumb_path))
-                if not pixmap.isNull():
-                    self._pixmap_cache[cache_key] = pixmap
-                    return pixmap
-        except Exception as exc:
-            self._logger.warning(f"Failed to load preview thumbnail '{svg_path}': {exc}")
-            return None
-
-        return None
-
-    def _build_thumb_to_disk(self, svg_path: Path) -> bool:
-        try:
-            self._thumbs_dir.mkdir(parents=True, exist_ok=True)
-            thumb_path = self._thumbs_dir / f"{svg_path.stem}_{self._PREVIEW_SIZE}.png"
-
-            renderer = QSvgRenderer(str(svg_path))
-            if not renderer.isValid():
-                return False
-
-            image = QImage(self._PREVIEW_SIZE, self._PREVIEW_SIZE, QImage.Format_ARGB32)
-            image.fill(Qt.transparent)
-            painter = QPainter(image)
-            renderer.render(painter)
-            painter.end()
-
-            return image.save(str(thumb_path), "PNG")
-        except Exception as exc:
-            self._logger.warning(f"Failed to build preview thumbnail '{svg_path}': {exc}")
-            return False
-
-    def _process_thumb_queue_step(self) -> None:
-        if not self._thumb_queue:
-            self._thumb_generation_active = False
-            return
-
-        svg_path = self._thumb_queue.pop(0)
-        key = str(svg_path)
-        self._thumb_queue_set.discard(key)
-
-        if svg_path.exists():
-            self._build_thumb_to_disk(svg_path)
-
-        pixmap = self._get_cached_thumb_pixmap(svg_path)
-        if pixmap is not None:
-            for button in self._pending_thumb_buttons.get(key, []):
-                if button is not None and button.parent() is not None:
-                    button.setEnabled(True)
-                    button.set_preview_pixmap(pixmap)
-        self._pending_thumb_buttons.pop(key, None)
-
-        if self._thumb_queue:
-            QTimer.singleShot(0, self._process_thumb_queue_step)
-        else:
-            self._thumb_generation_active = False
 
     def _delete_document(self, filename: str) -> None:
         if not filename:
@@ -561,7 +323,7 @@ class ExportTabController:
             QMessageBox.warning(self._dialog, "Ошибка", f"Не удалось загрузить схемы: {result.error}")
             with QSignalBlocker(self._dialog.schema_combo):
                 self._dialog.schema_combo.clear()
-            self._dialog.db_tree_widget.clear()
+            self._db_tree_handler.clear()
             self._update_export_ui()
             return
 
@@ -590,24 +352,18 @@ class ExportTabController:
         self._dialog.schema_label.setEnabled(has_connection)
         self._dialog.schema_combo.setEnabled(has_connection)
         self._dialog.refresh_db_button.setEnabled(has_connection and has_schema)
-        self._dialog.db_tree_widget.setEnabled(has_connection and has_schema)
+        self._db_tree_handler.set_enabled(has_connection and has_schema)
         self._dialog.export_db_button.setEnabled(has_connection and has_schema and has_files)
 
     def _get_selected_db_filenames(self) -> list[str]:
-        selected_files: list[str] = []
-
-        for i in range(self._dialog.db_tree_widget.topLevelItemCount()):
-            item = self._dialog.db_tree_widget.topLevelItem(i)
-            if item.flags() & Qt.ItemIsUserCheckable and item.checkState(0) == Qt.Checked:
-                selected_files.append(item.text(0))
-
-        if selected_files:
-            return selected_files
-
-        for item in self._dialog.db_tree_widget.selectedItems():
-            if item.flags() & Qt.ItemIsUserCheckable:
-                selected_files.append(item.text(0))
-
+        """Get selected database filenames from handler."""
+        # Try to get checked items first
+        selected_files = self._db_tree_handler.get_checked_items()
+        
+        # If no checked items, try selected items
+        if not selected_files:
+            selected_files = self._db_tree_handler.get_selected_items()
+        
         return selected_files
 
     def _run_export(self, destination: str):

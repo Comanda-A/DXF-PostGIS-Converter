@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import inject
+import os
+import tempfile
+from pathlib import Path
 
-from qgis.PyQt.QtWidgets import QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView
+from qgis.PyQt.QtWidgets import QTreeWidgetItem, QPushButton, QWidget, QHBoxLayout, QHeaderView, QMessageBox
 from qgis.PyQt.QtCore import Qt, QSignalBlocker, QObject
 
 from ...application.dtos import DXFBaseDTO, DXFDocumentDTO, DXFLayerDTO
 from ...application.use_cases import CloseDocumentUseCase, SelectEntityUseCase
 from ...application.services import ActiveDocumentService
 from ...application.interfaces import ILocalization, ILogger
+from ...domain.services import IDXFReader
+from ...presentation.services.progress_task_runner import ProgressTaskRunner
+from .svg_preview_dialog import SvgPreviewDialog
 
 class SelectableDxfTreeHandler(QObject):
     """Обработчик дерева DXF с поддержкой ленивой загрузки"""
@@ -18,7 +24,8 @@ class SelectableDxfTreeHandler(QObject):
         'select_entity_use_case',
         'active_doc_service',
         'localization',
-        'logger'
+        'logger',
+        'dxf_reader'
     )
     def __init__(
         self,
@@ -27,7 +34,9 @@ class SelectableDxfTreeHandler(QObject):
         select_entity_use_case: SelectEntityUseCase,
         active_doc_service: ActiveDocumentService,
         localization: ILocalization,
-        logger: ILogger
+        logger: ILogger,
+        dxf_reader: IDXFReader,
+        parent=None
     ):
         super().__init__()
         
@@ -37,6 +46,11 @@ class SelectableDxfTreeHandler(QObject):
         self._active_doc_service = active_doc_service
         self._localization = localization
         self._logger = logger
+        self._dxf_reader = dxf_reader
+        self._parent = parent
+        
+        # Инициализация пути к папке с превью
+        self._preview_dir = Path(__file__).resolve().parents[4] / "previews"
 
         self._item_to_dto: list[tuple[QTreeWidgetItem, DXFBaseDTO]] = [] 
         
@@ -54,17 +68,28 @@ class SelectableDxfTreeHandler(QObject):
                 return stored_dto
         return None
 
-    def _add_remove_button_to_item(self, item: QTreeWidgetItem):
-        """Добавляет кнопку удаления к элементу файла"""
+    def _add_action_buttons_to_item(self, item: QTreeWidgetItem, filename: str, doc_dto: DXFDocumentDTO):
+        """Добавляет кнопки превью и удаления к элементу файла"""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        
+        # Кнопка превью
+        preview_button = QPushButton(self._localization.tr("TREE_WIDGET_HANDLER", "preview_button"))
+        preview_button.setFixedSize(80, 20)
+        preview_button.setEnabled(True)  # Всегда активна
+        preview_button.setToolTip("Показать превью (создастся если нет)")
+        preview_button.clicked.connect(lambda: self._show_preview(filename, doc_dto))
+        layout.addWidget(preview_button)
+        
+        # Кнопка удаления
         remove_button = QPushButton(self._localization.tr("TREE_WIDGET_HANDLER", "remove_button"))
         remove_button.setFixedSize(80, 20)
         remove_button.clicked.connect(lambda: self._on_remove_button_click(item))
-
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
         layout.addWidget(remove_button)
+        
         layout.setAlignment(Qt.AlignRight)
-        layout.setContentsMargins(0, 0, 0, 0)
         widget.setLayout(layout)
 
         self._tree_widget.setItemWidget(item, 1, widget)
@@ -77,6 +102,76 @@ class SelectableDxfTreeHandler(QObject):
         result = self._close_doc_use_case.execute(dto.id)
         if result.is_fail:
             self._logger.error(f"Failed to close document: {result.error}")
+    
+    def _show_preview(self, filename: str, doc_dto: DXFDocumentDTO) -> None:
+        """Показывает окно с превью SVG, генерирует если нет"""
+        preview_path = self._preview_dir / f"{Path(filename).stem}.svg"
+        
+        # Если превью уже существует, просто показываем его
+        if os.path.exists(str(preview_path)):
+            dialog = SvgPreviewDialog(str(preview_path), self._parent or self._tree_widget)
+            dialog.exec_()
+            return
+        
+        # Если превью не существует, генерируем его с прогрессом
+        def generate_preview():
+            """Функция для фонового создания превью"""
+            # Создаём временный файл из содержимого документа если нет пути к файлу
+            temp_preview_file = ""
+            preview_source_path = doc_dto.filepath
+            
+            if (not preview_source_path or not os.path.exists(preview_source_path)) and doc_dto.content:
+                fd, temp_preview_file = tempfile.mkstemp(suffix=".dxf")
+                os.close(fd)
+                with open(temp_preview_file, "wb") as tmp_file:
+                    tmp_file.write(doc_dto.content.content)
+                preview_source_path = temp_preview_file
+            
+            try:
+                # Генерируем превью
+                if preview_source_path and os.path.exists(preview_source_path):
+                    preview_result = self._dxf_reader.save_svg_preview(
+                        filepath=preview_source_path,
+                        output_dir=str(self._preview_dir),
+                        filename=filename,
+                    )
+                    
+                    if preview_result.is_fail:
+                        return f"Ошибка: {preview_result.error}"
+                    
+                    return preview_result.value
+                else:
+                    return "Ошибка: Не найден исходный файл DXF"
+            finally:
+                if temp_preview_file and os.path.exists(temp_preview_file):
+                    os.remove(temp_preview_file)
+        
+        def _on_preview_generated(result: object):
+            """Callback когда превью создано"""
+            if isinstance(result, str) and result.startswith("Ошибка"):
+                QMessageBox.warning(self._parent or self._tree_widget, "Ошибка", result)
+                return
+            
+            # Открываем созданное превью
+            if os.path.exists(str(preview_path)):
+                dialog = SvgPreviewDialog(str(preview_path), self._parent or self._tree_widget)
+                dialog.exec_()
+        
+        def _on_preview_error(error: str):
+            """Callback при ошибке"""
+            self._logger.error(f"Error generating preview: {error}")
+            QMessageBox.warning(self._parent or self._tree_widget, "Ошибка", 
+                f"Ошибка при создании превью: {error}")
+        
+        # Запускаем генерацию превью в фоновом потоке с прогрессом
+        self.preview_worker = ProgressTaskRunner.run(
+            self._parent or self._tree_widget,
+            generate_preview,
+            on_finished=_on_preview_generated,
+            on_error=_on_preview_error,
+            progress_text="Создание превью...",
+            cancel_text="Отмена",
+        )
 
     def _on_item_check_changed(self, item: QTreeWidgetItem, column: int):
         """Обработчик изменения состояния элемента дерева (чекбокса)"""
@@ -163,7 +258,7 @@ class SelectableDxfTreeHandler(QObject):
                 
                 self._tree_widget.addTopLevelItem(file_item)
                 self._item_to_dto.append((file_item, doc))
-                self._add_remove_button_to_item(file_item)
+                self._add_action_buttons_to_item(file_item, doc.filename, doc)
 
                 for layer in doc.layers:
                     layer_item = QTreeWidgetItem([

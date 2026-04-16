@@ -9,7 +9,7 @@ from PyQt5.QtCore import Qt, QSignalBlocker
 from PyQt5.QtWidgets import (
     QDialog, QPushButton, QProgressDialog, QMessageBox, QInputDialog, QLineEdit
 )
-
+from ...application.services import ConnectionConfigService
 from ...application.services import ActiveDocumentService
 from ...application.interfaces import ILocalization, ILogger
 from ...application.dtos import ConnectionConfigDTO, ImportConfigDTO, ImportMode
@@ -34,6 +34,7 @@ class ImportDialog(QDialog, FORM_CLASS):
     @inject.autoparams(
         'active_doc_service',
         'session',
+        'connection_service',
         'import_use_case',
         'localization',
         'logger'
@@ -42,6 +43,7 @@ class ImportDialog(QDialog, FORM_CLASS):
         self,
         parent,
         active_doc_service: ActiveDocumentService,
+        connection_service: ConnectionConfigService,
         session: DBSession,
         import_use_case: ImportUseCase,
         localization: ILocalization,
@@ -51,6 +53,7 @@ class ImportDialog(QDialog, FORM_CLASS):
         self.setupUi(self)
 
         self._active_doc_service = active_doc_service
+        self._connection_service = connection_service
         self._session = session
         self._import_use_case = import_use_case
         self._localization = localization
@@ -101,7 +104,8 @@ class ImportDialog(QDialog, FORM_CLASS):
 
     def _connect_signals(self):
         """Подключение сигналов."""
-        self.select_database_button.clicked.connect(self._on_select_database_button_click)
+        self.connection_editor_button.clicked.connect(self._on_connection_editor_button_click)
+        self.connection_combo.currentTextChanged.connect(self._on_connection_combo_changed)
         self.create_layers_schema_button.clicked.connect(self._on_create_schema_button_click)
         self.create_files_schema_button.clicked.connect(self._on_create_schema_button_click)
         self.dxf_files_tree.itemSelectionChanged.connect(self.handle_item_selection)
@@ -111,6 +115,7 @@ class ImportDialog(QDialog, FORM_CLASS):
         self.import_only_layers_check.stateChanged.connect(self._on_import_only_layers_check_changed)
         self.import_button.clicked.connect(self._on_import_button_click)
         self.cancel_button.clicked.connect(self._on_cancel_button_click)
+        self.transliteration_check.stateChanged.connect(self._on_transliteration_check_changed)
 
         #self.filename_lineedit.textChanged.connect(self._on_filename_changed)
         
@@ -127,6 +132,7 @@ class ImportDialog(QDialog, FORM_CLASS):
         self.import_only_layers_hint_label.setVisible(False)
         self._update_ui_language()
         self._init_info_button()
+        self._update_connection_combo()
         self._update_ui()
     
     def _init_info_button(self):
@@ -171,6 +177,7 @@ class ImportDialog(QDialog, FORM_CLASS):
             config = self.processed_config
             self.filename_edit.setText(config.filename)
             self.import_only_layers_check.setChecked(config.import_layers_only)
+            self.transliteration_check.setChecked(config.transliterate_layer_names)
 
             if config.import_mode == ImportMode.OVERWRITE_LAYERS:
                 self.import_mode_combo.setCurrentText(self.tr("overwrite_layers"))
@@ -205,22 +212,64 @@ class ImportDialog(QDialog, FORM_CLASS):
                     self.processed_config.file_schema = ""
                     self.files_schema_combo.setCurrentIndex(-1)
 
+    def _connect_to_db(self, config: ConnectionConfigDTO):
+        result = self._session.connect(config)
+        if not self._session.is_connected:
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                "Не удалось подключиться к базе данных"
+            )
+            self._logger.error(f"Failed to connect to database with config '{config.name}': {result.error}")
+        self._update_db_connection_info()
+        self._update_schemas_combo()
+        self._update_ui()
+
     def _update_db_connection_info(self):
         if self._session.is_connected:
             config = self._session.config
-            self.dbms_label.setText(config.db_type)
+            self.dbms_value_label.setText(config.db_type)
             self.address_value_label.setText(config.host)
             self.port_value_label.setText(config.port)
             self.database_name_value_label.setText(config.database)
             self.username_value_label.setText(config.username)
             self.password_value_label.setText('*' * len(config.password))
+
+            with QSignalBlocker(self.connection_combo):
+                if config.name and self.connection_combo.findText(config.name) >= 0:
+                    self.connection_combo.setCurrentText(config.name)
+                else:
+                    self.connection_combo.setCurrentIndex(0)
+
+                selected_items = self.dxf_files_tree.selectedItems()
+                if not selected_items and self.dxf_files_tree.topLevelItemCount() > 0:
+                    self.dxf_files_tree.topLevelItem(0).setSelected(True)
         else:
-            self.dbms_label.setText("")
+            self.dbms_value_label.setText("")
             self.address_value_label.setText("-")
             self.port_value_label.setText("-")
             self.database_name_value_label.setText("-")
             self.username_value_label.setText("-")
             self.password_value_label.setText("-")
+            with QSignalBlocker(self.connection_combo):
+                self.connection_combo.setCurrentIndex(0)
+            
+            self.dxf_files_tree.topLevelItem(0).setSelected(False)
+    
+    def _update_connection_combo(self):
+        configs = self._connection_service.get_all_configs()
+        current_name = self.connection_combo.currentText()
+
+        with QSignalBlocker(self.connection_combo):
+            self.connection_combo.clear()
+            self.connection_combo.addItem("")
+            for config in configs:
+                self.connection_combo.addItem(config.name)
+
+            if current_name and self.connection_combo.findText(current_name) >= 0:
+                self._connect_to_db(self._connection_service.get_config_by_name(current_name))
+            elif configs:
+                self.connection_combo.setCurrentIndex(0)
 
     def _update_schemas_combo(self):
         
@@ -245,23 +294,14 @@ class ImportDialog(QDialog, FORM_CLASS):
 
     # Events
 
-    def _on_select_database_button_click(self):
+    def _on_connection_editor_button_click(self):
         from ...presentation.dialogs import ConnectionEditorDialog
         dialog = ConnectionEditorDialog(self)
         if dialog.exec_() == QDialog.Accepted:
             if dialog.selected_connection is None:
                 return
-            result = self._session.connect(dialog.selected_connection)
-            if result.is_fail:
-                QMessageBox.critical(
-                    self,
-                    "Ошибка",
-                    "Не удалось подключиться к базе данных"
-                )
-                return
-            self._update_db_connection_info()
-            self._update_schemas_combo()
-            self._update_ui()
+            self._update_connection_combo()
+            self._connect_to_db(dialog.selected_connection)
 
     def _on_create_schema_button_click(self):
         schema_name, ok = QInputDialog.getText(
@@ -317,6 +357,24 @@ class ImportDialog(QDialog, FORM_CLASS):
                 self._localization.tr("IMPORT_DIALOG", "schema_name_empty")
             )
     
+    def _on_connection_combo_changed(self, index=None):
+        text = self.connection_combo.currentText()
+        if not text:
+            self._session.close()
+            self._update_db_connection_info()
+            self._update_schemas_combo()
+            self._update_ui()
+        else:
+            config = self._connection_service.get_config_by_name(text)
+            if config:
+                self._connect_to_db(config)
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Ошибка",
+                    "Выбранная конфигурация подключения не найдена"
+                )
+
     def _on_import_mode_combo_changed(self, index=None):
         text = self.import_mode_combo.currentText()
         mode = ImportMode.OVERWRITE_LAYERS
@@ -352,6 +410,11 @@ class ImportDialog(QDialog, FORM_CLASS):
         if self.processed_config:
             self.processed_config.import_layers_only = check
 
+    def _on_transliteration_check_changed(self, state):
+        check = self.transliteration_check.isChecked()
+        if self.processed_config:
+            self.processed_config.transliterate_layer_names = check
+
     def _on_cancel_button_click(self):
         self.reject()
     
@@ -365,6 +428,11 @@ class ImportDialog(QDialog, FORM_CLASS):
             res, report = result
             self._logger.message(report)
             progress_dialog.close()
+            QMessageBox.information(
+                self,
+                "Информация",
+                "Импортирование успешно завершено"
+            )
 
         def _on_import_error(error: str, progress_dialog):
             self._logger.error(f'error {error}')

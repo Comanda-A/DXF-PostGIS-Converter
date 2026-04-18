@@ -8,6 +8,8 @@ from .dxf_entity_dto import DXFEntityDTO
 from .dxf_layer_dto import DXFLayerDTO
 from .dxf_document_dto import DXFDocumentDTO
 from .connection_config_dto import ConnectionConfigDTO
+from .area_selection_request_dto import AreaSelectionRequestDTO
+from ...domain.value_objects import SelectionMode, SelectionRule, ShapeType
 
 __all__ = [
     'ImportMode',
@@ -18,5 +20,9 @@ __all__ = [
     'DXFEntityDTO',
     'DXFLayerDTO',
     'DXFDocumentDTO',
-    'ConnectionConfigDTO'
+    'ConnectionConfigDTO',
+    'AreaSelectionRequestDTO',
+    'SelectionMode',
+    'SelectionRule',
+    'ShapeType'
 ]

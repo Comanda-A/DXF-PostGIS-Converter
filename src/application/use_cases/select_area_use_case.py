@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from ...application.dtos import DXFDocumentDTO
+from ...application.dtos import (
+    DXFDocumentDTO,
+    AreaSelectionRequestDTO,
+)
 from ...application.events import IAppEvents
 from ...application.interfaces import ILogger
 from ...application.mappers import DXFMapper
@@ -29,8 +32,10 @@ class SelectAreaUseCase:
     def execute(
         self,
         filename: str,
-        params: AreaSelectionParams,
+        request: AreaSelectionRequestDTO,
     ) -> AppResult[DXFDocumentDTO]:
+        params = self._build_params(request)
+
         self._logger.message(
             f"SelectAreaUseCase started: file='{filename}', shape={params.shape_type.value}, "
             f"rule={params.selection_rule.value}, mode={params.selection_mode.value}, "
@@ -92,6 +97,15 @@ class SelectAreaUseCase:
         except Exception as e:
             self._logger.error(f"Select area failed for '{filename}': {e}")
             return AppResult.fail(str(e))
+
+    def _build_params(self, request: AreaSelectionRequestDTO) -> AreaSelectionParams:
+        """Преобразует DTO в доменные параметры выбора области."""
+        return AreaSelectionParams(
+            shape_type=request.shape,
+            selection_rule=request.selection_rule,
+            selection_mode=request.selection_mode,
+            shape_args=request.shape_args,
+        )
 
     def _refresh_parent_selection(self, document: DXFDocument):
         any_doc_selected = False

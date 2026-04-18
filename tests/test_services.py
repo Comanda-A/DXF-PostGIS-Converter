@@ -13,11 +13,15 @@ if plugin_path not in sys.path:
     sys.path.insert(0, plugin_path)
 
 from src.application.dtos import (
+    AreaSelectionRequestDTO,
     ConnectionConfigDTO,
     ExportConfigDTO,
     ExportMode,
     ImportConfigDTO,
     ImportMode,
+    SelectionMode,
+    SelectionRule,
+    ShapeType,
 )
 from src.application.interfaces import ILogger
 from src.application.results import AppResult, Unit
@@ -34,11 +38,7 @@ from src.application.use_cases import (
 )
 from src.domain.entities import DXFContent, DXFDocument, DXFEntity, DXFLayer
 from src.domain.value_objects import (
-    AreaSelectionParams,
     DxfEntityType,
-    SelectionMode,
-    SelectionRule,
-    ShapeType,
 )
 from src.infrastructure.database import ActiveDocumentRepository
 from src.infrastructure.ezdxf import DXFReader, DXFWriter
@@ -518,8 +518,8 @@ class TestSelectAreaUseCase(unittest.TestCase):
         self.layer.add_entities([self.entity_a, self.entity_b])
         self.document.add_layers([self.layer])
 
-        self.params = AreaSelectionParams(
-            shape_type=ShapeType.RECTANGLE,
+        self.request = AreaSelectionRequestDTO(
+            shape=ShapeType.RECTANGLE,
             selection_rule=SelectionRule.INTERSECT,
             selection_mode=SelectionMode.REPLACE,
             shape_args=(0, 0, 10, 10),
@@ -546,7 +546,7 @@ class TestSelectAreaUseCase(unittest.TestCase):
         self.active_repo.update.return_value = AppResult.success(self.document)
         self.area_selector.select_handles.return_value = AppResult.success(["aa11"])
 
-        result = self.use_case.execute("doc_area.dxf", self.params)
+        result = self.use_case.execute("doc_area.dxf", self.request)
 
         self.assertTrue(result.is_success)
         self.assertTrue(self.entity_a.is_selected)
@@ -573,7 +573,7 @@ class TestSelectAreaUseCase(unittest.TestCase):
         self.active_repo.update.return_value = AppResult.success(self.document)
         self.area_selector.select_handles.return_value = AppResult.success([])
 
-        result = self.use_case.execute("doc_area.dxf", self.params)
+        result = self.use_case.execute("doc_area.dxf", self.request)
 
         self.assertTrue(result.is_success)
         self.assertFalse(self.entity_a.is_selected)

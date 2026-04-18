@@ -3,7 +3,7 @@ import inject, os
 from .domain.services import IDXFReader, IDXFWriter, IAreaSelector
 from .domain.repositories import IActiveDocumentRepository, IConnectionFactory, IRepositoryFactory
 
-from .application.interfaces import ISettings, ILogger, ILocalization
+from .application.interfaces import ISettings, ILogger, ILocalization, IDXFPreviewReader
 from .application.events import IEvent, IAppEvents
 from .application.services import ActiveDocumentService, ConnectionConfigService
 from .application.database import DBSession
@@ -74,6 +74,7 @@ class Container:
             binder.bind(ISettings, settings)
             binder.bind(ILogger, logger)
             binder.bind(ILocalization, localization)
+            binder.bind(IDXFPreviewReader, dxfreader)
             binder.bind(IDXFReader, dxfreader)
             binder.bind(IDXFWriter, dxfwriter)
             binder.bind(IAreaSelector, area_selector)

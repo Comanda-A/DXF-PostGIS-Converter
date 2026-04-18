@@ -4,9 +4,14 @@ from qgis.PyQt.QtWidgets import QMessageBox, QProgressDialog
 from qgis.PyQt.QtCore import Qt
 from qgis.core import Qgis
 
+from ...application.dtos import (
+    AreaSelectionRequestDTO,
+    SelectionMode,
+    SelectionRule,
+    ShapeType,
+)
 from ...application.results import AppResult
 from ...application.use_cases import SelectAreaUseCase
-from ...domain.value_objects import AreaSelectionParams, SelectionMode, SelectionRule, ShapeType
 from ...presentation.workers import LongTaskWorker
 
 
@@ -79,40 +84,56 @@ class AreaSelectionController:
             QMessageBox.warning(self._dialog, self._title(), self._hint())
             return
 
-        params = AreaSelectionParams(
-            shape_type={
-                0: ShapeType.RECTANGLE,
-                1: ShapeType.CIRCLE,
-                2: ShapeType.POLYGON,
-            }.get(self._dialog.type_shape.currentIndex(), ShapeType.RECTANGLE),
-            selection_rule={
-                0: SelectionRule.INSIDE,
-                1: SelectionRule.OUTSIDE,
-                2: SelectionRule.INTERSECT,
-            }.get(self._dialog.type_selection.currentIndex(), SelectionRule.INSIDE),
-            selection_mode={
-                0: SelectionMode.JOIN,
-                1: SelectionMode.REPLACE,
-                2: SelectionMode.SUBTRACT,
-            }.get(self._dialog.selection_mode.currentIndex(), SelectionMode.JOIN),
-            shape_args=shape_args,
-        )
+        request = self._build_request(shape_args)
 
         self._dialog._logger.message(
-            f"Area selection execute: file='{filename}', shape={params.shape_type.value}, "
-            f"rule={params.selection_rule.value}, mode={params.selection_mode.value}, "
-            f"args_count={len(params.shape_args)}"
+            f"Area selection execute: file='{filename}', shape={request.shape.value}, "
+            f"rule={request.selection_rule.value}, mode={request.selection_mode.value}, "
+            f"args_count={len(shape_args)}"
         )
 
         self._show_progress()
 
-        self._worker = LongTaskWorker(self._execute_selection, filename, params)
+        self._worker = LongTaskWorker(
+            self._execute_selection,
+            filename,
+            request,
+        )
         self._worker.finished.connect(self._on_finished)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
-    def _execute_selection(self, filename: str, params: AreaSelectionParams):
-        return self._select_area_use_case.execute(filename, params)
+    def _execute_selection(
+        self,
+        filename: str,
+        request: AreaSelectionRequestDTO,
+    ):
+        return self._select_area_use_case.execute(filename, request)
+
+    def _build_request(self, shape_args: tuple) -> AreaSelectionRequestDTO:
+        """Собирает запрос выбора области из состояния UI без прямых domain-зависимостей."""
+        shape_by_index = {
+            0: ShapeType.RECTANGLE,
+            1: ShapeType.CIRCLE,
+            2: ShapeType.POLYGON,
+        }
+        rule_by_index = {
+            0: SelectionRule.INSIDE,
+            1: SelectionRule.OUTSIDE,
+            2: SelectionRule.INTERSECT,
+        }
+        mode_by_index = {
+            0: SelectionMode.JOIN,
+            1: SelectionMode.REPLACE,
+            2: SelectionMode.SUBTRACT,
+        }
+
+        return AreaSelectionRequestDTO(
+            shape=shape_by_index.get(self._dialog.type_shape.currentIndex(), ShapeType.RECTANGLE),
+            selection_rule=rule_by_index.get(self._dialog.type_selection.currentIndex(), SelectionRule.INSIDE),
+            selection_mode=mode_by_index.get(self._dialog.selection_mode.currentIndex(), SelectionMode.JOIN),
+            shape_args=shape_args,
+        )
 
     def _on_finished(self, task_id: int, result):
         if isinstance(result, AppResult) and result.is_fail:

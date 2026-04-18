@@ -11,8 +11,7 @@ from qgis.PyQt.QtCore import Qt, QSignalBlocker, QObject
 from ...application.dtos import DXFBaseDTO, DXFDocumentDTO, DXFLayerDTO
 from ...application.use_cases import CloseDocumentUseCase, SelectEntityUseCase
 from ...application.services import ActiveDocumentService
-from ...application.interfaces import ILocalization, ILogger
-from ...domain.services import IDXFReader
+from ...application.interfaces import ILocalization, ILogger, IDXFPreviewReader
 from ...presentation.services.progress_task_runner import ProgressTaskRunner
 from .svg_preview_dialog import SvgPreviewDialog
 
@@ -35,7 +34,7 @@ class SelectableDxfTreeHandler(QObject):
         active_doc_service: ActiveDocumentService,
         localization: ILocalization,
         logger: ILogger,
-        dxf_reader: IDXFReader,
+        dxf_reader: IDXFPreviewReader,
         parent=None
     ):
         super().__init__()

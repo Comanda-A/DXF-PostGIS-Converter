@@ -10,6 +10,7 @@ CONFIG = {
 # Main dialog strings
 MAIN_DIALOG = {
     "dialog_title": "DXF-PostGIS Converter",
+    "help_dialog_title": "Help",
 
     "tab_dxf_to_db": "Import",
     "tab_db_to_dxf": "Export",
@@ -69,6 +70,7 @@ MAIN_DIALOG = {
 
 IMPORT_DIALOG = {
     "dialog_title": "DXF to PostGIS Import",
+    "help_dialog_title": "Import Help",
     
     # Группы
     "dxf_files_group": "DXF Files",
@@ -182,111 +184,80 @@ CONNECTION_DIALOG = {
 
 # Help content for dialogs
 HELP_CONTENT = {
-    "EXPORT_DIALOG": """
-<h2>Export Dialog Interface Guide</h2>
+    "IMPORT_DIALOG": """
+<h2>DXF to PostGIS Import Dialog Guide</h2>
 
-<h3>Left Column</h3>
-<h4>DXF Objects Section</h4>
+<h3>What this dialog does</h3>
+<p>This dialog imports selected DXF files into PostgreSQL/PostGIS. During import, the DB file record is created automatically together with related layer/entity storage.</p>
+
+<h3>Database structure created by import</h3>
 <ul>
-    <li><b>Tree Widget:</b> Shows the hierarchy of DXF objects selected for export</li>
+    <li><b>files (in files schema):</b> DXF document registry: <code>id</code>, <code>filename</code>, <code>upload_date</code>, <code>update_date</code>.</li>
+    <li><b>layers (in files schema):</b> document layers: <code>id</code>, <code>document_id</code>, <code>name</code>, <code>schema_name</code>, <code>table_name</code>.</li>
+    <li><b>content (in files schema):</b> file binary payload: <code>id</code>, <code>document_id</code>, <code>content (BYTEA)</code>.</li>
+    <li><b>Layer table (in layer schema):</b> for each layer, a dedicated entity table is created/used with <code>id</code>, <code>entity_type</code>, <code>name</code>, <code>geometry</code>, <code>attributes (JSONB)</code>, <code>geometries (JSONB)</code>, <code>extra_data (JSONB)</code>.</li>
 </ul>
 
-<h4>Database Connection Section</h4>
-<ul>
-    <li><b>DB Selection Button:</b> Opens a dialog to select PostgreSQL connection</li>
-    <li><b>Address:</b> Shows current database server address</li>
-    <li><b>Port:</b> Database server port (default: 5432)</li>
-    <li><b>DB Name:</b> Selected database name</li>
-    <li><b>Schema:</b> Selected database schema</li>
-    <li><b>Username:</b> Database user login</li>
-    <li><b>Password:</b> Database user password</li>
-</ul>
+<h3>Entities and relationships (as implemented)</h3>
+<table border="1" cellpadding="4" cellspacing="0">
+    <tr><th>Code entity</th><th>Stored in</th><th>Linking rule</th></tr>
+    <tr><td>DXFDocument</td><td>files</td><td>By <code>id</code>; file name is unique (<code>filename UNIQUE</code>)</td></tr>
+    <tr><td>DXFLayer</td><td>layers</td><td><code>layers.document_id -> files.id</code> (logical UUID link)</td></tr>
+    <tr><td>DXFContent</td><td>content</td><td><code>content.document_id -> files.id</code> (logical UUID link)</td></tr>
+    <tr><td>DXFEntity</td><td>Dedicated layer table</td><td>Table name comes from <code>layers.schema_name</code> + <code>layers.table_name</code></td></tr>
+</table>
 
-<h3>Right Column</h3>
-<h4>File Selection Section</h4>
-<ul>
-    <li><b>Files Dropdown:</b> Choose between creating a new file or selecting an existing one</li>
-    <li><b>New File Name:</b> Input field for the new file name (active only for new files)</li>
-</ul>
+<p><b>Note:</b> in the current implementation, these links are maintained at the application level via UUID fields and repository parameters.</p>
 
-<h4>Import Mode Section</h4>
-<p>Available when selecting an existing file:</p>
+<h3>Main controls</h3>
 <ul>
-    <li><b>Field Mapping:</b> Allows manual mapping of DXF and database fields</li>
-    <li><b>Overwrite File:</b> Completely replaces existing file content</li>
-</ul>
-
-<h4>Layer and Field Mapping Section</h4>
-<p>Displayed when selecting "Field Mapping" mode:</p>
-<ul>
-    <li><b>Layer Selection:</b> Choose layer for mapping</li>
-    <li><b>Geometric Objects Tab:</b> Mapping for objects containing geometry</li>
-    <li><b>Non-geometric Objects Tab:</b> Mapping for objects without geometry</li>
-</ul>
-
-<h4>Mapping Tables</h4>
-<ul>
-    <li><b>DXF Entity Column:</b> Shows DXF object identifiers</li>
-    <li><b>DB Entity Column:</b> Dropdown list for selecting corresponding database object</li>
-    <li><b>Actions Column:</b> "Show Attributes" button for viewing and mapping detailed attributes</li>
-</ul>
-
-<h3>Additional Features</h3>
-<ul>
-    <li>Yellow highlighting indicates new entities not present in the database</li>
-    <li>Dialog automatically saves and loads the last used database connection</li>
-    <li>All mappings are saved during the session until export is completed</li>
+    <li><b>DXF files tree:</b> select which file you are configuring for import.</li>
+    <li><b>Database connection:</b> select saved connection and confirm active session.</li>
+    <li><b>Import mode:</b> overwrite layers, update+append, or append-only.</li>
+    <li><b>Layer/files schemas:</b> choose where to create/update structures.</li>
+    <li><b>Import only layers:</b> faster mode without full file structure (may limit completeness).</li>
+    <li><b>Transliteration:</b> normalizes layer names for table naming compatibility.</li>
 </ul>
 """,
 "MAIN_DIALOG": """
 <h2>Main Interface Guide</h2>
 
-<h3>DXF → SQL Tab</h3>
-<h4>Top Control Panel</h4>
+<h3>Import Tab (DXF -> DB)</h3>
+<h4>Top controls</h4>
 <ul>
-    <li><b>"Open DXF" Button:</b> Opens a file dialog to select DXF files</li>
-    <li><b>"Select area" Button:</b> Activates the area selection tool on the map. The result is the selection in the objects tree that fall within the selected area</li>
-    <li><b>"Export to DB" Button:</b> Opens the database export dialog</li>
-    <li><b>File Indicator:</b> Shows the name of the currently open file</li>
+    <li><b>Open DXF:</b> adds one or more DXF files to the working tree.</li>
+    <li><b>Select area on map:</b> selects entities by geometry (rectangle/circle/polygon) and selection rule.</li>
+    <li><b>Selection filter:</b> file selection, layer search, check/uncheck layers, apply filter to entities.</li>
+    <li><b>Save to file:</b> creates a new DXF from selected entities. Recommended before import when you need maximum attribute preservation for a specific subset.</li>
+    <li><b>Import to DB:</b> opens the import dialog and writes data into PostGIS.</li>
 </ul>
 
-<h4>Selection Parameters Panel</h4>
+<h3>Export Tab (DB -> DXF)</h3>
 <ul>
-    <li><b>Coordinates Text Field:</b> Displays coordinates of the selected area</li>
-    <li><b>Shape Type:</b> Selection area type (rectangle/circle/polygon)</li>
-    <li><b>Selection Rule:</b> Determines how objects are selected (inside/outside/intersection)</li>
+    <li><b>Connection editor:</b> create/edit/select PostgreSQL/PostGIS connections.</li>
+    <li><b>Connection and schema selection:</b> choose where DXF data is read from.</li>
+    <li><b>Refresh files:</b> reload available files from selected schema.</li>
+    <li><b>Export:</b> extracts a stored DXF file from the database and writes it to disk (or opens it in QGIS flow).</li>
 </ul>
 
-<h4>DXF Objects Tree</h4>
+<h3>Actual storage model (short)</h3>
+<table border="1" cellpadding="4" cellspacing="0">
+    <tr><th>Object</th><th>Actual storage</th><th>How it links</th></tr>
+    <tr><td>DXF file</td><td><code>files</code> table</td><td><code>id</code>, <code>filename</code></td></tr>
+    <tr><td>DXF layer</td><td><code>layers</code> table</td><td><code>document_id</code> points to document</td></tr>
+    <tr><td>File content</td><td><code>content</code> table (BYTEA)</td><td><code>document_id</code> points to document</td></tr>
+    <tr><td>Layer entities</td><td>Dedicated layer table in <code>layer schema</code></td><td>Table name is stored in <code>layers.table_name</code></td></tr>
+</table>
+
+<h3>Settings Tab</h3>
 <ul>
-    <li>Displays hierarchy of DXF file layers and objects</li>
-    <li>Allows selecting objects for export</li>
-    <li>Shows number of objects in each layer</li>
+    <li><b>Interface language:</b> switch localization at runtime.</li>
+    <li><b>Logging:</b> enable/disable operation logging for diagnostics.</li>
 </ul>
 
-<h3>SQL → DXF Tab</h3>
-<h4>Database Structure</h4>
+<h3>Hotkey</h3>
 <ul>
-    <li>Tree view of available database connections</li>
-    <li>For each connection shows:
-        <ul>
-            <li>List of saved DXF files</li>
-            <li>File management buttons (preview/import/delete/info)</li>
-        </ul>
-    </li>
-</ul>
-
-<h3>Additional Features</h3>
-<ul>
-    <li>DXF file preview before import</li>
-    <li>Automatic connection settings saving</li>
-    <li>Multiple object selection support</li>
-    <li>Interactive area selection on map</li>
-</ul>
-
-<h3>Hotkeys</h3>
-<ul>
-    <li><b>Ctrl+Tab:</b> Switch between tabs</li>
+    <li><b>Ctrl+Tab:</b> switch between tabs.</li>
 </ul>
 """
 }

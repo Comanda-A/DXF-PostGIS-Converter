@@ -215,12 +215,16 @@ class ImportDialog(QDialog, FORM_CLASS):
     def _connect_to_db(self, config: ConnectionConfigDTO):
         result = self._session.connect(config)
         if not self._session.is_connected:
+            # ★ Если учётные данные есть, но подключение не удалось —
+            #   значит проблема на стороне сервера (неверный пароль, недоступен хост и т.д.)
             QMessageBox.critical(
                 self,
-                "Ошибка",
-                "Не удалось подключиться к базе данных"
+                self.tr("error_title"),
+                self.tr("connection_failed_error")
             )
-            self._logger.error(f"Failed to connect to database with config '{config.name}': {result.error}")
+            self._logger.error(
+                f"Failed to connect to database with config '{config.name}': {result.error}"
+            )
         self._update_db_connection_info()
         self._update_schemas_combo()
         self._update_ui()
@@ -254,7 +258,10 @@ class ImportDialog(QDialog, FORM_CLASS):
             with QSignalBlocker(self.connection_combo):
                 self.connection_combo.setCurrentIndex(0)
             
-            self.dxf_files_tree.topLevelItem(0).setSelected(False)
+            # Deselect first item if it exists
+            first_item = self.dxf_files_tree.topLevelItem(0)
+            if first_item:
+                first_item.setSelected(False)
     
     def _update_connection_combo(self):
         configs = self._connection_service.get_all_configs()
@@ -359,21 +366,31 @@ class ImportDialog(QDialog, FORM_CLASS):
     
     def _on_connection_combo_changed(self, index=None):
         text = self.connection_combo.currentText()
+
         if not text:
             self._session.close()
             self._update_db_connection_info()
             self._update_schemas_combo()
             self._update_ui()
-        else:
-            config = self._connection_service.get_config_by_name(text)
-            if config:
-                self._connect_to_db(config)
-            else:
-                QMessageBox.critical(
-                    self,
-                    "Ошибка",
-                    "Выбранная конфигурация подключения не найдена"
-                )
+            return
+
+        config = self._connection_service.get_config_by_name(text)
+
+        if not config:
+            QMessageBox.critical(
+                self,
+                self.tr("error_title"),
+                self.tr("connection_config_not_found_error")
+            )
+
+            # Сбрасываем комбо обратно на пустой элемент, 
+            # чтобы не оставлять невалидный выбор
+            with QSignalBlocker(self.connection_combo):
+                self.connection_combo.setCurrentIndex(0)
+
+            return
+
+        self._connect_to_db(config)
 
     def _on_import_mode_combo_changed(self, index=None):
         text = self.import_mode_combo.currentText()

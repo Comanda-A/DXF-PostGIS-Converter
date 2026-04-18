@@ -3,13 +3,13 @@ import inject, os
 from .domain.services import IDXFReader, IDXFWriter, IAreaSelector
 from .domain.repositories import IActiveDocumentRepository, IConnectionFactory, IRepositoryFactory
 
-from .application.interfaces import ISettings, ILogger, ILocalization, IDXFPreviewReader
+from .application.interfaces import ISettings, ILogger, ILocalization, IDXFPreviewReader, IQgisConnectionProvider
 from .application.events import IEvent, IAppEvents
 from .application.services import ActiveDocumentService, ConnectionConfigService
 from .application.database import DBSession
 from .application.use_cases import OpenDocumentUseCase, CloseDocumentUseCase, SelectEntityUseCase, SelectAreaUseCase, ImportUseCase, ExportUseCase, DataViewerUseCase, SaveSelectedToFileUseCase
 
-from .infrastructure.qgis import Settings, Logger, QtEvent, QtAppEvents
+from .infrastructure.qgis import Settings, Logger, QtEvent, QtAppEvents, QgisConnectionProvider
 from .infrastructure.localization.localization import Localization
 from .infrastructure.ezdxf import DXFReader, DXFWriter, EzdxfAreaSelector
 from .infrastructure.database import (
@@ -63,10 +63,14 @@ class Container:
                 content_repo_class=PostGISContentRepository
             )
             
+            # QGIS провайдер подключений
+            qgis_provider = QgisConnectionProvider(logger)
+            
             connection_config_service = ConnectionConfigService(
                 os.path.join(os.path.dirname(__file__), '..', 'data'),
                 connection_factory,
-                logger
+                logger,
+                qgis_provider
             )
             
             # Привязываем интерфейсы к конкретным экземплярам (синглтоны)
@@ -81,6 +85,7 @@ class Container:
             binder.bind(IActiveDocumentRepository, active_repo)
             binder.bind(ActiveDocumentService, active_doc_service)
             binder.bind(ConnectionConfigService, connection_config_service)
+            binder.bind(IQgisConnectionProvider, qgis_provider)
             
             binder.bind(OpenDocumentUseCase, open_use_case)
             binder.bind(CloseDocumentUseCase, close_use_case)

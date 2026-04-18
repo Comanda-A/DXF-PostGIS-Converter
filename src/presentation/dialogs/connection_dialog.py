@@ -183,12 +183,12 @@ class ConnectionDialog(QDialog, FORM_CLASS):
         
     def set_connection_data(self, config: ConnectionConfigDTO):
         """Заполнение полей диалога данными существующего подключения."""
-        self.name_edit.setText(config.name)
-        self.address_edit.setText(config.host)
-        self.port_edit.setText(config.port)
-        self.database_edit.setText(config.database)
-        self.username_edit.setText(config.username)
-        self.password_edit.setText(config.password)
+        self.name_edit.setText(str(config.name) if config.name else "")
+        self.address_edit.setText(str(config.host) if config.host else "")
+        self.port_edit.setText(str(config.port) if config.port else "")
+        self.database_edit.setText(str(config.database) if config.database else "")
+        self.username_edit.setText(str(config.username) if config.username else "")
+        self.password_edit.setText(str(config.password) if config.password else "")
         
         # Установка типа БД в комбобоксе
         index = self.dbms_combo.findText(config.db_type)

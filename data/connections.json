@@ -1,13 +1,4 @@
 {
-  "123": {
-    "db_type": "PostgreSQL/PostGIS",
-    "host": "localhost",
-    "port": "5432",
-    "database": "converter",
-    "username": "postgres",
-    "password": "12345",
-    "name": "123"
-  },
   "dxf2": {
     "db_type": "PostgreSQL/PostGIS",
     "host": "localhost",
@@ -25,5 +16,32 @@
     "username": "postgres",
     "password": "12345",
     "name": "dxf1"
+  },
+  "dxfochko": {
+    "db_type": "PostgreSQL/PostGIS",
+    "host": "localhost",
+    "port": "5432",
+    "database": "dxf1",
+    "username": "postgres",
+    "password": "12345",
+    "name": "dxfochko"
+  },
+  "conn2": {
+    "db_type": "PostgreSQL/PostGIS",
+    "host": "localhost",
+    "port": "5432",
+    "database": "converter",
+    "username": "postgres",
+    "password": "12345",
+    "name": "conn2"
+  },
+  "converter245": {
+    "db_type": "PostgreSQL/PostGIS",
+    "host": "localhost",
+    "port": "5432",
+    "database": "converter",
+    "username": "postgres",
+    "password": "123456",
+    "name": "converter245"
   }
 }

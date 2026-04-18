@@ -6,7 +6,7 @@ import json
 from ...domain.repositories import IConnectionFactory
 from ...application.dtos import ConnectionConfigDTO
 from ...application.results import AppResult, Unit
-from ...application.interfaces import ILogger
+from ...application.interfaces import ILogger, IQgisConnectionProvider
 
 class ConnectionConfigService:
     
@@ -17,12 +17,14 @@ class ConnectionConfigService:
         self,
         plugin_dir: str,
         connection_factory: IConnectionFactory,
-        logger: ILogger
+        logger: ILogger,
+        qgis_connection_provider: IQgisConnectionProvider | None = None
     ):
         self._plugin_dir = plugin_dir
         self._connections_file = os.path.join(self._plugin_dir, self.CONNECTIONS_FILE)
         self._connection_factory = connection_factory
         self._logger = logger
+        self._qgis_provider = qgis_connection_provider
 
         try:
             if not os.path.exists(self._plugin_dir):
@@ -41,6 +43,7 @@ class ConnectionConfigService:
         return databases
 
     def save_config(self, config: ConnectionConfigDTO) -> AppResult[Unit]:
+        """Сохранить конфигурацию подключения."""
         # Получаем существующие подключения
         result = self._load_connections()
         
@@ -65,6 +68,9 @@ class ConnectionConfigService:
         return save_result
     
     def get_all_configs(self) -> list[ConnectionConfigDTO]:
+        """
+        Возвращает все подключения - локальные и из QGIS.
+        """
         result = self._load_connections()
         
         if result.is_fail:
@@ -72,9 +78,10 @@ class ConnectionConfigService:
         
         connections_dict = result.value
         connections = []
+        local_connection_names = set()
         
+        # Загружаем локальные подключения
         for conn_name, conn_data in connections_dict.items():
-            # Создаем DTO объект
             connection = ConnectionConfigDTO(
                 db_type=conn_data.get('db_type'),
                 name=conn_data.get('name'),
@@ -85,6 +92,27 @@ class ConnectionConfigService:
                 password=conn_data.get('password')
             )
             connections.append(connection)
+            local_connection_names.add(conn_name)
+        
+        # Загружаем подключения из QGIS (только если они не в локальном файле)
+        if self._qgis_provider:
+            try:
+                qgis_connections = self._qgis_provider.get_qgis_connections()
+                for qgis_config in qgis_connections:
+                    # Добавляем только если этого подключения нет в локальном файле
+                    if qgis_config.name not in local_connection_names:
+                        modified_config = ConnectionConfigDTO(
+                            db_type=qgis_config.db_type,
+                            name=qgis_config.name,
+                            host=qgis_config.host,
+                            port=qgis_config.port,
+                            database=qgis_config.database,
+                            username=qgis_config.username,
+                            password=""  # QGIS подключения без пароля по умолчанию
+                        )
+                        connections.append(modified_config)
+            except Exception as e:
+                self._logger.warning(f"Failed to load QGIS connections: {str(e)}")
         
         return connections
     
@@ -127,6 +155,59 @@ class ConnectionConfigService:
         
         self._logger.warning(f"Attempted to delete non-existent connection: '{name}'")
         return AppResult.success(Unit())
+    
+    def import_qgis_connections(self) -> AppResult[list[ConnectionConfigDTO]]:
+        """
+        Импортировать подключения из QGIS.
+        
+        Returns:
+            AppResult[list[ConnectionConfigDTO]]: Список импортированных подключений.
+        """
+        if not self._qgis_provider:
+            error_msg = "QGIS connection provider is not available"
+            self._logger.error(error_msg)
+            return AppResult.fail(error_msg)
+        
+        try:
+            qgis_connections = self._qgis_provider.get_qgis_connections()
+            self._logger.message(f"Found {len(qgis_connections)} QGIS connections")
+            return AppResult.success(qgis_connections)
+        except Exception as e:
+            error_msg = f"Error importing QGIS connections: {str(e)}"
+            self._logger.error(error_msg)
+            return AppResult.fail(error_msg)
+    
+    def save_qgis_connection_with_password(
+        self, 
+        qgis_connection: ConnectionConfigDTO, 
+        password: str
+    ) -> AppResult[Unit]:
+        """
+        Сохранить подключение из QGIS с указанным паролем.
+        
+        Args:
+            qgis_connection: Подключение из QGIS.
+            password: Пароль для подключения.
+            
+        Returns:
+            AppResult[Unit]: Результат сохранения.
+        """
+        if not qgis_connection.name:
+            return AppResult.fail("Connection name is required")
+        
+        # Создаем новое подключение с указанным паролем
+        updated_connection = ConnectionConfigDTO(
+            db_type=qgis_connection.db_type,
+            name=qgis_connection.name,
+            host=qgis_connection.host,
+            port=qgis_connection.port,
+            database=qgis_connection.database,
+            username=qgis_connection.username,
+            password=password
+        )
+        
+        # Сохраняем
+        return self.save_config(updated_connection)
     
     def _load_connections(self) -> AppResult[dict]:
         try:

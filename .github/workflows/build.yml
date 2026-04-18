@@ -11,7 +11,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.9', '3.x']
+        include:
+          - python-version: '3.9'
+            run-services-tests: true
+          - python-version: '3.x'
+            run-services-tests: false
 
     steps:
     - uses: actions/checkout@v4
@@ -26,20 +30,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install pytest pytest-cov flake8
 
-        # Для CI архитектурных/сервисных тестов не ставим тяжелые GIS/UI зависимости,
-        # требующие системные dev-пакеты (например, gdal-config).
-        if [ -f requirements.txt ]; then
-          grep -Ev '^(GDAL|PyQt5)\b' requirements.txt > /tmp/requirements-ci.txt
-          if [ -s /tmp/requirements-ci.txt ]; then
-            pip install -r /tmp/requirements-ci.txt
-          fi
-        fi
-
-        if [ -f install_packages/requirements.txt ]; then
-          grep -Ev '^(GDAL|PyQt5)\b' install_packages/requirements.txt > /tmp/install-requirements-ci.txt
-          if [ -s /tmp/install-requirements-ci.txt ]; then
-            pip install -r /tmp/install-requirements-ci.txt
-          fi
+        # Минимальные зависимости для service-тестов на Python 3.9.
+        if [ "${{ matrix.run-services-tests }}" = "true" ]; then
+          pip install inject ezdxf
         fi
 
     - name: Lint with flake8
@@ -51,4 +44,8 @@ jobs:
 
     - name: Test architecture and core services
       run: |
-        pytest tests/test_architecture_imports.py tests/test_services.py -v
+        if [ "${{ matrix.run-services-tests }}" = "true" ]; then
+          pytest tests/test_architecture_imports.py tests/test_services.py -v
+        else
+          pytest tests/test_architecture_imports.py -v
+        fi

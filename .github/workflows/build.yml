@@ -32,7 +32,7 @@ jobs:
 
         # Минимальные зависимости для service-тестов на Python 3.9.
         if [ "${{ matrix.run-services-tests }}" = "true" ]; then
-          pip install inject unidecode ezdxf
+          pip install inject unidecode ezdxf pillow
         fi
 
     - name: Lint with flake8

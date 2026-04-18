@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from typing import Optional
 from ...application.interfaces import IQgisConnectionProvider
 from ...application.dtos import ConnectionConfigDTO
 from ...application.interfaces import ILogger
@@ -80,7 +80,7 @@ class QgisConnectionProvider(IQgisConnectionProvider):
         
         return connections
     
-    def get_qgis_connection_password(self, connection_name: str) -> str | None:
+    def get_qgis_connection_password(self, connection_name: str) -> Optional[str]:
         """
         Получить пароль для подключения из хранилища QGIS.
         

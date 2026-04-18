@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Optional
 from ...application.dtos import ConnectionConfigDTO
 
 
@@ -16,7 +17,7 @@ class IQgisConnectionProvider(ABC):
         pass
     
     @abstractmethod
-    def get_qgis_connection_password(self, connection_name: str) -> str | None:
+    def get_qgis_connection_password(self, connection_name: str) -> Optional[str]:
         """
         Получить пароль для подключения из хранилища QGIS.
         

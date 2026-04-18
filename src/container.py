@@ -11,7 +11,7 @@ from .application.use_cases import OpenDocumentUseCase, CloseDocumentUseCase, Se
 
 from .infrastructure.qgis import Settings, Logger, QtEvent, QtAppEvents
 from .infrastructure.localization.localization import Localization
-from .infrastructure.ezdxf import DXFReader, EzdxfAreaSelector
+from .infrastructure.ezdxf import DXFReader, DXFWriter, EzdxfAreaSelector
 from .infrastructure.database import (
     ActiveDocumentRepository,
     ConnectionFactory,
@@ -38,8 +38,8 @@ class Container:
             logger = Logger(settings)
             localization = Localization(settings, logger, app_events)
             dxfreader = DXFReader()
+            dxfwriter = DXFWriter()
             area_selector = EzdxfAreaSelector()
-            #dxfwriter = DXFWriter()
             active_repo = ActiveDocumentRepository()
             active_doc_service = ActiveDocumentService(active_repo, logger)
             
@@ -50,7 +50,7 @@ class Container:
             import_use_case = ImportUseCase(active_repo, dxfreader, logger)
             export_use_case = ExportUseCase(logger)
             data_viewer_use_case = DataViewerUseCase(logger)
-            save_selected_to_file_use_case = SaveSelectedToFileUseCase(active_repo, logger)
+            save_selected_to_file_use_case = SaveSelectedToFileUseCase(active_repo, dxfwriter, logger)
 
             # Реализации репозиториев и подключений к разным БД
             connection_factory = ConnectionFactory([PostGISConnection])
@@ -75,6 +75,7 @@ class Container:
             binder.bind(ILogger, logger)
             binder.bind(ILocalization, localization)
             binder.bind(IDXFReader, dxfreader)
+            binder.bind(IDXFWriter, dxfwriter)
             binder.bind(IAreaSelector, area_selector)
             binder.bind(IActiveDocumentRepository, active_repo)
             binder.bind(ActiveDocumentService, active_doc_service)

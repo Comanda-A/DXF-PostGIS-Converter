@@ -7,9 +7,6 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
-import ezdxf
-
-from src.application.interfaces import ILogger
 
 plugin_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if plugin_path not in sys.path:
@@ -22,6 +19,7 @@ from src.application.dtos import (
     ImportConfigDTO,
     ImportMode,
 )
+from src.application.interfaces import ILogger
 from src.application.results import AppResult, Unit
 from src.application.services import ConnectionConfigService
 from src.application.use_cases import (
@@ -43,7 +41,7 @@ from src.domain.value_objects import (
     ShapeType,
 )
 from src.infrastructure.database import ActiveDocumentRepository
-from src.infrastructure.ezdxf import DXFReader
+from src.infrastructure.ezdxf import DXFReader, DXFWriter
 
 EXAMPLES_DIR = os.path.join(plugin_path, "dxf_examples")
 EXAMPLE_1 = os.path.join(EXAMPLES_DIR, "ex1.dxf")
@@ -836,9 +834,10 @@ class TestSaveSelectedToFileUseCase(unittest.TestCase):
         self.events = _DummyAppEvents()
         self.active_repo = ActiveDocumentRepository()
         self.reader = DXFReader()
+        self.writer = DXFWriter()
         self.open_use_case = OpenDocumentUseCase(self.active_repo, self.reader, self.events, self.logger)
         self.select_use_case = SelectEntityUseCase(self.active_repo, self.events, self.logger)
-        self.save_use_case = SaveSelectedToFileUseCase(self.active_repo, self.logger)
+        self.save_use_case = SaveSelectedToFileUseCase(self.active_repo, self.writer, self.logger)
 
     def test_save_only_selected_entities_with_real_file(self):
         """
@@ -882,10 +881,14 @@ class TestSaveSelectedToFileUseCase(unittest.TestCase):
             self.assertTrue(save_result.is_success, msg=save_result.error if save_result.is_fail else report)
             self.assertTrue(os.path.exists(out_path))
 
-            drawing = ezdxf.readfile(out_path)
+            exported_doc_result = self.reader.open(out_path)
+            self.assertTrue(exported_doc_result.is_success, msg=exported_doc_result.error if exported_doc_result.is_fail else "")
+            exported_doc = exported_doc_result.value
             exported_handles = {
-                str(getattr(entity.dxf, "handle", "")).strip().upper()
-                for entity in drawing.modelspace()
+                str(entity.attributes.get("handle", "")).strip().upper()
+                for layer in exported_doc.layers.values()
+                for entity in layer.entities.values()
+                if str(entity.attributes.get("handle", "")).strip()
             }
             selected_handle = str(selected_entity.attributes.get("handle", "")).strip().upper()
 

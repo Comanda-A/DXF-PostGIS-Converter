@@ -1,19 +1,22 @@
 from __future__ import annotations
 
-import os
-
-import ezdxf
-
 from ...application.interfaces import ILogger
 from ...application.results import AppResult, Unit
 from ...domain.repositories import IActiveDocumentRepository
+from ...domain.services import IDXFWriter
 
 
 class SaveSelectedToFileUseCase:
     """Вариант использования: сохранить выделенные сущности DXF в новый файл."""
 
-    def __init__(self, active_repo: IActiveDocumentRepository, logger: ILogger):
+    def __init__(
+        self,
+        active_repo: IActiveDocumentRepository,
+        dxf_writer: IDXFWriter,
+        logger: ILogger,
+    ):
         self._active_repo = active_repo
+        self._dxf_writer = dxf_writer
         self._logger = logger
 
     def execute(self, source_filename: str, output_path: str) -> tuple[AppResult[Unit], str]:
@@ -48,27 +51,21 @@ class SaveSelectedToFileUseCase:
 
         report_lines.append(f"Selected entities: {len(selected_handles)}")
 
-        try:
-            drawing = ezdxf.readfile(source_doc.filepath)
-            msp = drawing.modelspace()
-
-            removed_count = self._filter_modelspace_entities(msp, selected_handles)
-
-            output_dir = os.path.dirname(output_path)
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
-
-            drawing.saveas(output_path)
-
+        save_result = self._dxf_writer.save_selected_by_handles(
+            source_filepath=source_doc.filepath,
+            output_path=output_path,
+            selected_handles=selected_handles,
+        )
+        if save_result.is_success:
+            removed_count = save_result.value
             report_lines.append(f"Entities removed: {removed_count}")
             report_lines.append(f"File saved: '{output_path}'")
             return AppResult.success(Unit()), "\n".join(report_lines)
 
-        except Exception as exc:
-            error_msg = f"Export failed: {str(exc)}"
-            self._logger.error(error_msg)
-            report_lines.append(f"ERROR: {error_msg}")
-            return AppResult.fail(str(exc)), "\n".join(report_lines)
+        error_msg = f"Export failed: {save_result.error}"
+        self._logger.error(error_msg)
+        report_lines.append(f"ERROR: {error_msg}")
+        return AppResult.fail(save_result.error), "\n".join(report_lines)
 
     def _get_selected_handles(self, source_doc) -> set[str]:
         selected_handles: set[str] = set()
@@ -80,12 +77,3 @@ class SaveSelectedToFileUseCase:
                 if handle:
                     selected_handles.add(handle)
         return selected_handles
-
-    def _filter_modelspace_entities(self, modelspace, selected_handles: set[str]) -> int:
-        removed_count = 0
-        for dxf_entity in list(modelspace):
-            handle = str(getattr(dxf_entity.dxf, "handle", "")).strip().upper()
-            if handle not in selected_handles:
-                modelspace.delete_entity(dxf_entity)
-                removed_count += 1
-        return removed_count

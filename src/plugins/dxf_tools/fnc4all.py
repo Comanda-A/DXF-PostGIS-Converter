@@ -297,7 +297,7 @@ def printlog(text, p=None):
 def fncKorrDateiName(OrgName, Ersatz="_"):
     NeuTex = ""
     for i in range(len(OrgName)):
-        if re.search("[/\\\[\]:*?|!=]", OrgName[i]):
+        if re.search(r"[/\\\[\]:*?|!=]", OrgName[i]):
             NeuTex = NeuTex + Ersatz
         else:
             NeuTex = NeuTex + OrgName[i]

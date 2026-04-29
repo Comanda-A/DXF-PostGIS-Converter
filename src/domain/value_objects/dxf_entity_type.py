@@ -8,6 +8,7 @@ class DxfEntityType(Enum):
     SOLID3D = '3DSOLID'
     ACADPROXYENTITY = 'ACAD_PROXY_ENTITY'
     ARC = 'ARC'
+    ATTDEF = 'ATTDEF'
     ATTRIB = 'ATTRIB'
     BODY = 'BODY'
     CIRCLE = 'CIRCLE'

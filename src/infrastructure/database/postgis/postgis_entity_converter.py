@@ -410,6 +410,8 @@ class PostGISEntityConverter:
         
         return Result.success((geom, extra_data))
 
+    # TODO: ATTDEF converter (определение атрибута) - обычно не имеет геометрии, но может содержать важные данные для атрибутов блоков
+    
     # ========== Spline Converter ==========
 
     def _convert_spline(self, entity: DXFEntity) -> Result[Tuple[Optional[BaseGeometry], Dict[str, Any]]]:

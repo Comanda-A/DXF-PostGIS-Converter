@@ -222,7 +222,7 @@ class ConverterDialog(QDialog, FORM_CLASS):
     
     def _switch_ui(self):
         enable = self._active_doc_service.get_documents_count() > 0
-        self.import_dxf_button.setEnabled(True)
+        self.import_dxf_button.setEnabled(enable)
         self.save_dxf_button.setEnabled(enable)
         self.filter_group.setEnabled(enable)
         self.selection_group.setEnabled(enable)

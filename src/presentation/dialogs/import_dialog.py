@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 from ...application.services import ConnectionConfigService
 from ...application.services import ActiveDocumentService
 from ...application.interfaces import ILocalization, ILogger
-from ...application.dtos import ConnectionConfigDTO, ImportConfigDTO, ImportMode, LayerSettingsDTO
+from ...application.dtos import ConnectionConfigDTO, ImportConfigDTO, ImportMode, LayerSettingsDTO, DXFLayerDTO
 from ...application.database import DBSession
 from ...application.use_cases import ImportUseCase
 from ...application.results import AppResult, Unit
@@ -274,9 +274,12 @@ class ImportDialog(QDialog, FORM_CLASS):
         self.layer_name_value_label.setText(layer_name)
         
         # Получить информацию о слое из документа
-        doc = self._active_doc_service._get_document_by_filename(file_name)
+        doc = self._active_doc_service.get_document_by_filename(file_name)
         if doc:
-            layer = doc.get_layer_by_name(layer_name)
+            layer: DXFLayerDTO | None = None
+            for doclayer in doc.layers:
+                if doclayer.name == layer_name:
+                    layer = doclayer
             if layer:
                 # Установить количество объектов
                 entity_count = len(layer.entities)

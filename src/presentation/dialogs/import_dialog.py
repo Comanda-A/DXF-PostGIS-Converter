@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 from ...application.services import ConnectionConfigService
 from ...application.services import ActiveDocumentService
 from ...application.interfaces import ILocalization, ILogger
-from ...application.dtos import ConnectionConfigDTO, ImportConfigDTO, ImportMode
+from ...application.dtos import ConnectionConfigDTO, ImportConfigDTO, ImportMode, LayerSettingsDTO
 from ...application.database import DBSession
 from ...application.use_cases import ImportUseCase
 from ...application.results import AppResult, Unit
@@ -62,6 +62,7 @@ class ImportDialog(QDialog, FORM_CLASS):
         self._tree_widget_handler = ViewerDxfTreeHandler(self.dxf_files_tree)
         self._connection_config: ConnectionConfigDTO | None = None
         self._import_configs: list[ImportConfigDTO] = []
+        self._selected_layer_name: str | None = None  # Для отслеживания выбранного слоя
         
         self._init_components()
         self._connect_signals()
@@ -69,17 +70,53 @@ class ImportDialog(QDialog, FORM_CLASS):
     
     @property
     def processed_filename(self) -> str | None:
-        selected_items = self.dxf_files_tree.selectedItems()
-        if len(selected_items) == 1:
-            return selected_items[0].text(0)
-        return None
+        """Получить название файла независимо от выбранного элемента (файл или слой)"""
+        return self._get_selected_file_name()
 
     @property
     def processed_config(self) -> ImportConfigDTO | None:
         filename = self.processed_filename
+        if not filename:
+            return None
         for config in self._import_configs:
             if config.filename == filename:
                 return config
+        return None
+    
+    def _get_selected_item_type(self) -> str | None:
+        """
+        Определить тип выбранного элемента.
+        Возвращает: 'file' для файла, 'layer' для слоя, None если ничего не выбрано
+        """
+        selected_items = self.dxf_files_tree.selectedItems()
+        if len(selected_items) == 1:
+            item = selected_items[0]
+            # Если у элемента есть parent, то это слой
+            if item.parent():
+                return 'layer'
+            # Иначе это файл
+            return 'file'
+        return None
+    
+    def _get_selected_layer_name(self) -> str | None:
+        """Получить название выбранного слоя"""
+        selected_items = self.dxf_files_tree.selectedItems()
+        if len(selected_items) == 1:
+            item = selected_items[0]
+            if item.parent():  # Если это слой
+                return item.text(0)
+        return None
+    
+    def _get_selected_file_name(self) -> str | None:
+        """Получить название выбранного файла"""
+        selected_items = self.dxf_files_tree.selectedItems()
+        if len(selected_items) == 1:
+            item = selected_items[0]
+            if not item.parent():  # Если это файл
+                return item.text(0)
+            else:  # Если это слой, вернуть названия файла
+                parent = item.parent()
+                return parent.text(0)
         return None
 
     def tr(self, key: str, *args) -> str:
@@ -116,16 +153,14 @@ class ImportDialog(QDialog, FORM_CLASS):
         self.import_button.clicked.connect(self._on_import_button_click)
         self.cancel_button.clicked.connect(self._on_cancel_button_click)
         self.transliteration_check.stateChanged.connect(self._on_transliteration_check_changed)
+        self.prefix_check.stateChanged.connect(self._on_prefix_check_changed)
+        
+        # Сигналы для страницы 2 (layer settings)
+        self.new_layer_table_check.stateChanged.connect(self._on_new_layer_table_check_changed)
+        self.existing_layer_table_check.stateChanged.connect(self._on_existing_layer_table_check_changed)
 
-        #self.filename_lineedit.textChanged.connect(self._on_filename_changed)
-        
-        #self.layer_schema_combo.currentTextChanged.connect(self._on_layer_schema_changed)
-        #self.file_schema_combo.currentTextChanged.connect(self._on_file_schema_changed)
-        #self.export_layers_only_checkbox.toggled.connect(self._on_layers_only_toggled)
-        
-        #self.import_button.clicked.connect(self._on_import_clicked)
-        #self.cancel_button.clicked.connect(self.reject)
-        #self.info_button.clicked.connect(self._show_help)
+        self.db_table_combo.currentTextChanged.connect(self._on_db_table_combo_changed)
+        self.layer_name_edit.textChanged.connect(self._on_layer_name_edit_changed)
 
     def _setup_ui(self):
         """Настройка UI."""
@@ -166,51 +201,113 @@ class ImportDialog(QDialog, FORM_CLASS):
             self.import_mode_combo.addItem(self.tr("add_objects"))
 
     def _update_ui(self):
-        enable = bool(self.processed_config and self._session.is_connected)
-        self.import_settings_group.setEnabled(enable)
-        self.layers_schema_group.setEnabled(enable)
-        self.files_schema_group.setEnabled(enable)
+        item_type = self._get_selected_item_type()
+        
+        enable = bool(item_type and self._session.is_connected)
+        self.import_settings_group.setEnabled(False)
+        self.layers_schema_group.setEnabled(False)
+        self.files_schema_group.setEnabled(False)
+        self.layer_import_group.setEnabled(False)
+        self.layer_table_db_group.setEnabled(False)
         self.cancel_button.setEnabled(enable)
         self.import_button.setEnabled(enable)
 
-        if enable:
+        if enable and item_type == 'file':
+            # Показать страницу 1 (настройки файла)
+            self.stackedWidget.setCurrentIndex(0)
             config = self.processed_config
-            self.filename_edit.setText(config.filename)
-            self.import_only_layers_check.setChecked(config.import_layers_only)
-            self.transliteration_check.setChecked(config.transliterate_layer_names)
-
-            if config.import_mode == ImportMode.OVERWRITE_LAYERS:
-                self.import_mode_combo.setCurrentText(self.tr("overwrite_layers"))
-            elif config.import_mode == ImportMode.OVERWRITE_OBJECTS:
-                self.import_mode_combo.setCurrentText(self.tr("overwrite_objects"))
-            else:
-                self.import_mode_combo.setCurrentText(self.tr("add_objects"))
-
-            index = self.layers_schema_combo.findText(config.layer_schema)
-            if index >= 0:
-                self.layers_schema_combo.setCurrentIndex(index)
-            else:
-                # Если комбобокс не пустой, устанавливаем первый элемент
-                if self.layers_schema_combo.count() > 0:
-                    self.layers_schema_combo.setCurrentIndex(0)
-                    self.processed_config.layer_schema = self.layers_schema_combo.currentText()
-                else:
-                    # Если комбобокс пустой, устанавливаем -1 и очищаем конфиг
-                    self.processed_config.layer_schema = ""
-                    self.layers_schema_combo.setCurrentIndex(-1)
             
-            index = self.files_schema_combo.findText(config.file_schema)
-            if index >= 0:
-                self.files_schema_combo.setCurrentIndex(index)
-            else:
-                # Если комбобокс не пустой, устанавливаем первый элемент
-                if self.files_schema_combo.count() > 0:
-                    self.files_schema_combo.setCurrentIndex(0)
-                    self.processed_config.file_schema = self.files_schema_combo.currentText()
+            if config:
+                self.import_settings_group.setEnabled(True)
+                self.layers_schema_group.setEnabled(True)
+                self.files_schema_group.setEnabled(True)
+                
+                self.filename_edit.setText(config.filename)
+                self.import_only_layers_check.setChecked(config.import_layers_only)
+                self.transliteration_check.setChecked(config.transliterate_layer_names)
+                self.prefix_check.setChecked(config.prefix_check)
+
+                if config.import_mode == ImportMode.OVERWRITE_LAYERS:
+                    self.import_mode_combo.setCurrentText(self.tr("overwrite_layers"))
+                elif config.import_mode == ImportMode.OVERWRITE_OBJECTS:
+                    self.import_mode_combo.setCurrentText(self.tr("overwrite_objects"))
                 else:
-                    # Если комбобокс пустой, устанавливаем -1 и очищаем конфиг
-                    self.processed_config.file_schema = ""
-                    self.files_schema_combo.setCurrentIndex(-1)
+                    self.import_mode_combo.setCurrentText(self.tr("add_objects"))
+
+                index = self.layers_schema_combo.findText(config.layer_schema)
+                if index >= 0:
+                    self.layers_schema_combo.setCurrentIndex(index)
+                else:
+                    if self.layers_schema_combo.count() > 0:
+                        self.layers_schema_combo.setCurrentIndex(0)
+                        self.processed_config.layer_schema = self.layers_schema_combo.currentText()
+                    else:
+                        self.processed_config.layer_schema = ""
+                        self.layers_schema_combo.setCurrentIndex(-1)
+                
+                index = self.files_schema_combo.findText(config.file_schema)
+                if index >= 0:
+                    self.files_schema_combo.setCurrentIndex(index)
+                else:
+                    if self.files_schema_combo.count() > 0:
+                        self.files_schema_combo.setCurrentIndex(0)
+                        self.processed_config.file_schema = self.files_schema_combo.currentText()
+                    else:
+                        self.processed_config.file_schema = ""
+                        self.files_schema_combo.setCurrentIndex(-1)
+        
+        elif enable and item_type == 'layer':
+            # Показать страницу 2 (настройки слоя)
+            self.stackedWidget.setCurrentIndex(1)
+            layer_name = self._get_selected_layer_name()
+            file_name = self._get_selected_file_name()
+            config = self.processed_config
+            
+            if config and layer_name:
+                self.layer_import_group.setEnabled(True)
+                self.layer_table_db_group.setEnabled(True)
+                self._update_layer_settings_ui(layer_name, file_name, config)
+
+    def _update_layer_settings_ui(self, layer_name: str, file_name: str, config: ImportConfigDTO):
+        """Обновить UI для настроек слоя"""
+        # Установить название слоя
+        self.layer_name_value_label.setText(layer_name)
+        
+        # Получить информацию о слое из документа
+        doc = self._active_doc_service._get_document_by_filename(file_name)
+        if doc:
+            layer = doc.get_layer_by_name(layer_name)
+            if layer:
+                # Установить количество объектов
+                entity_count = len(layer.entities)
+                self.count_objects_value_label.setText(str(entity_count))
+        
+        # Обновить список таблиц из выбранной схемы
+        self._update_db_tables_combo()
+        
+        # Получить или создать настройки слоя
+        if layer_name not in config.layer_settings:
+            config.layer_settings[layer_name] = LayerSettingsDTO(
+                layer_name=layer_name,
+                create_new_table=True,
+                new_table_name=layer_name,
+                existing_table_name=""
+            )
+        
+        layer_settings = config.layer_settings[layer_name]
+        
+        # Обновить UI в соответствии с настройками
+        self.new_layer_table_check.setChecked(layer_settings.create_new_table)
+        
+        # Обновить название новой таблицы
+        with QSignalBlocker(self.layer_name_edit):
+            self.layer_name_edit.setText(layer_settings.new_table_name)
+        
+        # Обновить выбор существующей таблицы
+        with QSignalBlocker(self.db_table_combo):
+            index = self.db_table_combo.findText(layer_settings.existing_table_name)
+            if index >= 0:
+                self.db_table_combo.setCurrentIndex(index)
 
     def _connect_to_db(self, config: ConnectionConfigDTO):
         result = self._session.connect(config)
@@ -296,8 +393,42 @@ class ImportDialog(QDialog, FORM_CLASS):
 
         self.layers_schema_combo.addItems(schemas)
         self.files_schema_combo.addItems(schemas)
+        
+        # Обновить список таблиц
+        self._update_db_tables_combo()
 
         self._update_ui()
+    
+    def _update_db_tables_combo(self):
+        """Обновить список таблиц в комбо для выбора существующей таблицы слоя"""
+        if not self._session.is_connected:
+            return
+        
+        config = self.processed_config
+        if not config or not config.layer_schema:
+            self.db_table_combo.clear()
+            return
+        
+        # Получить список таблиц из выбранной схемы слоев
+        result = self._session.get_tables(config.layer_schema)
+        
+        if result.is_fail:
+            self._logger.error(f"Error getting tables from schema '{config.layer_schema}'. {result.error}")
+            return
+        
+        tables = result.value
+        
+        with QSignalBlocker(self.db_table_combo):
+            current_text = self.db_table_combo.currentText()
+            self.db_table_combo.clear()
+            self.db_table_combo.addItem("")  # Пустой элемент
+            self.db_table_combo.addItems(tables)
+            
+            # Восстановить выбранное значение если оно есть
+            if current_text:
+                index = self.db_table_combo.findText(current_text)
+                if index >= 0:
+                    self.db_table_combo.setCurrentIndex(index)
 
     # Events
 
@@ -412,6 +543,8 @@ class ImportDialog(QDialog, FORM_CLASS):
     def _on_layers_schema_combo_changed(self, index=None):
         if self.processed_config:
             self.processed_config.layer_schema = self.layers_schema_combo.currentText() or ""
+            # Обновить список таблиц при смене схемы
+            self._update_db_tables_combo()
 
     def _on_files_schema_combo_changed(self, index=None):
         if self.processed_config:
@@ -431,6 +564,62 @@ class ImportDialog(QDialog, FORM_CLASS):
         check = self.transliteration_check.isChecked()
         if self.processed_config:
             self.processed_config.transliterate_layer_names = check
+
+    def _on_prefix_check_changed(self, state):
+        check = self.prefix_check.isChecked()
+        if self.processed_config:
+            self.processed_config.prefix_check = check
+
+    def _on_new_layer_table_check_changed(self, state):
+        """Обработчик изменения чекбокса 'Создать новую таблицу'"""
+        check = self.new_layer_table_check.isChecked()
+        layer_name = self._get_selected_layer_name()
+        config = self.processed_config
+        
+        if layer_name and config and layer_name in config.layer_settings:
+            layer_settings = config.layer_settings[layer_name]
+            layer_settings.create_new_table = check
+            
+            with QSignalBlocker(self.existing_layer_table_check):
+                self.existing_layer_table_check.setChecked(not check)
+
+            # Обновить видимость элементов
+            self.existing_table_widget.setVisible(not check)
+            self.new_table_widget.setVisible(check)
+
+    def _on_existing_layer_table_check_changed(self, state):
+        """Обработчик изменения чекбокса 'Использовать существующую таблицу'"""
+        check = self.existing_layer_table_check.isChecked()
+        layer_name = self._get_selected_layer_name()
+        config = self.processed_config
+        
+        if layer_name and config and layer_name in config.layer_settings:
+            
+            layer_settings = config.layer_settings[layer_name]
+            layer_settings.create_new_table = not check
+
+            with QSignalBlocker(self.new_layer_table_check):
+                self.new_layer_table_check.setChecked(not check)
+            
+            # Обновить видимость элементов
+            self.existing_table_widget.setVisible(check)
+            self.new_table_widget.setVisible(not check)
+
+    def _on_db_table_combo_changed(self, text):
+        """Обработчик изменения комбо для выбора существующей таблицы"""
+        layer_name = self._get_selected_layer_name()
+        config = self.processed_config
+        
+        if layer_name and config and layer_name in config.layer_settings:
+            config.layer_settings[layer_name].existing_table_name = text
+
+    def _on_layer_name_edit_changed(self, text):
+        """Обработчик изменения названия новой таблицы слоя"""
+        layer_name = self._get_selected_layer_name()
+        config = self.processed_config
+        
+        if layer_name and config and layer_name in config.layer_settings:
+            config.layer_settings[layer_name].new_table_name = text
 
     def _on_cancel_button_click(self):
         self.reject()
@@ -494,12 +683,23 @@ class ImportDialog(QDialog, FORM_CLASS):
 
     def handle_item_selection(self):
         """Обработчик изменения выделения."""
+        # Деселировать только если выбрано несколько файлов
         with QSignalBlocker(self.dxf_files_tree):
             selected_items = self.dxf_files_tree.selectedItems()
-            for item in selected_items:
-                if item.parent():
+            
+            # Если выбрано более одного элемента, оставить только первый
+            if len(selected_items) > 1:
+                first_item = selected_items[0]
+                for item in selected_items[1:]:
                     item.setSelected(False)
-            self._update_ui()
+                selected_items = [first_item]
+            
+            # Если выбран элемент и это файл (нет parent), то ок
+            # Если это слой (есть parent), то тоже ок
+            # Но если выбран только файл и нет слоев, показываем страницу 1
+            # Если выбран слой, показываем страницу 2
+        
+        self._update_ui()
 
     def resizeEvent(self, event):
         """Resize event."""

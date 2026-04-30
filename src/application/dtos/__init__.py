@@ -1,7 +1,7 @@
 
 from .import_mode import ImportMode
 from .export_mode import ExportMode
-from .import_config_dto import ImportConfigDTO
+from .import_config_dto import ImportConfigDTO, LayerSettingsDTO
 from .export_config_dto import ExportConfigDTO
 from .dxf_base_dto import DXFBaseDTO
 from .dxf_entity_dto import DXFEntityDTO
@@ -15,6 +15,7 @@ __all__ = [
     'ImportMode',
     'ExportMode',
     'ImportConfigDTO',
+    'LayerSettingsDTO',
     'ExportConfigDTO',
     'DXFBaseDTO',
     'DXFEntityDTO',

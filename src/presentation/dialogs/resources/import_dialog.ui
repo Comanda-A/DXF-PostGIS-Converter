@@ -1086,12 +1086,18 @@
              <property name="enabled">
               <bool>true</bool>
              </property>
+             <property name="font">
+              <font>
+               <family>Segoe UI</family>
+               <pointsize>9</pointsize>
+              </font>
+             </property>
              <property name="title">
               <string>Таблица слоя в базе данных</string>
              </property>
              <layout class="QVBoxLayout" name="verticalLayout_12">
               <property name="spacing">
-               <number>5</number>
+               <number>20</number>
               </property>
               <property name="leftMargin">
                <number>5</number>
@@ -1106,21 +1112,12 @@
                <number>5</number>
               </property>
               <item>
-               <layout class="QHBoxLayout" name="horizontalLayout_14">
-                <property name="spacing">
-                 <number>15</number>
-                </property>
+               <layout class="QHBoxLayout" name="horizontalLayout_16">
                 <property name="topMargin">
                  <number>0</number>
                 </property>
                 <item>
-                 <widget class="QLabel" name="existing_table_label">
-                  <property name="sizePolicy">
-                   <sizepolicy hsizetype="Maximum" vsizetype="Preferred">
-                    <horstretch>0</horstretch>
-                    <verstretch>0</verstretch>
-                   </sizepolicy>
-                  </property>
+                 <widget class="QCheckBox" name="new_layer_table_check">
                   <property name="font">
                    <font>
                     <family>Segoe UI</family>
@@ -1128,70 +1125,163 @@
                    </font>
                   </property>
                   <property name="text">
-                   <string>Существующая таблица:</string>
+                   <string>Создать новую
+таблицу</string>
                   </property>
                  </widget>
                 </item>
                 <item>
-                 <widget class="QComboBox" name="db_table_combo">
-                  <property name="enabled">
-                   <bool>true</bool>
+                 <widget class="Line" name="line">
+                  <property name="orientation">
+                   <enum>Qt::Vertical</enum>
                   </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QCheckBox" name="existing_layer_table_check">
                   <property name="font">
                    <font>
                     <family>Segoe UI</family>
                     <pointsize>9</pointsize>
                    </font>
                   </property>
+                  <property name="text">
+                   <string>Использовать
+существующую
+таблицу</string>
+                  </property>
+                  <property name="autoRepeat">
+                   <bool>false</bool>
+                  </property>
+                  <property name="tristate">
+                   <bool>false</bool>
+                  </property>
                  </widget>
                 </item>
                </layout>
               </item>
               <item>
-               <widget class="QCheckBox" name="new_layer_table_check">
-                <property name="text">
-                 <string>Создать новую таблицу</string>
-                </property>
+               <widget class="QWidget" name="existing_table_widget" native="true">
+                <layout class="QVBoxLayout" name="verticalLayout_13">
+                 <property name="spacing">
+                  <number>5</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                 <item>
+                  <layout class="QHBoxLayout" name="horizontalLayout_14">
+                   <property name="spacing">
+                    <number>15</number>
+                   </property>
+                   <property name="topMargin">
+                    <number>0</number>
+                   </property>
+                   <item>
+                    <widget class="QLabel" name="existing_table_label">
+                     <property name="sizePolicy">
+                      <sizepolicy hsizetype="Maximum" vsizetype="Preferred">
+                       <horstretch>0</horstretch>
+                       <verstretch>0</verstretch>
+                      </sizepolicy>
+                     </property>
+                     <property name="font">
+                      <font>
+                       <family>Segoe UI</family>
+                       <pointsize>9</pointsize>
+                      </font>
+                     </property>
+                     <property name="text">
+                      <string>Существующая таблица:</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QComboBox" name="db_table_combo">
+                     <property name="enabled">
+                      <bool>true</bool>
+                     </property>
+                     <property name="font">
+                      <font>
+                       <family>Segoe UI</family>
+                       <pointsize>9</pointsize>
+                      </font>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </item>
+                </layout>
                </widget>
               </item>
               <item>
-               <layout class="QHBoxLayout" name="horizontalLayout_12">
-                <property name="spacing">
-                 <number>15</number>
-                </property>
-                <property name="topMargin">
-                 <number>0</number>
-                </property>
-                <item>
-                 <widget class="QLabel" name="name_new_layer_table_label">
-                  <property name="sizePolicy">
-                   <sizepolicy hsizetype="Maximum" vsizetype="Preferred">
-                    <horstretch>0</horstretch>
-                    <verstretch>0</verstretch>
-                   </sizepolicy>
-                  </property>
-                  <property name="font">
-                   <font>
-                    <family>Segoe UI</family>
-                    <pointsize>9</pointsize>
-                   </font>
-                  </property>
-                  <property name="text">
-                   <string>Название новой таблицы:</string>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QLineEdit" name="layer_name_edit">
-                  <property name="font">
-                   <font>
-                    <family>Segoe UI</family>
-                    <pointsize>9</pointsize>
-                   </font>
-                  </property>
-                 </widget>
-                </item>
-               </layout>
+               <widget class="QWidget" name="new_table_widget" native="true">
+                <layout class="QVBoxLayout" name="verticalLayout_14">
+                 <property name="spacing">
+                  <number>5</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                 <item>
+                  <layout class="QHBoxLayout" name="horizontalLayout_12">
+                   <property name="spacing">
+                    <number>15</number>
+                   </property>
+                   <property name="topMargin">
+                    <number>0</number>
+                   </property>
+                   <item>
+                    <widget class="QLabel" name="name_new_layer_table_label">
+                     <property name="sizePolicy">
+                      <sizepolicy hsizetype="Maximum" vsizetype="Preferred">
+                       <horstretch>0</horstretch>
+                       <verstretch>0</verstretch>
+                      </sizepolicy>
+                     </property>
+                     <property name="font">
+                      <font>
+                       <family>Segoe UI</family>
+                       <pointsize>9</pointsize>
+                      </font>
+                     </property>
+                     <property name="text">
+                      <string>Название новой таблицы:</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QLineEdit" name="layer_name_edit">
+                     <property name="font">
+                      <font>
+                       <family>Segoe UI</family>
+                       <pointsize>9</pointsize>
+                      </font>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </item>
+                </layout>
+               </widget>
               </item>
              </layout>
             </widget>

@@ -28,9 +28,14 @@ class ActiveDocumentService:
         return DXFMapper.to_dto(self._documents)
     
     def get_document_by_filename(self, filename: str) -> DXFDocumentDTO | None:
+        doc = self._get_document_by_filename(filename)
+        return DXFMapper.to_dto(doc) if doc else None
+    
+    def _get_document_by_filename(self, filename: str) -> DXFDocument | None:
+        """Получить domain entity документа по названию файла"""
         for doc in self._documents:
             if doc.filename == filename:
-                return DXFMapper.to_dto(doc)
+                return doc
         return None
     
     def _get_by_id(self, id: UUID) -> DXFBase | None:

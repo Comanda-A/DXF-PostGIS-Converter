@@ -230,6 +230,57 @@ Qt/QGIS интеграция через PyQt5:
 
 ---
 
+#### [13_domain_services_package_design.md](13_domain_services_package_design.md)
+**Пакет: `domain/services` + `domain/value_objects`**
+
+Контракты сервисного слоя и общие value objects:
+- **IAreaSelector** — выбор handle сущностей по области
+- **IDXFReader** — чтение DXF-файла и SVG preview
+- **IDXFWriter** — запись DXF-документа и выборочное сохранение по handle
+- **ConnectionConfig** — конфигурация подключения к БД
+- **AreaSelectionParams** — параметры геометрического выбора
+- **SelectionRule**, **ShapeType**, **SelectionMode** — перечисления параметров выбора
+- **DxfEntityType** — перечень поддерживаемых типов DXF-сущностей
+- **Result** — унифицированный результат операции
+- **Unit** — пустой тип для операций без полезного значения
+
+**Содержит:**
+- ✅ Исходная диаграмма классов
+- ✅ Таблица описания классов
+- ✅ 3 диаграммы последовательностей (нормальный ход и 2 варианта прерываний)
+- ✅ Уточненная и детальная диаграммы
+- ✅ Полные таблицы полей и методов для сервисов и value objects
+
+---
+
+### 5. Актуализированные отчеты Infrastructure Layer (Mermaid)
+
+#### [21_infrastructure_ezdxf_package_report.md](21_infrastructure_ezdxf_package_report.md)
+**Пакет: `infrastructure/ezdxf`**
+
+Актуализированный отчет по текущей реализации:
+- ✅ Mermaid диаграмма классов
+- ✅ Mermaid диаграммы последовательностей
+- ✅ Таблицы классов/методов
+
+#### [22_infrastructure_qgis_package_report.md](22_infrastructure_qgis_package_report.md)
+**Пакет: `infrastructure/qgis`**
+
+Актуализированный отчет по текущей реализации:
+- ✅ Mermaid диаграмма классов
+- ✅ Mermaid диаграммы последовательностей
+- ✅ Таблицы классов/методов
+
+#### [23_infrastructure_database_package_report.md](23_infrastructure_database_package_report.md)
+**Пакет: `infrastructure/database`**
+
+Актуализированный отчет по текущей реализации:
+- ✅ Mermaid диаграмма классов
+- ✅ Mermaid диаграммы последовательностей
+- ✅ Таблицы классов/методов
+
+---
+
 ## 🎯 Структура каждого файла проектирования
 
 Каждый файл проектирования пакета содержит:

@@ -1,539 +1,444 @@
-# Проектирование пакета domain/repositories
+# 5.2.4. Проектирование классов пакета «repositories»
 
-## Исходная диаграмма классов пакета «repositories»
+Пакет «repositories» определяет доменные контракты доступа к DXF-данным: базовый CRUD-интерфейс, репозитории документов, слоев, сущностей, содержимого, активных документов, а также фабрики подключения и создания репозиториев.
 
-```uml
-@startuml
+## 5.2.4.1. Исходная диаграмма классов
 
-interface IRepository {
-  + save(entity: T): Result[Unit]
-  + find_by_id(id: UUID): Result[Optional[T]]
-  + delete_by_id(id: UUID): Result[Unit]
-  + find_all(): Result[List[T]]
-}
+Исходная диаграмма содержит только классы пакета `domain/repositories`. Параметры классов не отображаются.
 
-interface IDocumentRepository {
-  + save_document(doc: DXFDocument): Result[Unit]
-  + find_document(id: UUID): Result[Optional[DXFDocument]]
-  + find_all_documents(): Result[List[DXFDocument]]
-  + delete_document(id: UUID): Result[Unit]
-}
+```mermaid
+---
+config:
+    layout: elk
+---
+graph LR
+    IRepository
+    IConnection
+    IConnectionFactory
+    IRepositoryFactory
+    IDocumentRepository
+    ILayerRepository
+    IEntityRepository
+    IContentRepository
+    IActiveDocumentRepository
 
-interface ILayerRepository {
-  + save_layer(layer: DXFLayer): Result[Unit]
-  + find_layers_by_document(doc_id: UUID): Result[List[DXFLayer]]
-  + delete_layer(layer_id: UUID): Result[Unit]
-}
+    IRepository -.->|наследует| IDocumentRepository
+    IRepository -.->|наследует| ILayerRepository
+    IRepository -.->|наследует| IEntityRepository
+    IRepository -.->|наследует| IContentRepository
+    IRepository -.->|наследует| IActiveDocumentRepository
 
-interface IEntityRepository {
-  + save_entity(entity: DXFEntity): Result[Unit]
-  + find_entities_by_layer(layer_id: UUID): Result[List[DXFEntity]]
-  + delete_entity(entity_id: UUID): Result[Unit]
-}
-
-interface IContentRepository {
-  + save_content(content: DXFContent): Result[Unit]
-  + find_content(doc_id: UUID): Result[Optional[DXFContent]]
-  + delete_content(content_id: UUID): Result[Unit]
-}
-
-interface IActiveDocumentRepository {
-  + get_all(): Result[List[DXFDocument]]
-  + get_by_id(id: UUID): Result[Optional[DXFBase]]
-  + get_by_filename(filename: str): Result[Optional[DXFDocument]]
-  + add_active_document(doc: DXFDocument): Result[Unit]
-  + remove_active_document(doc_id: UUID): Result[Unit]
-}
-
-interface IConnection {
-  + open(): Result[Unit]
-  + close(): Result[Unit]
-  + is_connected(): bool
-  + execute_query(query: str): Result[Any]
-}
-
-interface IConnectionFactory {
-  + create_connection(config: ConnectionConfig): Result[IConnection]
-}
-
-interface IRepositoryFactory {
-  + create_document_repository(): IDocumentRepository
-  + create_layer_repository(): ILayerRepository
-  + create_entity_repository(): IEntityRepository
-  + create_content_repository(): IContentRepository
-  + create_active_document_repository(): IActiveDocumentRepository
-}
-
-IRepository <|-- IDocumentRepository : специализирует
-IRepository <|-- ILayerRepository : специализирует
-IRepository <|-- IEntityRepository : специализирует
-IRepository <|-- IContentRepository : специализирует
-
-IActive DocumentRepository --> "many" DXFDocument : управляет
-IDocumentRepository --> "many" DXFDocument : работает с
-ILayerRepository --> "many" DXFLayer : работает с
-IEntityRepository --> "many" DXFEntity : работает с
-IContentRepository --> "many" DXFContent : работает с
-
-IRepositoryFactory -- "0..*" IDocumentRepository : создает
-IRepositoryFactory -- "0..*" ILayerRepository : создает
-IRepositoryFactory -- "0..*" IEntityRepository : создает
-IRepositoryFactory -- "0..*" IContentRepository : создает
-IRepositoryFactory -- "0..*" IActiveDocumentRepository : создает
-
-@enduml
+    IConnectionFactory -->|создает| IConnection
+    IRepositoryFactory -->|использует| IConnection
+    IRepositoryFactory -->|создает| IDocumentRepository
+    IRepositoryFactory -->|создает| ILayerRepository
+    IRepositoryFactory -->|создает| IEntityRepository
+    IRepositoryFactory -->|создает| IContentRepository
+    IActiveDocumentRepository -->|использует| IRepository
 ```
 
----
+### Таблица 1. Описание классов пакета «repositories»
 
-## Описание классов пакета «repositories»
+| Класс | Описание |
+|---|---|
+| IRepository | Базовый CRUD-контракт для всех репозиториев. |
+| IConnection | Контракт управления подключением к БД. |
+| IConnectionFactory | Контракт фабрики соединений. |
+| IRepositoryFactory | Контракт фабрики репозиториев. |
+| IDocumentRepository | Контракт доступа к документам DXF. |
+| ILayerRepository | Контракт доступа к слоям DXF. |
+| IEntityRepository | Контракт доступа к сущностям DXF. |
+| IContentRepository | Контракт доступа к бинарному содержимому DXF. |
+| IActiveDocumentRepository | Контракт доступа к активным документам в памяти. |
 
-| Интерфейс | Назначение | Тип |
-|-----------|-----------|-----|
-| **IRepository** | Базовый интерфейс для всех репозиториев. Определяет операции создания, поиска и удаления сущностей. | interface |
-| **IDocumentRepository** | Репозиторий для работы с документами DXF (таблица files). Сохранение и извлечение данных документов. | interface |
-| **ILayerRepository** | Репозиторий для работы со слоями (таблица layers). Управление слоями в БД. | interface |
-| **IEntityRepository** | Репозиторий для работы с элементами (таблица entities). Сохранение геометрии и атрибутов. | interface |
-| **IContentRepository** | Репозиторий для хранения бинарного содержимого DXF (таблица contents). | interface |
-| **IActiveDocumentRepository** | Репозиторий для активных документов в памяти. Управление открытыми документами. | interface |
-| **IConnection** | Интерфейс для подключения к БД. Операции открытия, закрытия, выполнения запросов. | interface |
-| **IConnectionFactory** | Factory untuk создание соединений с БД. | interface |
-| **IRepositoryFactory** | Factory для создания репозиториев конкретных типов. | interface |
+## 5.2.4.2. Диаграммы последовательностей взаимодействия объектов классов
 
----
+На диаграммах показано взаимодействие всех классов пакета. Внешние сущности не используются.
 
-## Диаграммы последовательностей взаимодействия объектов
+```mermaid
+sequenceDiagram
+    participant Entry as 
+    participant RepoBase as IRepository
+    participant ConnFactory as IConnectionFactory
+    participant RepoFactory as IRepositoryFactory
+    participant Conn as IConnection
+    participant DocRepo as IDocumentRepository
+    participant LayerRepo as ILayerRepository
+    participant EntityRepo as IEntityRepository
+    participant ContentRepo as IContentRepository
+    participant ActiveRepo as IActiveDocumentRepository
 
-### Нормальный ход событий: Сохранение документа в БД
+        Entry->>ConnFactory: get_connection(db_type)
+        activate ConnFactory
+        ConnFactory->>Conn: connect(config)
+        ConnFactory-->>Entry: Result.success(connection)
+        deactivate ConnFactory
 
-```uml
-@startuml
+        Entry->>RepoFactory: get_document_repository(connection, schema, table_name)
+        activate RepoFactory
+        RepoFactory->>DocRepo: create repository
+        RepoFactory->>LayerRepo: create repository
+        RepoFactory->>EntityRepo: create repository
+        RepoFactory->>ContentRepo: create repository
+        RepoFactory-->>Entry: repositories created
+        deactivate RepoFactory
 
-participant "UseCase" as UseCase
-participant "IRepositoryFactory" as Factory
-participant "IDocumentRepository" as DocRepo
-participant "ILayerRepository" as LayerRepo
-participant "IEntityRepository" as EntityRepo
-participant "PostgreSQL" as DB
+        Entry->>RepoBase: shared create/update/remove contract
+        activate RepoBase
+        RepoBase-->>Entry: generic repository API
+        deactivate RepoBase
+        
 
--> UseCase: save(document)
-activate UseCase
+        Entry->>ActiveRepo: create(document)
+        activate ActiveRepo
+        ActiveRepo-->>Entry: Result.success(document)
+        deactivate ActiveRepo
 
-UseCase -> Factory: get_instance()
-activate Factory
-Factory --> UseCase: instance
-deactivate Factory
-
-UseCase -> DocRepo: save_document(document)
-activate DocRepo
-
-DocRepo -> DB: INSERT INTO files (id, filename)
-activate DB
-DB --> DocRepo: success
-deactivate DB
-
-loop для каждого слоя в документе
-  UseCase -> LayerRepo: save_layer(layer)
-  activate LayerRepo
-  
-  LayerRepo -> DB: INSERT INTO layers (id, layer_id, name)
-  DB --> LayerRepo: success
-  deactivate LayerRepo
-  
-  loop для каждого элемента в слое
-    UseCase -> EntityRepo: save_entity(entity)
-    activate EntityRepo
-    
-    EntityRepo -> DB: INSERT INTO entities (id, entity_id, geometry)
-    DB --> EntityRepo: success
-    deactivate EntityRepo
-  end
-end
-
-DocRepo --> UseCase: Result[Unit]
-deactivate DocRepo
-
-<-- UseCase: Result[Unit]
-deactivate UseCase
-
-@enduml
+        Entry->>Conn: commit()
+        Conn-->>Entry: Result.success(Unit)
 ```
 
-### Нормальный ход событий: Поиск документа по ID
+```mermaid
+sequenceDiagram
+    participant Entry as 
+    participant RepoBase as IRepository
+    participant ConnFactory as IConnectionFactory
+    participant RepoFactory as IRepositoryFactory
+    participant Conn as IConnection
+    participant DocRepo as IDocumentRepository
+    participant LayerRepo as ILayerRepository
+    participant EntityRepo as IEntityRepository
+    participant ContentRepo as IContentRepository
+    participant ActiveRepo as IActiveDocumentRepository
 
-```uml
-@startuml
+        Entry->>ActiveRepo: cancel_operation()
+        activate ActiveRepo
+        ActiveRepo->>DocRepo: cleanup_open_document(document_id)
+        ActiveRepo->>LayerRepo: cleanup_open_layers(document_id)
+        ActiveRepo->>EntityRepo: cleanup_open_entities(document_id)
+        ActiveRepo->>ContentRepo: cleanup_open_content(document_id)
+        ActiveRepo-->>Entry: operation cancelled
+        deactivate ActiveRepo
 
-participant "Service" as Service
-participant "IActiveDocumentRepository" as ActiveRepo
-participant "DXFDocument" as Document
-participant "In-Memory Cache" as Cache
-
--> Service: get_by_id(document_id)
-activate Service
-
-Service -> ActiveRepo: get_by_id(document_id)
-activate ActiveRepo
-
-ActiveRepo -> Cache: lookup(document_id)
-activate Cache
-
-alt found in cache
-  Cache --> ActiveRepo: DXFDocument
-  deactivate Cache
-  
-  ActiveRepo --> Service: Result[DXFDocument]
-  
-else not found
-  deactivate Cache
-  
-  ActiveRepo --> Service: Result[None]
-end
-
-deactivate ActiveRepo
-
-<-- Service: DXFDocument
-deactivate Service
-
-@enduml
+        Entry->>Conn: rollback()
+        Conn-->>Entry: Result.success(Unit)
 ```
 
-### Прерывание процесса пользователем: Отмена сохранения
+```mermaid
+sequenceDiagram
+    participant Entry as 
+    participant RepoBase as IRepository
+    participant ConnFactory as IConnectionFactory
+    participant RepoFactory as IRepositoryFactory
+    participant Conn as IConnection
+    participant DocRepo as IDocumentRepository
+    participant LayerRepo as ILayerRepository
+    participant EntityRepo as IEntityRepository
+    participant ContentRepo as IContentRepository
+    participant ActiveRepo as IActiveDocumentRepository
 
-```uml
-@startuml
 
-participant "UseCase" as UseCase
-participant "IRepositoryFactory" as Factory
-participant "IDocumentRepository" as DocRepo
-participant "ITransaction" as Transaction
-participant "DB" as DB
+        Entry->>RepoBase: generic repository contract
+        activate RepoBase
+        RepoBase-->>Entry: create/update/remove/get_by_id
+        deactivate RepoBase
 
--> UseCase: save(document)
-activate UseCase
+        Entry->>DocRepo: create(document)
+        activate DocRepo
+        DocRepo->>Conn: execute_query(INSERT document)
+        Conn-->>DocRepo: Result.fail
+        DocRepo-->>Entry: Result.fail(document)
+        deactivate DocRepo
 
-UseCase -> Factory: get_instance()
-Factory --> UseCase: instance
+        Entry->>LayerRepo: create(layer)
+        activate LayerRepo
+        LayerRepo->>Conn: execute_query(INSERT layer)
+        Conn-->>LayerRepo: Result.fail
+        LayerRepo-->>Entry: Result.fail(layer)
+        deactivate LayerRepo
 
-UseCase -> Transaction: begin()
-activate Transaction
-Transaction -> DB: BEGIN TRANSACTION
-Transaction --> UseCase: started
-deactivate Transaction
+        Entry->>EntityRepo: create(entity)
+        activate EntityRepo
+        EntityRepo->>Conn: execute_query(INSERT entity)
+        Conn--x EntityRepo: Result.fail(sql_error)
+        EntityRepo-->>Entry: Result.fail(sql_error)
+        deactivate EntityRepo
 
-UseCase -> DocRepo: save_document(document)
-activate DocRepo
-DocRepo -> DB: INSERT...
-DB --> DocRepo: success
-deactivate DocRepo
+        Entry->>ContentRepo: create(content)
+        activate ContentRepo
+        ContentRepo->>Conn: execute_query(INSERT content)
+        Conn-->>ContentRepo: Result.fail
+        ContentRepo-->>Entry: Result.fail(content)
+        deactivate ContentRepo
 
--> UseCase: cancel_save()
-activate UseCase
+        Entry->>ActiveRepo: create(document)
+        activate ActiveRepo
+        ActiveRepo-->>Entry: Result.fail(document)
+        deactivate ActiveRepo
 
-UseCase -> Transaction: rollback()
-activate Transaction
-Transaction -> DB: ROLLBACK
-DB --> Transaction: rolled back
-Transaction --> UseCase: success
-deactivate Transaction
-
-<-- UseCase: cancelled
-deactivate UseCase
-deactivate UseCase
-
-@enduml
+        Entry->>Conn: rollback()
+        Conn-->>Entry: Result.success(Unit)
 ```
 
-### Прерывание процесса системой: Ошибка подключения БД
+## 5.2.4.3. Уточненная диаграмма классов
 
-```uml
-@startuml
+Уточненная диаграмма показывает типы связей внутри пакета.
 
-participant "UseCase" as UseCase
-participant "IDocumentRepository" as DocRepo
-participant "IConnection" as Connection
-participant "DB" as DB
+```mermaid
+---
+config:
+    layout: elk
+---
+classDiagram
+    orientation LR
+    class IRepository
+    class IConnection
+    class IConnectionFactory
+    class IRepositoryFactory
+    class IDocumentRepository
+    class ILayerRepository
+    class IEntityRepository
+    class IContentRepository
+    class IActiveDocumentRepository
 
--> UseCase: save(document)
-activate UseCase
+    IRepository <|-- IDocumentRepository : наследует
+    IRepository <|-- ILayerRepository : наследует
+    IRepository <|-- IEntityRepository : наследует
+    IRepository <|-- IContentRepository : наследует
+    IRepository <|-- IActiveDocumentRepository : наследует
 
-UseCase -> DocRepo: save_document(document)
-activate DocRepo
-
-DocRepo -> Connection: execute_query(...)
-activate Connection
-
-Connection -> DB: send query
-DB --> Connection: Connection lost!
-
-Connection --> DocRepo: Exception: ConnectionError
-deactivate Connection
-
-DocRepo --> UseCase: Result[fail(error)]
-deactivate DocRepo
-
-<-- UseCase: Result[fail(error)]
-deactivate UseCase
-
-@enduml
+    IConnectionFactory "1" *-- "1" IConnection : создает
+    IRepositoryFactory "1" o-- "1" IConnection : использует
+    IRepositoryFactory "1" *-- "1" IDocumentRepository : создает
+    IRepositoryFactory "1" *-- "1" ILayerRepository : создает
+    IRepositoryFactory "1" *-- "1" IEntityRepository : создает
+    IRepositoryFactory "1" *-- "1" IContentRepository : создает
+    IActiveDocumentRepository "1" o-- "1" IRepository : использует
 ```
 
+## 5.2.4.4. Детальная диаграмма классов
+
+```mermaid
 ---
+config:
+    layout: elk
+---
+classDiagram
+    class IRepository {
+        +create(entity: T) Result~T~
+        +update(entity: T) Result~T~
+        +remove(id: UUID) Result~Unit~
+        +get_by_id(id: UUID) Result~Optional~T~~
+    }
 
-## Уточненная диаграмма классов (с типами связей)
+    class IConnection {
+        +db_type str
+        +is_connected bool
+        +connect(config: ConnectionConfig) Result~Unit~
+        +close() Result~Unit~
+        +commit() Result~Unit~
+        +rollback() Result~Unit~
+        +get_schemas() Result~list~str~~
+        +schema_exists(schema_name: str) Result~bool~
+        +create_schema(schema_name: str) Result~Unit~
+        +drop_schema(schema_name: str, cascade: bool) Result~Unit~
+        +get_tables(schema_name: str) Result~list~str~~
+    }
 
-```uml
-@startuml
+    class IConnectionFactory {
+        +register_connection(connection_class: Type~IConnection~) Result~Unit~
+        +get_supported_databases() list~str~
+        +get_connection(cls, db_type: str) Result~IConnection~
+    }
 
-interface IRepository {
-  + save(entity: T): Result[Unit]
-  + find_by_id(id: UUID): Result[Optional[T]]
-  + delete_by_id(id: UUID): Result[Unit]
-  + find_all(): Result[List[T]]
-}
+    class IRepositoryFactory {
+        +get_document_repository(connection: IConnection, schema: str, table_name: str) Result~IDocumentRepository~
+        +get_content_repository(connection: IConnection, schema: str, table_name: str) Result~IContentRepository~
+        +get_layer_repository(connection: IConnection, schema: str, table_name: str) Result~ILayerRepository~
+        +get_entity_repository(connection: IConnection, schema: str, table_name: str) Result~IEntityRepository~
+    }
 
-interface IDocumentRepository {
-  + save_document(doc: DXFDocument): Result[Unit]
-  + find_document(id: UUID): Result[Optional[DXFDocument]]
-  + update_document(doc: DXFDocument): Result[Unit]
-  + find_all_documents(): Result[List[DXFDocument]]
-  + delete_document(id: UUID): Result[Unit]
-  + find_by_filename(filename: str): Result[Optional[DXFDocument]]
-}
+    class IDocumentRepository {
+        +create(entity: DXFDocument) Result~DXFDocument~
+        +update(entity: DXFDocument) Result~DXFDocument~
+        +remove(id: UUID) Result~Unit~
+        +get_by_id(id: UUID) Result~DXFDocument | None~
+        +get_by_filename(filename: str) Result~DXFDocument | None~
+        +get_all() Result~list~DXFDocument~~
+        +count() Result~int~
+        +exists(filename: str) Result~bool~
+    }
 
-interface ILayerRepository {
-  + save_layer(layer: DXFLayer): Result[Unit]
-  + find_layer(id: UUID): Result[Optional[DXFLayer]]
-  + find_layers_by_document(doc_id: UUID): Result[List[DXFLayer]]
-  + delete_layer(layer_id: UUID): Result[Unit]
-}
+    class ILayerRepository {
+        +create(entity: DXFLayer) Result~DXFLayer~
+        +update(entity: DXFLayer) Result~DXFLayer~
+        +remove(id: UUID) Result~Unit~
+        +get_by_id(id: UUID) Result~DXFLayer | None~
+        +get_by_document_id_and_layer_name(document_id: UUID, layer_name: str) Result~DXFLayer | None~
+        +get_all_by_document_id(document_id: UUID) Result~list~DXFLayer~~
+        +get_all() Result~list~DXFLayer~~
+    }
 
-interface IEntityRepository {
-  + save_entity(entity: DXFEntity): Result[Unit]
-  + find_entity(id: UUID): Result[Optional[DXFEntity]]
-  + find_entities_by_layer(layer_id: UUID): Result[List[DXFEntity]]
-  + delete_entity(entity_id: UUID): Result[Unit]
-  + find_by_type(entity_type: DxfEntityType): Result[List[DXFEntity]]
-}
+    class IEntityRepository {
+        +create(entity: DXFEntity) Result~DXFEntity~
+        +update(entity: DXFEntity) Result~DXFEntity~
+        +remove(id: UUID) Result~Unit~
+        +get_by_id(id: UUID) Result~DXFEntity | None~
+        +get_by_name_and_type(name: str, type: DxfEntityType) Result~DXFEntity | None~
+        +get_all() list~DXFEntity~
+    }
 
-interface IContentRepository {
-  + save_content(content: DXFContent): Result[Unit]
-  + find_content(doc_id: UUID): Result[Optional[DXFContent]]
-  + delete_content(content_id: UUID): Result[Unit]
-}
+    class IContentRepository {
+        +create(entity: DXFContent) Result~DXFContent~
+        +update(entity: DXFContent) Result~DXFContent~
+        +remove(id: UUID) Result~Unit~
+        +get_by_id(id: UUID) Result~DXFContent | None~
+        +get_by_document_id(document_id: UUID) Result~DXFContent | None~
+    }
 
-interface IActiveDocumentRepository {
-  + get_all(): Result[List[DXFDocument]]
-  + get_by_id(id: UUID): Result[Optional[DXFBase]]
-  + get_by_filename(filename: str): Result[Optional[DXFDocument]]
-  + add_active_document(doc: DXFDocument): Result[Unit]
-  + remove_active_document(doc_id: UUID): Result[Unit]
-  + update_active_document(doc: DXFDocument): Result[Unit]
-}
+    class IActiveDocumentRepository {
+        +create(entity: DXFDocument) Result~DXFDocument~
+        +update(entity: DXFDocument) Result~DXFDocument~
+        +remove(id: UUID) Result~Unit~
+        +get_by_id(id: UUID) Result~DXFDocument | None~
+        +get_by_filename(filename: str) Result~DXFDocument | None~
+        +get_all() Result~list~DXFDocument~~
+        +count() Result~int~
+    }
 
-interface IConnection {
-  + open(): Result[Unit]
-  + close(): Result[Unit]
-  + is_connected(): bool
-  + execute_query(query: str, params: dict = None): Result[Any]
-  + begin_transaction(): Result[Unit]
-  + commit(): Result[Unit]
-  + rollback(): Result[Unit]
-}
+    IRepository <|-- IDocumentRepository : наследует
+    IRepository <|-- ILayerRepository : наследует
+    IRepository <|-- IEntityRepository : наследует
+    IRepository <|-- IContentRepository : наследует
+    IRepository <|-- IActiveDocumentRepository : наследует
 
-interface IConnectionFactory {
-  + create_connection(config: ConnectionConfig): Result[IConnection]
-}
-
-interface IRepositoryFactory {
-  + create_document_repository(): IDocumentRepository
-  + create_layer_repository(): ILayerRepository
-  + create_entity_repository(): IEntityRepository
-  + create_content_repository(): IContentRepository
-  + create_active_document_repository(): IActiveDocumentRepository
-}
-
-IRepository <|-- IDocumentRepository
-IRepository <|-- ILayerRepository
-IRepository <|-- IEntityRepository
-IRepository <|-- IContentRepository
-
-@enduml
+    IConnectionFactory "1" *-- "1" IConnection : создает
+    IRepositoryFactory "1" o-- "1" IConnection : использует
+    IRepositoryFactory "1" *-- "1" IDocumentRepository : создает
+    IRepositoryFactory "1" *-- "1" ILayerRepository : создает
+    IRepositoryFactory "1" *-- "1" IEntityRepository : создает
+    IRepositoryFactory "1" *-- "1" IContentRepository : создает
+    IActiveDocumentRepository "1" o-- "1" IRepository : использует
 ```
 
----
+## 5.2.4.5. Таблицы полей и методов
 
-## Детальная диаграмма классов (все поля и методы)
+Детальная диаграмма включает методы всех интерфейсов пакета `repositories`.
 
-```uml
-@startuml
+### Интерфейс IRepository
 
-interface IRepository #CCCCCC {
-  {abstract} + save(entity: T): Result[Unit]
-  {abstract} + find_by_id(id: UUID): Result[Optional[T]]
-  {abstract} + delete_by_id(id: UUID): Result[Unit]
-  {abstract} + find_all(): Result[List[T]]
-}
-
-interface IDocumentRepository #CCCCCC {
-  {abstract} + save_document(doc: DXFDocument): Result[Unit]
-  {abstract} + find_document(id: UUID): Result[Optional[DXFDocument]]
-  {abstract} + update_document(doc: DXFDocument): Result[Unit]
-  {abstract} + find_all_documents(): Result[List[DXFDocument]]
-  {abstract} + delete_document(id: UUID): Result[Unit]
-  {abstract} + find_by_filename(filename: str): Result[Optional[DXFDocument]]
-  {abstract} + count_documents(): Result[int]
-}
-
-interface ILayerRepository #CCCCCC {
-  {abstract} + save_layer(layer: DXFLayer): Result[Unit]
-  {abstract} + find_layer(id: UUID): Result[Optional[DXFLayer]]
-  {abstract} + find_layers_by_document(doc_id: UUID): Result[List[DXFLayer]]
-  {abstract} + delete_layer(layer_id: UUID): Result[Unit]
-  {abstract} + count_layers(doc_id: UUID): Result[int]
-}
-
-interface IEntityRepository #CCCCCC {
-  {abstract} + save_entity(entity: DXFEntity): Result[Unit]
-  {abstract} + find_entity(id: UUID): Result[Optional[DXFEntity]]
-  {abstract} + find_entities_by_layer(layer_id: UUID): Result[List[DXFEntity]]
-  {abstract} + delete_entity(entity_id: UUID): Result[Unit]
-  {abstract} + find_by_type(entity_type: DxfEntityType): Result[List[DXFEntity]]
-  {abstract} + count_entities(layer_id: UUID): Result[int]
-}
-
-interface IContentRepository #CCCCCC {
-  {abstract} + save_content(content: DXFContent): Result[Unit]
-  {abstract} + find_content(doc_id: UUID): Result[Optional[DXFContent]]
-  {abstract} + delete_content(content_id: UUID): Result[Unit]
-}
-
-interface IActiveDocumentRepository #CCCCCC {
-  {abstract} + get_all(): Result[List[DXFDocument]]
-  {abstract} + get_by_id(id: UUID): Result[Optional[DXFBase]]
-  {abstract} + get_by_filename(filename: str): Result[Optional[DXFDocument]]
-  {abstract} + add_active_document(doc: DXFDocument): Result[Unit]
-  {abstract} + remove_active_document(doc_id: UUID): Result[Unit]
-  {abstract} + update_active_document(doc: DXFDocument): Result[Unit]
-  {abstract} + clear_all(): Result[Unit]
-}
-
-interface IConnection #CCCCCC {
-  {abstract} + open(): Result[Unit]
-  {abstract} + close(): Result[Unit]
-  {abstract} + is_connected(): bool
-  {abstract} + execute_query(query: str, params: dict = None): Result[Any]
-  {abstract} + begin_transaction(): Result[Unit]
-  {abstract} + commit(): Result[Unit]
-  {abstract} + rollback(): Result[Unit]
-}
-
-interface IConnectionFactory #CCCCCC {
-  {abstract} + create_connection(config: ConnectionConfig): Result[IConnection]
-}
-
-interface IRepositoryFactory #CCCCCC {
-  {abstract} + create_document_repository(): IDocumentRepository
-  {abstract} + create_layer_repository(): ILayerRepository
-  {abstract} + create_entity_repository(): IEntityRepository
-  {abstract} + create_content_repository(): IContentRepository
-  {abstract} + create_active_document_repository(): IActiveDocumentRepository
-}
-
-IRepository <|-- IDocumentRepository
-IRepository <|-- ILayerRepository
-IRepository <|-- IEntityRepository
-IRepository <|-- IContentRepository
-
-@enduml
-```
-
----
-
-## Описание методов интерфейса «IRepository»
+#### Описание методов интерфейса
 
 | Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| **save** | entity: T | Result[Unit] | Сохраняет или обновляет сущность в хранилище |
-| **find_by_id** | id: UUID | Result[Optional[T]] | Находит сущность по уникальному идентификатору |
-| **delete_by_id** | id: UUID | Result[Unit] | Удаляет сущность по UUID |
-| **find_all** | - | Result[List[T]] | Получает все сущности из хранилища |
+|---|---|---|---|
+| create | `entity: T` | `Result[T]` | Создает сущность |
+| update | `entity: T` | `Result[T]` | Обновляет сущность |
+| remove | `id: UUID` | `Result[Unit]` | Удаляет сущность |
+| get_by_id | `id: UUID` | `Result[Optional[T]]` | Получает сущность по идентификатору |
 
----
+### Интерфейс IConnection
 
-## Описание методов интерфейса «IDocumentRepository»
-
-| Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| **save_document** | doc: DXFDocument | Result[Unit] | Сохраняет документ в таблицу files БД |
-| **find_document** | id: UUID | Result[Optional[DXFDocument]] | Находит документ по UUID |
-| **update_document** | doc: DXFDocument | Result[Unit] | Обновляет существующий документ |
-| **find_all_documents** | - | Result[List[DXFDocument]] | Получает все документы из БД |
-| **delete_document** | id: UUID | Result[Unit] | Удаляет документ из БД |
-| **find_by_filename** | filename: str | Result[Optional[DXFDocument]] | Находит документ по имени файла |
-| **count_documents** | - | Result[int] | Возвращает количество документов |
-
----
-
-## Описание методов интерфейса «ILayerRepository»
+#### Описание методов интерфейса
 
 | Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| **save_layer** | layer: DXFLayer | Result[Unit] | Сохраняет слой в таблицу layers БД |
-| **find_layer** | id: UUID | Result[Optional[DXFLayer]] | Находит слой по UUID |
-| **find_layers_by_document** | doc_id: UUID | Result[List[DXFLayer]] | Получает все слои документа |
-| **delete_layer** | layer_id: UUID | Result[Unit] | Удаляет слой из БД |
-| **count_layers** | doc_id: UUID | Result[int] | Возвращает количество слоев в документе |
+|---|---|---|---|
+| db_type | - | `str` | Возвращает тип БД |
+| is_connected | - | `bool` | Проверяет активность соединения |
+| connect | `config: ConnectionConfig` | `Result[Unit]` | Устанавливает соединение |
+| close | - | `Result[Unit]` | Закрывает соединение |
+| commit | - | `Result[Unit]` | Подтверждает транзакцию |
+| rollback | - | `Result[Unit]` | Откатывает транзакцию |
+| get_schemas | - | `Result[list[str]]` | Возвращает список схем |
+| schema_exists | `schema_name: str` | `Result[bool]` | Проверяет существование схемы |
+| create_schema | `schema_name: str` | `Result[Unit]` | Создает схему |
+| drop_schema | `schema_name: str`, `cascade: bool = False` | `Result[Unit]` | Удаляет схему |
+| get_tables | `schema_name: str` | `Result[list[str]]` | Возвращает список таблиц в схеме |
 
----
+### Интерфейс IConnectionFactory
 
-## Описание методов интерфейса «IEntityRepository»
-
-| Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| **save_entity** | entity: DXFEntity | Result[Unit] | Сохраняет элемент в таблицу entities БД |
-| **find_entity** | id: UUID | Result[Optional[DXFEntity]] | Находит элемент по UUID |
-| **find_entities_by_layer** | layer_id: UUID | Result[List[DXFEntity]] | Получает все элементы слоя |
-| **delete_entity** | entity_id: UUID | Result[Unit] | Удаляет элемент из БД |
-| **find_by_type** | entity_type: DxfEntityType | Result[List[DXFEntity]] | Находит элементы по типу |
-| **count_entities** | layer_id: UUID | Result[int] | Возвращает количество элементов в слое |
-
----
-
-## Описание методов интерфейса «IActiveDocumentRepository»
+#### Описание методов интерфейса
 
 | Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| **get_all** | - | Result[List[DXFDocument]] | Получает все активные документы (из памяти) |
-| **get_by_id** | id: UUID | Result[Optional[DXFBase]] | Получает сущность из активных документов |
-| **get_by_filename** | filename: str | Result[Optional[DXFDocument]] | Находит активный документ по имени файла |
-| **add_active_document** | doc: DXFDocument | Result[Unit] | Добавляет документ в активные |
-| **remove_active_document** | doc_id: UUID | Result[Unit] | Удаляет документ из активных |
-| **update_active_document** | doc: DXFDocument | Result[Unit] | Обновляет активный документ |
-| **clear_all** | - | Result[Unit] | Очищает все активные документы |
+|---|---|---|---|
+| register_connection | `connection_class: Type[IConnection]` | `Result[Unit]` | Регистрирует класс соединения |
+| get_supported_databases | - | `list[str]` | Возвращает список поддерживаемых БД |
+| get_connection | `cls, db_type: str` | `Result[IConnection]` | Создает соединение по типу БД |
 
----
+### Интерфейс IRepositoryFactory
 
-## Описание методов интерфейса «IConnectionFactory»
+#### Описание методов интерфейса
 
 | Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| **create_connection** | config: ConnectionConfig | Result[IConnection] | Создает новое соединение с БД по конфигу |
+|---|---|---|---|
+| get_document_repository | `connection: IConnection`, `schema: str = "file_schema"`, `table_name: str = "files"` | `Result[IDocumentRepository]` | Создает репозиторий документов |
+| get_content_repository | `connection: IConnection`, `schema: str = "file_schema"`, `table_name: str = "content"` | `Result[IContentRepository]` | Создает репозиторий контента |
+| get_layer_repository | `connection: IConnection`, `schema: str = "file_schema"`, `table_name: str = "layers"` | `Result[ILayerRepository]` | Создает репозиторий слоев |
+| get_entity_repository | `connection: IConnection`, `schema: str = "layer_schema"`, `table_name: str = "layer_name"` | `Result[IEntityRepository]` | Создает репозиторий сущностей |
 
----
+### Интерфейс IDocumentRepository
 
-## Описание методов интерфейса «IRepositoryFactory»
+#### Описание методов интерфейса
 
 | Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| **create_document_repository** | - | IDocumentRepository | Создает репозиторий документов |
-| **create_layer_repository** | - | ILayerRepository | Создает репозиторий слоев |
-| **create_entity_repository** | - | IEntityRepository | Создает репозиторий элементов |
-| **create_content_repository** | - | IContentRepository | Создает репозиторий содержимого |
-| **create_active_document_repository** | - | IActiveDocumentRepository | Создает репозиторий активных документов |
+|---|---|---|---|
+| create | `entity: DXFDocument` | `Result[DXFDocument]` | Сохраняет документ |
+| update | `entity: DXFDocument` | `Result[DXFDocument]` | Обновляет документ |
+| remove | `id: UUID` | `Result[Unit]` | Удаляет документ |
+| get_by_id | `id: UUID` | `Result[DXFDocument \| None]` | Получает документ по идентификатору |
+| get_by_filename | `filename: str` | `Result[DXFDocument \| None]` | Получает документ по имени файла |
+| get_all | - | `Result[list[DXFDocument]]` | Возвращает все документы |
+| count | - | `Result[int]` | Возвращает количество документов |
+| exists | `filename: str` | `Result[bool]` | Проверяет наличие документа |
 
----
+### Интерфейс ILayerRepository
 
-## Заключение
+#### Описание методов интерфейса
 
-Пакет **repositories** определяет контракты для всех операций с данными через систему интерфейсов. Использование Factory паттернов позволяет создавать конкретные реализации для PostgreSQL/PostGIS в слое Infrastructure без нарушения Domain-driven Design. IActiveDocumentRepository управляет документами в памяти, обеспечивая быстрый доступ к открытым файлам.
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| create | `entity: DXFLayer` | `Result[DXFLayer]` | Сохраняет слой |
+| update | `entity: DXFLayer` | `Result[DXFLayer]` | Обновляет слой |
+| remove | `id: UUID` | `Result[Unit]` | Удаляет слой |
+| get_by_id | `id: UUID` | `Result[DXFLayer \| None]` | Получает слой по идентификатору |
+| get_by_document_id_and_layer_name | `document_id: UUID`, `layer_name: str` | `Result[DXFLayer \| None]` | Получает слой по документу и имени |
+| get_all_by_document_id | `document_id: UUID` | `Result[list[DXFLayer]]` | Возвращает слои документа |
+| get_all | - | `Result[list[DXFLayer]]` | Возвращает все слои |
+
+### Интерфейс IEntityRepository
+
+#### Описание методов интерфейса
+
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| create | `entity: DXFEntity` | `Result[DXFEntity]` | Сохраняет сущность |
+| update | `entity: DXFEntity` | `Result[DXFEntity]` | Обновляет сущность |
+| remove | `id: UUID` | `Result[Unit]` | Удаляет сущность |
+| get_by_id | `id: UUID` | `Result[DXFEntity \| None]` | Получает сущность по идентификатору |
+| get_by_name_and_type | `name: str`, `type: DxfEntityType` | `Result[DXFEntity \| None]` | Получает сущность по имени и типу |
+| get_all | - | `list[DXFEntity]` | Возвращает все сущности |
+
+### Интерфейс IContentRepository
+
+#### Описание методов интерфейса
+
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| create | `entity: DXFContent` | `Result[DXFContent]` | Сохраняет содержимое |
+| update | `entity: DXFContent` | `Result[DXFContent]` | Обновляет содержимое |
+| remove | `id: UUID` | `Result[Unit]` | Удаляет содержимое |
+| get_by_id | `id: UUID` | `Result[DXFContent \| None]` | Получает содержимое по идентификатору |
+| get_by_document_id | `document_id: UUID` | `Result[DXFContent \| None]` | Получает содержимое по документу |
+
+### Интерфейс IActiveDocumentRepository
+
+#### Описание методов интерфейса
+
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| create | `entity: DXFDocument` | `Result[DXFDocument]` | Добавляет активный документ |
+| update | `entity: DXFDocument` | `Result[DXFDocument]` | Обновляет активный документ |
+| remove | `id: UUID` | `Result[Unit]` | Удаляет активный документ |
+| get_by_id | `id: UUID` | `Result[DXFDocument \| None]` | Получает активный документ по идентификатору |
+| get_by_filename | `filename: str` | `Result[DXFDocument \| None]` | Получает активный документ по имени файла |
+| get_all | - | `Result[list[DXFDocument]]` | Возвращает все активные документы |
+| count | - | `Result[int]` | Возвращает количество активных документов |

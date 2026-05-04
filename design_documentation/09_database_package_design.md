@@ -1,684 +1,656 @@
-# Проектирование пакета database
+# 5.2.9. Проектирование классов пакета «database»
 
-**Пакет**: `infrastructure/database`
+Пакет «database» реализует инфраструктурный слой хранения DXF-данных в PostgreSQL/PostGIS и in-memory хранилище активных документов.
 
-**Назначение**: Реализация работы с PostgreSQL и PostGIS для сохранения и извлечения геопространственных данных DXF. Содержит конкретные реализации интерфейсов доступа к данным из domain слоя.
+## 5.2.9.1. Исходная диаграмма классов
 
-**Расположение**: `src/infrastructure/database/`
+Исходная диаграмма содержит только классы пакета `infrastructure/database` и `infrastructure/database/postgis`. Параметры классов не отображаются.
 
+```mermaid
 ---
+config:
+    layout: elk
+---
+graph LR
+    ActiveDocumentRepository
+    ConnectionFactory
+    RepositoryFactory
+    PostGISConnection
+    PostGISDocumentRepository
+    PostGISLayerRepository
+    PostGISEntityRepository
+    PostGISContentRepository
+    PostGISEntityConverter
 
-## 1. Исходная диаграмма классов (внутренние отношения)
+    ConnectionFactory -.-> |"создает"| PostGISConnection 
+    RepositoryFactory -.-> |"создает"| PostGISDocumentRepository
+    RepositoryFactory -.-> |"создает"| PostGISLayerRepository
+    RepositoryFactory -.-> |"создает"| PostGISEntityRepository
+    RepositoryFactory -.-> |"создает"| PostGISContentRepository
 
-```plantuml
-@startuml infrastructure_database_original
-
-package "infrastructure.database" {
-    
-    class PostgreSQLConnection {
-        - connection: psycopg2.connection
-        - config: ConnectionConfigDTO
-        - is_connected: bool
-        - logger: ILogger
-        --
-        + connect(): bool
-        + disconnect(): bool
-        + execute_query(sql: str, params: tuple): list
-        + execute_update(sql: str, params: tuple): int
-        + begin_transaction()
-        + commit()
-        + rollback()
-        + get_connection(): psycopg2.connection
-    }
-    
-    class DocumentRepository {
-        - connection: IConnection
-        - logger: ILogger
-        --
-        + get_document(doc_id: int): DXFDocument | None
-        + find_all_documents(): list[DXFDocument]
-        + save_document(document: DXFDocument): int
-        + update_document(document: DXFDocument)
-        + delete_document(doc_id: int)
-    }
-    
-    class LayerRepository {
-        - connection: IConnection
-        - logger: ILogger
-        --
-        + get_layer(layer_id: int): DXFLayer | None
-        + find_layers_by_document(doc_id: int): list[DXFLayer]
-        + save_layer(layer: DXFLayer): int
-        + update_layer(layer: DXFLayer)
-        + delete_layer(layer_id: int)
-    }
-    
-    class EntityRepository {
-        - connection: IConnection
-        - logger: ILogger
-        --
-        + get_entity(entity_id: int): DXFEntity | None
-        + find_entities_by_layer(layer_id: int): list[DXFEntity]
-        + save_entity(entity: DXFEntity): int
-        + save_entities(entities: list[DXFEntity])
-        + update_entity(entity: DXFEntity)
-        + delete_entity(entity_id: int)
-    }
-    
-    class RepositoryFactory {
-        - connection: IConnection
-        --
-        + create_document_repository(): IDocumentRepository
-        + create_layer_repository(): ILayerRepository
-        + create_entity_repository(): IEntityRepository
-        + create_content_repository(): IContentRepository
-    }
-    
-    PostgreSQLConnection --|> IConnection
-    DocumentRepository --|> IDocumentRepository
-    LayerRepository --|> ILayerRepository
-    EntityRepository --|> IEntityRepository
-    
-    DocumentRepository --> PostgreSQLConnection: uses
-    LayerRepository --> PostgreSQLConnection: uses
-    EntityRepository --> PostgreSQLConnection: uses
-}
-
-package "domain.repositories" {
-    interface IConnection
-    interface IDocumentRepository
-    interface ILayerRepository
-    interface IEntityRepository
-}
-
-@enduml
+    PostGISDocumentRepository -->|"использует"| PostGISConnection
+    PostGISLayerRepository --> |"использует"|PostGISConnection
+    PostGISEntityRepository --> |"использует"|PostGISConnection
+    PostGISContentRepository -->|"использует"| PostGISConnection
+    PostGISEntityRepository -.-> |"создает"| PostGISEntityConverter 
 ```
 
----
+### Таблица 1. Описание классов пакета «database»
 
-## 2. Таблица описания классов
+| Класс | Описание |
+|---|---|
+| ActiveDocumentRepository | Репозиторий активных документов в памяти |
+| ConnectionFactory | Фабрика соединений с БД |
+| RepositoryFactory | Фабрика инфраструктурных репозиториев |
+| PostGISConnection | Подключение и SQL-операции PostgreSQL/PostGIS |
+| PostGISDocumentRepository | CRUD документов DXF |
+| PostGISLayerRepository | CRUD слоев DXF |
+| PostGISEntityRepository | CRUD сущностей DXF в таблице слоя |
+| PostGISContentRepository | CRUD бинарного контента DXF |
+| PostGISEntityConverter | Конвертация DXFEntity в PostGIS-представление |
 
-| Класс | Назначение | Тип |
-|-------|-----------|-----|
-| **PostgreSQLConnection** | Управление подключением к PostgreSQL базе данных для работы с геопространственными данными | Connection |
-| **DocumentRepository** | Реализация операций CRUD с документами DXF в БД | Repository |
-| **LayerRepository** | Реализация операций CRUD со слоями DXF в БД | Repository |
-| **EntityRepository** | Реализация операций CRUD с сущностями DXF в БД | Repository |
-| **RepositoryFactory** | Factory для создания репозиториев с единым подключением | Factory |
+## 5.2.9.2. Диаграмма последовательностей взаимодействия объектов классов
 
----
+На одной диаграмме показано взаимодействие всех классов пакета. Первый блок намеренно без названия и играет роль общего инициатора сценариев. Внешние сущности не используются.
 
-## 3. Диаграммы последовательности
+```mermaid
+sequenceDiagram
+    participant Entry as ""
+    participant ConnFactory as ConnectionFactory
+    participant RepoFactory as RepositoryFactory
+    participant ActiveRepo as ActiveDocumentRepository
+    participant Conn as PostGISConnection
+    participant DocRepo as PostGISDocumentRepository
+    participant LayerRepo as PostGISLayerRepository
+    participant EntityRepo as PostGISEntityRepository
+    participant ContentRepo as PostGISContentRepository
+    participant Converter as PostGISEntityConverter
 
-### 3.1 Нормальный ход: Сохранение документа с иерархией слоев и сущностей
+    alt Нормальный сценарий
+        Entry->>ConnFactory: Сценарий: нормальный ход
+        activate ConnFactory
+        ConnFactory->>Conn: get_connection()
+        ConnFactory-->>Entry: Result.success(connection)
+        deactivate ConnFactory
 
-```plantuml
-@startuml database_normal_flow
+        Entry->>RepoFactory: Сценарий: нормальный ход
+        activate RepoFactory
+        RepoFactory->>DocRepo: get_document_repository(...)
+        RepoFactory->>LayerRepo: get_layer_repository(...)
+        RepoFactory->>EntityRepo: get_entity_repository(...)
+        RepoFactory->>ContentRepo: get_content_repository(...)
+        RepoFactory-->>Entry: repositories created
+        deactivate RepoFactory
 
-participant "SaveDocumentUseCase" as UseCase
-participant "DocumentRepository" as DocRepo
-participant "LayerRepository" as LayerRepo
-participant "EntityRepository" as EntityRepo
-participant "PostgreSQLConnection" as Connection
-database "PostgreSQL" as DB
+        Entry->>Conn: connect(config)
+        activate Conn
+        Conn-->>Entry: Result.success(Unit)
 
-UseCase -> DocRepo: save_document(document: DXFDocument)
-activate DocRepo
+        Entry->>DocRepo: create(document)
+        activate DocRepo
+        DocRepo->>Conn: execute_query(INSERT document)
+        Conn-->>DocRepo: Result.success
+        DocRepo-->>Entry: Result.success(document)
+        deactivate DocRepo
 
-DocRepo -> Connection: begin_transaction()
-activate Connection
-Connection -> DB: BEGIN TRANSACTION
-return void
+        Entry->>LayerRepo: create(layer)
+        activate LayerRepo
+        LayerRepo->>Conn: execute_query(INSERT layer)
+        Conn-->>LayerRepo: Result.success
+        LayerRepo-->>Entry: Result.success(layer)
+        deactivate LayerRepo
 
-DocRepo -> Connection: execute_update(INSERT documents...)
-activate Connection
-Connection -> DB: INSERT INTO documents VALUES(...)
-DB -> DB: return doc_id
-return doc_id
+        Entry->>EntityRepo: create(entity)
+        activate EntityRepo
+        Entry->>Converter: Сценарий: нормальный ход
+        activate Converter
+        Converter-->>Entry: converter ready
+        deactivate Converter
+        EntityRepo->>Converter: to_db(entity)
+        activate Converter
+        Converter-->>EntityRepo: geometry + extra_data
+        deactivate Converter
+        EntityRepo->>Conn: execute_query(INSERT entity)
+        Conn-->>EntityRepo: Result.success
+        EntityRepo-->>Entry: Result.success(entity)
+        deactivate EntityRepo
 
-DocRepo -> DocRepo: document_id = 123
+        Entry->>ContentRepo: create(content)
+        activate ContentRepo
+        ContentRepo->>Conn: execute_query(INSERT content)
+        Conn-->>ContentRepo: Result.success
+        ContentRepo-->>Entry: Result.success(content)
+        deactivate ContentRepo
 
-loop Сохранение слоев
-    LayerRepo -> Connection: execute_update(INSERT layers...)
-    activate Connection
-    Connection -> DB: INSERT INTO layers VALUES(doc_id=123, ...)
-    return layer_id
-    
-    loop Сохранение сущностей в слое
-        EntityRepo -> Connection: execute_update(INSERT entities...)
-        activate Connection
-        Connection -> DB: INSERT INTO entities VALUES(layer_id=..., ...)
-        return entity_id
-    end
-end
+        Entry->>ActiveRepo: create(document)
+        activate ActiveRepo
+        ActiveRepo-->>Entry: Result.success(document)
+        deactivate ActiveRepo
 
-DocRepo -> Connection: commit()
-activate Connection
-Connection -> DB: COMMIT
-return void
-
-deactivate DocRepo
-return document_id=123
-
-@enduml
-```
-
-### 3.2 Альтернативный нормальный ход: Загрузка документа с восстановлением иерархии
-
-```plantuml
-@startuml database_alt_normal_flow
-
-participant "OpenDocumentUseCase" as UseCase
-participant "DocumentRepository" as DocRepo
-participant "LayerRepository" as LayerRepo
-participant "EntityRepository" as EntityRepo
-participant "PostgreSQLConnection" as Connection
-database "PostgreSQL" as DB
-
-UseCase -> DocRepo: get_document(doc_id: 123)
-activate DocRepo
-
-DocRepo -> Connection: execute_query(SELECT * FROM documents WHERE id=123)
-activate Connection
-Connection -> DB: SELECT query
-DB -> Connection: row={'id': 123, 'name': 'Project1', ...}
-return [row]
-
-DocRepo -> DocRepo: document = DXFDocument(row)
-
-LayerRepo -> Connection: execute_query(SELECT * FROM layers WHERE doc_id=123)
-activate Connection
-Connection -> DB: SELECT with WHERE clause
-DB -> Connection: [layer1_row, layer2_row, ...]
-return rows
-
-LayerRepo -> LayerRepo: layers = [DXFLayer(r) for r in rows]
-
-loop Загрузка сущностей для каждого слоя
-    EntityRepo -> Connection: execute_query(SELECT * FROM entities WHERE layer_id=...)
-    activate Connection
-    Connection -> DB: SELECT entities
-    return entities_rows
-    
-    EntityRepo -> EntityRepo: entities = [DXFEntity(r) for r in rows]
-    LayerRepo -> LayerRepo: layer.entities = entities
-end
-
-DocRepo -> DocRepo: document.layers = layers
-deactivate DocRepo
-
-return DXFDocument{id:123, layers:[...]}
-
-@enduml
-```
-
-### 3.3 Сценарий прерывания пользователем: Откат транзакции при ошибке
-
-```plantuml
-@startuml database_user_interruption
-
-participant "ImportUseCase" as UseCase
-participant "EntityRepository" as Repo
-participant "Connection" as Conn
-database "PostgreSQL" as DB
-
-Conn -> DB: BEGIN TRANSACTION
-
-loop Импорт сущностей
-    UseCase -> Repo: save_entity(entity)
-    activate Repo
-    
-    Repo -> Conn: execute_update(INSERT entity...)
-    activate Conn
-    
-    alt Данные валидны
-        Conn -> DB: INSERT INTO entities...
-        return success
-    else Нарушение UNIQUE constraint
-        Conn -> DB: INSERT (нарушение)
-        DB -x Conn: UNIQUE constraint violation
+        Entry->>Conn: commit()
+        Conn-->>Entry: Result.success(Unit)
         deactivate Conn
-        deactivate Repo
-        UseCase -> UseCase: User cancels import
-        break
+
+    else Системное прерывание
+        Entry->>DocRepo: Сценарий: прерывание системой
+        activate DocRepo
+        DocRepo->>Conn: execute_query(INSERT document)
+        activate Conn
+        Conn--xDocRepo: Result.fail(sql_error)
+        deactivate Conn
+        DocRepo-->>Entry: Result.fail(sql_error)
+        deactivate DocRepo
+
+        Entry->>Conn: rollback()
+        activate Conn
+        Conn-->>Entry: Result.success(Unit)
+        deactivate Conn
+    else Прерывание пользователем
+        Entry->>ActiveRepo: Сценарий: прерывание пользователем
+        activate ActiveRepo
+        ActiveRepo-->>Entry: В пакете database явной user-cancel логики нет
+        deactivate ActiveRepo
     end
-end
-
-UseCase -> Conn: rollback()
-activate Conn
-Conn -> DB: ROLLBACK
-DB -> DB: все изменения отменены
-return void
-
-@enduml
 ```
 
-### 3.4 Сценарий системного прерывания: Потеря соединения с БД
+```mermaid
 
-```plantuml
-@startuml database_system_interruption
+sequenceDiagram
+    participant Entry as ""
+    participant ConnFactory as ConnectionFactory
+    participant RepoFactory as RepositoryFactory
+    participant ActiveRepo as ActiveDocumentRepository
+    participant Conn as PostGISConnection
+    participant DocRepo as PostGISDocumentRepository
+    participant LayerRepo as PostGISLayerRepository
+    participant EntityRepo as PostGISEntityRepository
+    participant ContentRepo as PostGISContentRepository
+    participant Converter as PostGISEntityConverter
 
-participant "DocumentRepository" as Repo
-participant "Connection" as Conn
-participant "Logger" as Log
-database "PostgreSQL" as DB
+        Entry->>ConnFactory: get_connection()
+        activate ConnFactory
+        ConnFactory->>Conn: get_connection()
+        ConnFactory-->>Entry: Result.success(connection)
+        deactivate ConnFactory
 
-Repo -> Conn: execute_query(SELECT ...)
-activate Conn
+        Entry->>Conn: connect(config)
+        activate Conn
+        Conn-->>Entry: Result.success(Unit)
 
-Conn -> DB: network request
-DB -> DB: server processing...
+        Entry->>DocRepo: create(document)
+        activate DocRepo
+        DocRepo->>Conn: execute_query(INSERT document)
+        Conn-->>DocRepo: Result.success
+        DocRepo-->>Entry: Result.success(document)
+        deactivate DocRepo
 
-alt Сервер БД недоступен
-    DB -x Conn: Connection timeout
-    Conn -> Conn: except psycopg2.OperationalError
-    Conn -> Log: logger.error("DB connection lost")
-    Conn -> Conn: is_connected = False
-    Conn -x Repo: raise RepositoryException
-else Успешно
-    DB -> Conn: return data
-    return [rows]
-end
+        Entry->>LayerRepo: create(layer)
+        activate LayerRepo
+        LayerRepo->>Conn: execute_query(INSERT layer)
+        Conn-->>LayerRepo: Result.success
+        LayerRepo-->>Entry: Result.success(layer)
+        deactivate LayerRepo
 
-deactivate Conn
+        Entry->>EntityRepo: create(entity)
+        activate EntityRepo
+        Entry->>Converter: get_converter()
+        activate Converter
+        Converter-->>Entry: converter ready
+        deactivate Converter
+        EntityRepo->>Converter: to_db(entity)
+        activate Converter
+        Converter-->>EntityRepo: geometry + extra_data
+        deactivate Converter
+        EntityRepo->>Conn: execute_query(INSERT entity)
+        Conn-->>EntityRepo: Result.success
+        EntityRepo-->>Entry: Result.success(entity)
+        deactivate EntityRepo
 
-@enduml
+        Entry->>ContentRepo: create(content)
+        activate ContentRepo
+        ContentRepo->>Conn: execute_query(INSERT content)
+        Conn-->>ContentRepo: Result.success
+        ContentRepo-->>Entry: Result.success(content)
+        deactivate ContentRepo
+
+        Entry->>ActiveRepo: create(document)
+        activate ActiveRepo
+        ActiveRepo-->>Entry: Result.success(document)
+        deactivate ActiveRepo
+
+        Entry->>Conn: commit()
+        Conn-->>Entry: Result.success(Unit)
+        deactivate Conn    
+
 ```
+В ветке пользовательского прерывания показано, что явная отмена на уровне класса инфраструктуры отсутствует и управляется верхними слоями.
 
+## 5.2.9.3. Уточненная диаграмма классов
+
+Уточненная диаграмма показывает типы связей внутри пакета (агрегация/композиция/создание).
+
+```mermaid
 ---
+config:
+    layout: elk
+---
+classDiagram
+    orientation LR
+    class ActiveDocumentRepository
+    class ConnectionFactory
+    class RepositoryFactory
+    class PostGISConnection
+    class PostGISDocumentRepository
+    class PostGISLayerRepository
+    class PostGISEntityRepository
+    class PostGISContentRepository
+    class PostGISEntityConverter
 
-## 4. Уточненная диаграмма классов (с типами связей)
+    RepositoryFactory o-- PostGISDocumentRepository :  создает
+    RepositoryFactory o-- PostGISLayerRepository : создает
+    RepositoryFactory o-- PostGISEntityRepository : создает
+    RepositoryFactory o-- PostGISContentRepository : создает
 
-```plantuml
-@startuml infrastructure_database_refined
+    PostGISDocumentRepository o-- PostGISConnection : использует
+    PostGISLayerRepository o-- PostGISConnection : использует
+    PostGISEntityRepository o-- PostGISConnection : использует
+    PostGISContentRepository o-- PostGISConnection : использует
 
-package "infrastructure.database" {
-    class PostgreSQLConnection {
-        - connection
-        - config
-        - is_connected
-        + connect(): bool
-        + execute_query(): list
-        + execute_update(): int
-        + commit()
-        + rollback()
+    PostGISEntityRepository *-- PostGISEntityConverter : создает
+
+    ConnectionFactory o-- PostGISConnection : создает
+
+```
+
+## 5.2.9.4. Детальная диаграмма классов
+
+Детальная диаграмма включает поля и методы только классов пакета `database`.
+
+```mermaid
+---
+config:
+    layout: elk
+---
+classDiagram
+    class ActiveDocumentRepository {
+        -_documents: List[DXFDocument]
+        +create(entity) Result
+        +update(entity) Result
+        +remove(id) Result
+        +get_by_id(id) Result
+        +get_by_filename(filename) Result
+        +get_all() Result
+        +count() Result
     }
-    
-    class DocumentRepository {
-        - connection: IConnection
-        + save_document(doc: DXFDocument): int
-        + get_document(id: int): DXFDocument | None
-        + find_all_documents(): list[DXFDocument]
-        + update_document(doc: DXFDocument)
-        + delete_document(id: int)
+
+    class ConnectionFactory {
+        -_available_connections: dict
+        +register_connection(connection_class) Result
+        +get_supported_databases() list
+        +get_connection(db_type) Result
     }
-    
-    class LayerRepository {
-        - connection: IConnection
-        + save_layer(layer: DXFLayer): int
-        + get_layer(id: int): DXFLayer | None
-        + find_layers_by_document(doc_id: int): list[DXFLayer]
-        + update_layer(layer: DXFLayer)
-        + delete_layer(id: int)
-    }
-    
-    class EntityRepository {
-        - connection: IConnection
-        + save_entity(entity: DXFEntity): int
-        + save_entities(entities: list[DXFEntity])
-        + get_entity(id: int): DXFEntity | None
-        + find_entities_by_layer(layer_id: int): list[DXFEntity]
-        + update_entity(entity: DXFEntity)
-        + delete_entity(id: int)
-    }
-    
+
     class RepositoryFactory {
-        - connection: IConnection
-        + create_document_repository(): IDocumentRepository
-        + create_layer_repository(): ILayerRepository
-        + create_entity_repository(): IEntityRepository
+        -_document_repos: dict
+        -_layer_repos: dict
+        -_entity_repos: dict
+        -_content_repos: dict
+        +register_repositories(connection_type, doc_repo, layer_repo, entity_repo, content_repo) None
+        +get_document_repository(connection, schema, table_name) Result
+        +get_layer_repository(connection, schema, table_name) Result
+        +get_entity_repository(connection, schema, table_name) Result
+        +get_content_repository(connection, schema, table_name) Result
+        -_create_repository(connection, repo_dict, schema, table_name) Result
+        -_resolve_table_by_columns(connection, schema, requested_table, required_columns, preferred_names) str
     }
-}
 
-package "domain.entities" {
-    class DXFDocument
-    class DXFLayer
-    class DXFEntity
-}
+    class PostGISConnection {
+        -_connection
+        -_config
+        +db_type() str
+        +is_connected() bool
+        +connect(config) Result
+        +close() Result
+        +commit() Result
+        +rollback() Result
+        +execute_query(query, params) Result
+        +execute_queries(queries) Result
+        +get_schemas() Result
+        +schema_exists(schema_name) Result
+        +create_schema(schema_name) Result
+        +drop_schema(schema_name, cascade) Result
+        +get_tables(schema_name) Result
+    }
 
-package "domain.repositories" {
-    interface IConnection
-    interface IDocumentRepository
-    interface ILayerRepository
-    interface IEntityRepository
-}
+    class PostGISDocumentRepository {
+        -_connection: PostGISConnection
+        -_schema: str
+        -_table_name: str
+        +full_name() str
+        +create(entity) Result
+        +update(entity) Result
+        +remove(id) Result
+        +get_by_id(id) Result
+        +get_by_filename(filename) Result
+        +get_all() Result
+        +count() Result
+        +exists(filename) Result
+        -_init_schema() None
+        -_init_table() None
+    }
 
-PostgreSQLConnection -.implements-> IConnection
-DocumentRepository -.implements-> IDocumentRepository
-LayerRepository -.implements-> ILayerRepository
-EntityRepository -.implements-> IEntityRepository
+    class PostGISLayerRepository {
+        -_connection: PostGISConnection
+        -_schema: str
+        -_table_name: str
+        +full_name() str
+        +create(entity) Result
+        +update(entity) Result
+        +remove(id) Result
+        +get_by_id(id) Result
+        +get_all_by_document_id(document_id) Result
+        +get_all() Result
+        -_init_schema() None
+        -_init_table() None
+    }
 
-DocumentRepository --> PostgreSQLConnection: uses
-LayerRepository --> PostgreSQLConnection: uses
-EntityRepository --> PostgreSQLConnection: uses
+    class PostGISEntityRepository {
+        -_connection: PostGISConnection
+        -_schema: str
+        -_table_name: str
+        -_converter: PostGISEntityConverter
+        -_logger
+        +full_name() str
+        +create(entity) Result
+        +update(entity) Result
+        +remove(id) Result
+        +get_by_id(id) Result
+        +get_by_name_and_type(name, type) Result
+        +get_all() Result
+        -_init_schema() None
+        -_init_table() None
+        -_make_serializable(obj)
+    }
 
-DocumentRepository --> DXFDocument: works with
-LayerRepository --> DXFLayer: works with
-EntityRepository --> DXFEntity: works with
+    class PostGISContentRepository {
+        -_connection: PostGISConnection
+        -_schema: str
+        -_table_name: str
+        +full_name() str
+        +create(entity) Result
+        +update(entity) Result
+        +remove(id) Result
+        +get_by_id(id) Result
+        +get_by_document_id(document_id) Result
+        -_init_schema() None
+        -_init_table() None
+        -_get_columns() set
+        -_is_legacy_file_table() bool
+    }
 
-RepositoryFactory --> DocumentRepository: creates
-RepositoryFactory --> LayerRepository: creates
-RepositoryFactory --> EntityRepository: creates
+    class PostGISEntityConverter {
+        +to_db(entity) Result
+        +from_db(data) Result
+        -_extract_point(point_data)
+        -_build_extra_data(entity, additional_data)
+        -_get_geometry_value(entity, key, default)
 
-@enduml
+    }
+
+    RepositoryFactory o-- PostGISDocumentRepository :  создает
+    RepositoryFactory o-- PostGISLayerRepository : создает
+    RepositoryFactory o-- PostGISEntityRepository : создает
+    RepositoryFactory o-- PostGISContentRepository : создает
+
+    PostGISDocumentRepository o-- PostGISConnection : использует
+    PostGISLayerRepository o-- PostGISConnection : использует
+    PostGISEntityRepository o-- PostGISConnection : использует
+    PostGISContentRepository o-- PostGISConnection : использует
+
+    PostGISEntityRepository *-- PostGISEntityConverter : создает
+
+    ConnectionFactory o-- PostGISConnection : создает
 ```
 
----
+### Таблица 2. Ключевые поля классов пакета «database»
 
-## 5. Детальная диаграмма классов (со всеми полями и методами)
+| Класс | Поле | Описание |
+|---|---|---|
+| ActiveDocumentRepository | _documents | Список открытых документов в памяти |
+| ConnectionFactory | _available_connections | Реестр классов соединений по `db_type` |
+| RepositoryFactory | _document_repos/_layer_repos/_entity_repos/_content_repos | Реестр реализаций репозиториев |
+| PostGISConnection | _connection/_config | Нативное соединение и его конфигурация |
+| PostGISEntityRepository | _converter | Объект конвертера в PostGIS формат |
 
-```plantuml
-@startuml infrastructure_database_detailed
+### Таблица 3. Ключевые методы классов пакета «database»
 
-package "infrastructure.database" {
-    
-    class PostgreSQLConnection {
-        - _connection: psycopg2.connection
-        - _config: ConnectionConfigDTO
-        - _is_connected: bool
-        - _transaction_active: bool
-        - _logger: ILogger
-        --
-        + __init__(config: ConnectionConfigDTO, logger: ILogger)
-        + connect(): bool
-        + disconnect(): bool
-        + execute_query(sql: str, params: tuple = None): list[dict]
-        + execute_update(sql: str, params: tuple = None): int
-        + execute_insert(sql: str, params: tuple = None): int
-        + begin_transaction(): None
-        + commit(): None
-        + rollback(): None
-        + is_connected(): bool {property}
-        + get_connection(): psycopg2.connection
-        + close()
-    }
-    
-    class DocumentRepository {
-        - _connection: IConnection
-        - _logger: ILogger
-        --
-        + __init__(connection: IConnection, logger: ILogger)
-        + save_document(document: DXFDocument): int
-        + get_document(document_id: int): DXFDocument | None
-        + find_all_documents(): list[DXFDocument]
-        + find_documents_by_name(pattern: str): list[DXFDocument]
-        + update_document(document: DXFDocument): bool
-        + delete_document(document_id: int): bool
-        - _document_from_row(row: dict): DXFDocument
-        - _document_to_sql(doc: DXFDocument): tuple[str, tuple]
-    }
-    
-    class LayerRepository {
-        - _connection: IConnection
-        - _logger: ILogger
-        --
-        + __init__(connection: IConnection, logger: ILogger)
-        + save_layer(layer: DXFLayer): int
-        + get_layer(layer_id: int): DXFLayer | None
-        + find_layers_by_document(document_id: int): list[DXFLayer]
-        + find_layers_by_name(doc_id: int, pattern: str): list[DXFLayer]
-        + update_layer(layer: DXFLayer): bool
-        + delete_layer(layer_id: int): bool
-        - _layer_from_row(row: dict): DXFLayer
-    }
-    
-    class EntityRepository {
-        - _connection: IConnection
-        - _logger: ILogger
-        --
-        + __init__(connection: IConnection, logger: ILogger)
-        + save_entity(entity: DXFEntity): int
-        + save_entities(entities: list[DXFEntity]): list[int]
-        + get_entity(entity_id: int): DXFEntity | None
-        + find_entities_by_layer(layer_id: int): list[DXFEntity]
-        + find_entities_by_type(layer_id: int, entity_type: str): list[DXFEntity]
-        + find_selected_entities(layer_id: int): list[DXFEntity]
-        + update_entity(entity: DXFEntity): bool
-        + update_selection_status(entity_id: int, is_selected: bool): bool
-        + delete_entity(entity_id: int): bool
-        + delete_entities_by_layer(layer_id: int): int
-        - _entity_from_row(row: dict): DXFEntity
-    }
-    
-    class RepositoryFactory {
-        - _connection: IConnection
-        - _logger: ILogger
-        --
-        + __init__(connection: IConnection, logger: ILogger)
-        + create_document_repository(): IDocumentRepository
-        + create_layer_repository(): ILayerRepository
-        + create_entity_repository(): IEntityRepository
-        + create_connection_repository(): IConnectionRepository
-    }
-}
+| Класс | Метод | Назначение |
+|---|---|---|
+| ConnectionFactory | get_connection | Создание экземпляра соединения для выбранного типа БД |
+| RepositoryFactory | get_*_repository | Фабричное создание нужного репозитория |
+| PostGISConnection | connect/commit/rollback | Управление соединением и транзакцией |
+| PostGISDocumentRepository | create/get_by_filename/get_all | Операции с документами DXF |
+| PostGISLayerRepository | create/get_all_by_document_id | Операции со слоями DXF |
+| PostGISEntityRepository | create/get_by_name_and_type | Операции с сущностями DXF |
+| PostGISContentRepository | create/get_by_document_id | Операции с бинарным контентом DXF |
+| PostGISEntityConverter | to_db | Преобразование сущности в геометрию/атрибуты БД |
 
-@enduml
-```
+## 5.2.9.5. Подробные таблицы полей и методов классов
 
----
+### Класс ActiveDocumentRepository
 
-## 6. Таблицы описания полей и методов
+#### Описание полей класса
 
-### 6.1 PostgreSQLConnection
+| Название | Тип | Описание |
+|---|---|---|
+| _documents | List[DXFDocument] | Коллекция активных документов в памяти |
 
-#### Поля
-
-| Название | Тип | Модификатор | Описание |
-|----------|-----|-------------|---------|
-| `_connection` | psycopg2.connection | private | низкоуровневое соединение с БД |
-| `_config` | ConnectionConfigDTO | private | конфигурация подключения (хост, порт, БД) |
-| `_is_connected` | bool | private | статус подключения |
-| `_transaction_active` | bool | private | есть ли активная транзакция |
-| `_logger` | ILogger | private | логирование операций |
-
-#### Методы
+#### Описание методов класса
 
 | Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| `__init__()` | config, logger | void | инициализирует с конфигурацией |
-| `connect()` | - | bool | устанавливает соединение с БД |
-| `disconnect()` | - | bool | разрывает соединение |
-| `execute_query()` | sql: str, params: tuple | list[dict] | SELECT запрос, возвращает строки |
-| `execute_update()` | sql: str, params: tuple | int | UPDATE/DELETE, возвращает кол-во измененных |
-| `execute_insert()` | sql: str, params: tuple | int | INSERT, возвращает inserted_id |
-| `begin_transaction()` | - | void | начинает транзакцию |
-| `commit()` | - | void | подтверждает изменения |
-| `rollback()` | - | void | отменяет изменения |
-| `is_connected()` | - | bool | проверяет состояние (property) |
-| `get_connection()` | - | psycopg2.connection | получает низкоуровневое соединение |
+|---|---|---|---|
+| __init__ | - | None | Инициализирует пустой список документов |
+| create | entity: DXFDocument | Result[DXFDocument] | Добавляет документ в память |
+| update | entity: DXFDocument | Result[DXFDocument] | Обновляет документ по идентификатору |
+| remove | id: UUID | Result[Unit] | Удаляет документ по идентификатору |
+| get_by_id | id: UUID | Result с документом или ошибкой | Возвращает документ по id |
+| get_by_filename | filename: str | Result с документом или ошибкой | Возвращает документ по имени файла |
+| get_all | - | Result[List[DXFDocument]] | Возвращает копию списка документов |
+| count | - | Result[int] | Возвращает число активных документов |
 
-### 6.2 DocumentRepository
+### Класс ConnectionFactory
 
-#### Поля
+#### Описание полей класса
 
-| Название | Тип | Модификатор | Описание |
-|----------|-----|-------------|---------|
-| `_connection` | IConnection | private | соединение с БД |
-| `_logger` | ILogger | private | логирование |
+| Название | Тип | Описание |
+|---|---|---|
+| _available_connections | dict[str, Type[IConnection]] | Реестр поддерживаемых типов подключений |
 
-#### Методы
+#### Описание методов класса
 
 | Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| `save_document()` | doc: DXFDocument | int | сохраняет документ, возвращает id |
-| `get_document()` | id: int | DXFDocument \| None | получает документ по id |
-| `find_all_documents()` | - | list[DXFDocument] | получает все документы |
-| `find_documents_by_name()` | pattern: str | list[DXFDocument] | поиск по имени |
-| `update_document()` | doc: DXFDocument | bool | обновляет документ |
-| `delete_document()` | id: int | bool | удаляет документ каскадно |
+|---|---|---|---|
+| __init__ | connection_classes: list[Type[IConnection]] | None | Регистрирует переданные классы подключений |
+| register_connection | connection_class: Type[IConnection] | Result[Unit] | Добавляет класс подключения в реестр |
+| get_supported_databases | - | list[str] | Возвращает список поддерживаемых db_type |
+| get_connection | db_type: str | Result[IConnection] | Создает экземпляр подключения по db_type |
 
-### 6.3 LayerRepository
+### Класс RepositoryFactory
 
-#### Поля
+#### Описание полей класса
 
-| Название | Тип | Модификатор | Описание |
-|----------|-----|-------------|---------|
-| `_connection` | IConnection | private | соединение с БД |
-| `_logger` | ILogger | private | логирование |
+| Название | Тип | Описание |
+|---|---|---|
+| _document_repos | Dict[Type[IConnection], Type[IDocumentRepository]] | Реестр реализаций репозиториев документов |
+| _layer_repos | Dict[Type[IConnection], Type[ILayerRepository]] | Реестр реализаций репозиториев слоев |
+| _entity_repos | Dict[Type[IConnection], Type[IEntityRepository]] | Реестр реализаций репозиториев сущностей |
+| _content_repos | Dict[Type[IConnection], Type[IContentRepository]] | Реестр реализаций репозиториев контента |
 
-#### Методы
-
-| Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| `save_layer()` | layer: DXFLayer | int | сохраняет слой |
-| `get_layer()` | id: int | DXFLayer \| None | получает слой по id |
-| `find_layers_by_document()` | doc_id: int | list[DXFLayer] | получает слои документа |
-| `find_layers_by_name()` | doc_id, pattern | list[DXFLayer] | поиск слоев по имени |
-| `update_layer()` | layer: DXFLayer | bool | обновляет слой |
-| `delete_layer()` | id: int | bool | удаляет слой каскадно |
-
-### 6.4 EntityRepository
-
-#### Поля
-
-| Название | Тип | Модификатор | Описание |
-|----------|-----|-------------|---------|
-| `_connection` | IConnection | private | соединение с БД |
-| `_logger` | ILogger | private | логирование |
-
-#### Методы
+#### Описание методов класса
 
 | Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| `save_entity()` | entity: DXFEntity | int | сохраняет сущность |
-| `save_entities()` | entities: list | list[int] | батч-сохранение |
-| `get_entity()` | id: int | DXFEntity \| None | получает по id |
-| `find_entities_by_layer()` | layer_id: int | list[DXFEntity] | все сущности слоя |
-| `find_entities_by_type()` | layer_id, type | list[DXFEntity] | фильтр по типу |
-| `find_selected_entities()` | layer_id: int | list[DXFEntity] | только выбранные |
-| `update_entity()` | entity: DXFEntity | bool | обновляет |
-| `update_selection_status()` | id, is_selected | bool | изменяет статус выбора |
-| `delete_entity()` | id: int | bool | удаляет |
-| `delete_entities_by_layer()` | layer_id: int | int | удаляет все в слое |
+|---|---|---|---|
+| __init__ | - | None | Инициализирует пустые реестры репозиториев |
+| register_repositories | connection_type, document_repo_class, layer_repo_class, entity_repo_class, content_repo_class | None | Регистрирует классы репозиториев для типа соединения |
+| _create_repository | connection, repo_dict, schema, table_name | Result[IRepository] | Унифицированное создание репозитория |
+| _resolve_table_by_columns | connection, schema, requested_table, required_columns, preferred_names | str | Подбирает совместимую таблицу по обязательным колонкам |
+| get_document_repository | connection, schema, table_name | Result[IDocumentRepository] | Создает репозиторий документов |
+| get_layer_repository | connection, schema, table_name | Result[ILayerRepository] | Создает репозиторий слоев |
+| get_entity_repository | connection, schema, table_name | Result[IEntityRepository] | Создает репозиторий сущностей |
+| get_content_repository | connection, schema, table_name | Result[IContentRepository] | Создает репозиторий контента |
 
-### 6.5 RepositoryFactory
+### Класс PostGISConnection
 
-#### Методы
+#### Описание полей класса
+
+| Название | Тип | Описание |
+|---|---|---|
+| _connection | pg_connection или None | Нативное соединение psycopg2 |
+| _config | ConnectionConfig или None | Текущая конфигурация подключения |
+
+#### Описание методов класса
 
 | Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| `__init__()` | connection, logger | void | инициализирует factory |
-| `create_document_repository()` | - | IDocumentRepository | создает репо документов |
-| `create_layer_repository()` | - | ILayerRepository | создает репо слоев |
-| `create_entity_repository()` | - | IEntityRepository | создает репо сущностей |
+|---|---|---|---|
+| __init__ | - | None | Инициализирует объект подключения |
+| db_type | - | str | Возвращает тип БД |
+| is_connected | - | bool | Проверяет активность соединения |
+| connect | config: ConnectionConfig | Result[Unit] | Устанавливает соединение и включает PostGIS |
+| close | - | Result[Unit] | Закрывает соединение |
+| commit | - | Result[Unit] | Подтверждает транзакцию |
+| rollback | - | Result[Unit] | Откатывает транзакцию |
+| get_connection | - | pg_connection или None | Возвращает нативное соединение |
+| execute_query | query: str, params: tuple | Result[list] | Выполняет SQL-запрос |
+| execute_queries | queries: list[tuple[str, Any]] | Result[Unit] | Выполняет пакет запросов в транзакции |
+| get_schemas | - | Result[list[str]] | Возвращает список схем |
+| schema_exists | schema_name: str | Result[bool] | Проверяет существование схемы |
+| create_schema | schema_name: str | Result[Unit] | Создает схему |
+| drop_schema | schema_name: str, cascade: bool | Result[Unit] | Удаляет схему |
+| get_tables | schema_name: str | Result[list[str]] | Возвращает таблицы схемы |
+| __enter__ | - | PostGISConnection | Контекстный менеджер входа |
+| __exit__ | exc_type, exc_val, exc_tb | None | Контекстный менеджер выхода |
 
----
+### Класс PostGISDocumentRepository
 
-## 7. Схема базы данных
+#### Описание полей класса
 
-```sql
--- Таблица документов
-CREATE TABLE documents (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    file_path VARCHAR(500),
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
-    is_open BOOLEAN DEFAULT FALSE
-);
+| Название | Тип | Описание |
+|---|---|---|
+| _connection | PostGISConnection | Соединение с БД |
+| _schema | str | Имя схемы |
+| _table_name | str | Имя таблицы документов |
 
--- Таблица слоев
-CREATE TABLE layers (
-    id SERIAL PRIMARY KEY,
-    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    color VARCHAR(7),
-    is_visible BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT NOW()
-);
+#### Описание методов класса
 
--- Таблица сущностей
-CREATE TABLE entities (
-    id SERIAL PRIMARY KEY,
-    layer_id INTEGER NOT NULL REFERENCES layers(id) ON DELETE CASCADE,
-    entity_type VARCHAR(50) NOT NULL,  -- LINE, CIRCLE, POLYLINE, etc.
-    geometry geometry(Geometry, 4326),  -- PostGIS geometry
-    attributes JSON,
-    is_selected BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| __init__ | connection, schema, table_name | None | Инициализирует репозиторий и таблицу |
+| full_name | - | str | Возвращает полное имя schema.table |
+| _init_schema | - | None | Создает схему при отсутствии |
+| _init_table | - | None | Создает таблицу документов |
+| create | entity: DXFDocument | Result[DXFDocument] | Сохраняет документ |
+| update | entity: DXFDocument | Result[DXFDocument] | Обновляет документ |
+| remove | id: UUID | Result[Unit] | Удаляет документ |
+| get_by_id | id: UUID | Result с документом или None | Получает документ по id |
+| get_by_filename | filename: str | Result с документом или None | Получает документ по имени файла |
+| get_all | - | Result[list[DXFDocument]] | Возвращает все документы |
+| count | - | Result[int] | Возвращает количество документов |
+| exists | filename: str | Result[bool] | Проверяет существование документа |
 
--- Индексы для оптимизации
-CREATE INDEX idx_layers_document ON layers(document_id);
-CREATE INDEX idx_entities_layer ON entities(layer_id);
-CREATE INDEX idx_entities_type ON entities(entity_type);
-CREATE INDEX idx_entities_geometry ON entities USING GIST(geometry);
-```
+### Класс PostGISLayerRepository
 
----
+#### Описание полей класса
 
-## 8. Взаимодействие с другими пакетами
+| Название | Тип | Описание |
+|---|---|---|
+| _connection | PostGISConnection | Соединение с БД |
+| _schema | str | Имя схемы |
+| _table_name | str | Имя таблицы слоев |
 
-### Входящие зависимости (другие пакеты используют database)
+#### Описание методов класса
 
-- **application/use_cases** (ImportUseCase, ExportUseCase, OpenDocumentUseCase, etc.)
-  - используют репозитории для CRUD операций
-  
-- **application/services**
-  - используют репозитории для получения и сохранения данных
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| __init__ | connection, schema, table_name | None | Инициализирует репозиторий и таблицу |
+| full_name | - | str | Возвращает полное имя schema.table |
+| _init_schema | - | None | Создает схему при отсутствии |
+| _init_table | - | None | Создает таблицу слоев |
+| create | entity: DXFLayer | Result[DXFLayer] | Сохраняет слой |
+| update | entity: DXFLayer | Result[DXFLayer] | Обновляет слой |
+| remove | id: UUID | Result[Unit] | Удаляет слой |
+| get_by_id | id: UUID | Result с объектом или ошибкой | Получает слой по id |
+| get_all_by_document_id | document_id: UUID | Result[list[DXFLayer]] | Возвращает все слои документа |
+| get_all | - | Result[list[DXFLayer]] | Возвращает все слои |
 
-### Исходящие зависимости (database использует)
+### Класс PostGISEntityRepository
 
-- **domain/entities** (DXFDocument, DXFLayer, DXFEntity)
-  - работает с доменными сущностями
+#### Описание полей класса
 
-- **domain/repositories** (интерфейсы IConnection, IDocumentRepository, ILayerRepository, etc.)
-  - реализует контракты интерфейсов
+| Название | Тип | Описание |
+|---|---|---|
+| _connection | PostGISConnection | Соединение с БД |
+| _schema | str | Имя схемы |
+| _table_name | str | Имя таблицы сущностей |
+| _converter | PostGISEntityConverter | Конвертер DXFEntity в DB-представление |
+| _logger | ILogger или None | Логгер для предупреждений и диагностики |
 
-- **application/dtos** (ConnectionConfigDTO)
-  - использует для передачи конфигурации
+#### Описание методов класса
 
-- **PostgreSQL + PostGIS**
-  - внешний сервис для хранения геопространственных данных
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| __init__ | connection, schema, table_name | None | Инициализирует репозиторий, конвертер и таблицу |
+| full_name | - | str | Возвращает экранированное имя таблицы |
+| _init_schema | - | None | Создает схему при отсутствии |
+| _init_table | - | None | Создает таблицу сущностей |
+| _make_serializable | obj: Any | Any | Нормализует значения для JSON сериализации |
+| create | entity: DXFEntity | Result[DXFEntity] | Конвертирует и сохраняет сущность |
+| update | entity: DXFEntity | Result[DXFEntity] | Конвертирует и обновляет сущность |
+| remove | id: UUID | Result[Unit] | Удаляет сущность |
+| get_by_id | id: UUID | Result с объектом или None | Получает сущность по id |
+| get_by_name_and_type | name: str, type: DxfEntityType | Result с объектом или None | Ищет сущность по имени и типу |
+| get_all | - | Result[list[DXFEntity]] | Возвращает все сущности таблицы |
 
----
+### Класс PostGISContentRepository
 
-## 9. Правила проектирования и ограничения
+#### Описание полей класса
 
-### Архитектурные правила
+| Название | Тип | Описание |
+|---|---|---|
+| _connection | PostGISConnection | Соединение с БД |
+| _schema | str | Имя схемы |
+| _table_name | str | Имя таблицы контента |
 
-1. **Слой**: infrastructure/database - **Infrastructure Layer**
-2. **Инверсия управления**: реализует интерфейсы из domain слоя
-3. **Зависимости**: только ВЫШЕ по уровням (к application и domain)
-4. **Инъекция**: использует встроенное разрешение зависимостей
+#### Описание методов класса
 
-### Паттерны проектирования
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| __init__ | connection, schema, table_name | None | Инициализирует репозиторий и таблицу |
+| full_name | - | str | Возвращает полное имя schema.table |
+| _init_schema | - | None | Создает схему при отсутствии |
+| _init_table | - | None | Создает таблицу контента |
+| _get_columns | - | set[str] | Возвращает набор колонок таблицы |
+| _is_legacy_file_table | - | bool | Проверяет legacy-структуру файла |
+| create | entity: DXFContent | Result[DXFContent] | Сохраняет контент |
+| update | entity: DXFContent | Result[DXFContent] | Обновляет контент |
+| remove | id: UUID | Result[Unit] | Удаляет контент |
+| get_by_id | id: UUID | Result с объектом или None | Возвращает контент по id |
+| get_by_document_id | document_id: UUID | Result с объектом или None | Возвращает контент по document_id |
 
-- **Repository Pattern**: документируется каждым классом репозитория
-- **Factory Pattern**: RepositoryFactory для создания репозиториев
-- **Connection Pool Pattern**: переиспользование единого соединения
-- **Transaction Pattern**: begin/commit/rollback для групповых операций
+### Класс PostGISEntityConverter
 
-### Правила БД
+#### Описание полей класса
 
-1. **Каскадное удаление**: удаление документа удаляет слои и сущности
-2. **Индексирование**: оптимизация для поиска по document_id, layer_id, type
-3. **PostGIS geometry**: хранение геопространственных данных
-4. **JSON атрибуты**: гибкое хранение DXF атрибутов
+| Название | Тип | Описание |
+|---|---|---|
+| _CONVERSION_FUNCTIONS | Dict[str, str] | Карта DXF-типа в имя функции конвертации |
 
-### Безопасность
+#### Описание методов класса
 
-1. **SQL Injection защита**: использование параметризованных запросов
-2. **Шифрование**: пароли в ConnectionConfigDTO зашифрованы
-3. **Трансакции**: ACID гарантии для целостности данных
-
----
-
-## 10. Состояние проектирования
-
-✅ **Завершено**: полная документация infrastructure/database слоя с архитектурой репозиториев и схемой БД.
-
-**Готово к использованию в диплому**: детальное описание взаимодействия с PostgreSQL/PostGIS и паттерны доступа к данным.
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| to_db | entity: DXFEntity | Result с WKT и extra_data | Основная конвертация сущности в DB формат |
+| from_db | data: Dict[str, Any] | Result[DXFEntity] | Обратная конвертация (зарезервировано) |
+| _extract_point | point_data | Tuple[float, float, float] | Нормализует представление точки |
+| _build_extra_data | entity: DXFEntity, additional_data: Dict | Dict[str, Any] | Формирует дополнительный payload |
+| _get_geometry_value | entity: DXFEntity, key: str, default | Any | Безопасно читает geometry-поля |
+| _get_attribute_value | entity: DXFEntity, key: str, default | Any | Безопасно читает attribute-поля |

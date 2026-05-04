@@ -1,263 +1,427 @@
-# Проектирование пакета services (domain)
+# 5.2.13. Проектирование классов пакета «services»
 
-**Пакет**: `domain/services`
+Пакет `services` в этом проекте объединяет `domain/services` и `domain/value_objects`.
+Он содержит абстракции сервисного слоя предметной области и общие неизменяемые объекты-значения, которые используются этими контрактами.
 
-**Назначение**: Бизнес-логика сервисов предметной области независимо от реализации, содержит главные операции над доменными объектами.
+## 5.2.13.1. Исходная диаграмма классов
 
-**Расположение**: `src/domain/services/`
-
+```mermaid
+---
+config:
+    layout: elk
 ---
 
-## 1. Исходная диаграмма классов
+graph LR
 
-```plantuml
-@startuml domain_services_original
+     IAreaSelector
+     IDXFReader
+     IDXFWriter
+     ConnectionConfig
+     AreaSelectionParams
+     SelectionRule
+     ShapeType
+     SelectionMode
+     DxfEntityType
+     Result
+     Unit
 
-package "domain.services" {
-    
-    class DocumentService {
-        + create_document(name: str): DXFDocument
-        + validate_document(doc: DXFDocument): bool
-        + get_document_info(doc: DXFDocument): dict
-        + merge_documents(doc1: DXFDocument, doc2: DXFDocument): DXFDocument
-    }
-    
-    class LayerService {
-        + create_layer(name: str, document: DXFDocument): DXFLayer
-        + validate_layer(layer: DXFLayer): bool
-        + compute_layer_bounds(layer: DXFLayer): Bounds
-        + get_layer_statistics(layer: DXFLayer): dict
-    }
-    
-    class EntityService {
-        + create_entity(entity_type: str, geometry): DXFEntity
-        + validate_entity(entity: DXFEntity): bool
-        + compute_entity_properties(entity: DXFEntity): dict
-        + get_entity_relationships(entity: DXFEntity): list[str]
-    }
-    
-    class SelectionService {
-        + select_entity(entity: DXFEntity)
-        + deselect_entity(entity: DXFEntity)
-        + clear_selection()
-        + get_selected_entities(): list[DXFEntity]
-    }
-    
-    DocumentService -.-> DXFDocument
-    LayerService -.-> DXFLayer
-    EntityService -.-> DXFEntity
-    SelectionService -.-> DXFEntity
-}
+    IAreaSelector --> |использует| AreaSelectionParams
+    IAreaSelector --> |возвращает| Result
+    IDXFReader -->|использует| ConnectionConfig
+    IDXFReader -->|возвращает| Result
+    IDXFWriter -->|возвращает| Result
+    AreaSelectionParams -->|содержит| SelectionRule
+    AreaSelectionParams -->|содержит| ShapeType
+    AreaSelectionParams -->|содержит| SelectionMode
 
-package "domain.entities" {
-    class DXFDocument
-    class DXFLayer
-    class DXFEntity
-}
 
-@enduml
 ```
 
+В исходной диаграмме показаны все типы пакета: 11 элементов. `SelectionRule`, `ShapeType`, `SelectionMode` и `DxfEntityType` являются перечислениями, а `ConnectionConfig`, `AreaSelectionParams`, `Result` и `Unit` — неизменяемыми объектами-значениями. Они отображаются отдельными узлами, но без детализации полей и методов.
+
+### Таблица 1. Описание классов пакета «services»
+
+| Класс | Описание |
+|---|---|
+| IAreaSelector | Абстракция выбора DXF-сущностей по геометрической области и набору параметров выбора |
+| IDXFReader | Абстракция чтения DXF-файла и подготовки вспомогательных представлений, включая SVG preview |
+| IDXFWriter | Абстракция записи DXF-документа и сохранения отфильтрованных сущностей по handle |
+| ConnectionConfig | Неизменяемый объект конфигурации подключения к БД |
+| AreaSelectionParams | Неизменяемые параметры геометрического выбора |
+| SelectionRule | Правило проверки попадания сущности в область выбора |
+| ShapeType | Тип геометрической области выбора |
+| SelectionMode | Режим комбинирования результата выбора |
+| DxfEntityType | Перечень поддерживаемых типов DXF-сущностей |
+| Result | Унифицированный результат операции с успехом или ошибкой |
+| Unit | Пустой тип для операций без полезного возвращаемого значения |
+
+## 5.2.13.2. Диаграмма последовательностей взаимодействия объектов классов
+
+На одной диаграмме показано взаимодействие всех классов пакета. Первый блок играет роль общего инициатора сценариев. Все ветки (включая системное прерывание) задействуют все классы пакета.
+
+```mermaid
+sequenceDiagram
+    participant Entry as ""
+    participant Reader as IDXFReader
+    participant Params as AreaSelectionParams
+    participant Selector as IAreaSelector
+    participant Writer as IDXFWriter
+    participant Config as ConnectionConfig
+    participant ResultVO as Result
+
+    alt Нормальный сценарий
+        Entry->>Reader: open(filepath)
+        activate Reader
+        Reader-->>Entry: Result.success(document)
+        deactivate Reader
+
+        Entry->>Params: create(shape_type, selection_rule, selection_mode, shape_args)
+        activate Params
+        Params-->>Entry: AreaSelectionParams
+        deactivate Params
+
+        Entry->>Selector: select_handles(filepath, params)
+        activate Selector
+        Selector-->>Entry: Result.success(handles)
+        deactivate Selector
+
+        Entry->>Writer: save_selected_by_handles(source_filepath, output_path, handles)
+        activate Writer
+        Writer-->>Entry: Result.success(count)
+        deactivate Writer
+
+        Entry->>Writer: save(document, filepath)
+        activate Writer
+        Writer-->>Entry: Result.success(Unit)
+        deactivate Writer
+
+    else Системное прерывание (все классы задействованы)
+        Entry->>Config: read_current()
+        activate Config
+        Config-->>Entry: ConnectionConfig
+        deactivate Config
+
+        Entry->>Reader: open(invalid_filepath)
+        activate Reader
+        Reader--xEntry: Result.fail(io_error)
+        deactivate Reader
+
+        Entry->>Selector: notify_failure(io_error)
+        activate Selector
+        Selector-->>Entry: Result.fail(selection_cleanup)
+        deactivate Selector
+
+        Entry->>Writer: cancel_pending_writes()
+        activate Writer
+        Writer-->>Entry: Result.success(cleanup_done)
+        deactivate Writer
+
+        Entry->>Params: release()
+        activate Params
+        Params-->>Entry: released
+        deactivate Params
+
+        Entry->>ResultVO: return Result.fail(io_error)
+        activate ResultVO
+        ResultVO-->>Entry: Result.fail(io_error)
+        deactivate ResultVO
+
+    else Прерывание пользователем
+        Entry->>Selector: select_handles(filepath, params)
+        activate Selector
+        Selector-->>Entry: В пакете services явной user-cancel логики нет — управляющие слои обрабатывают отмену
+        deactivate Selector
+    end
+```
+
+В ветке пользовательского прерывания показано, что явная отмена на уровне сервисных контрактов отсутствует и управляется верхними слоями приложения.
+
+## 5.2.13.3. Уточненная диаграмма классов
+
+```mermaid
 ---
-
-## 2. Таблица описания классов
-
-| Класс | Назначение | Тип |
-|-------|-----------|-----|
-| **DocumentService** | Операции над документами (создание, валидация, слияние) | Service |
-| **LayerService** | Операции над слоями (создание, границы, статистика) | Service |
-| **EntityService** | Операции над сущностями (создание, валидация, свойства) | Service |
-| **SelectionService** | Управление выбранными сущностями | Service |
-
+config:
+    layout: elk
 ---
+classDiagram
+    direction LR
 
-## 3. Четыре диаграммы последовательности
 
-### 3.1 Нормальный ход: Создание документа с валидацией
+    class IDXFReader {}
+        class ShapeType {
+        }
+    class IDXFWriter {}
+    class ConnectionConfig {}
+    class AreaSelectionParams {}
+    
+        class SelectionMode {
+        }
+    class SelectionRule {
+    }
 
-```plantuml
-@startuml domain_services_normal
+    class DxfEntityType {
+    }
+    Result~T~
+    class IAreaSelector
+    class Unit
 
-participant "UseCase" as UC
-participant "DocumentService" as DS
-participant "Validation" as Val
-participant "DXFDocument" as Doc
+    %% Типы связей:
+    %% *-- композиция (жёсткое владение)
+    %% o-- агрегация (слабое владение)
+    %% --> ассоциация/использует
+    %% ..> зависимость/возвращает
 
-UC -> DS: create_document("Project1")
-activate DS
+    AreaSelectionParams *-- SelectionRule : содержит
+    AreaSelectionParams *-- ShapeType : содержит
+    AreaSelectionParams *-- SelectionMode : содержит
 
-DS -> Doc: new DXFDocument(name="Project1")
-DS -> DS: set defaults
-return DXFDocument
+    IAreaSelector --> AreaSelectionParams : использует
+    IAreaSelector --> Result : возвращает
 
-DS -> Val: validate_document(doc)
-activate Val
-Val -> Val: check name not empty
-Val -> Val: check structure valid
-return bool (True)
+    IDXFReader ..> Result : возвращает
+    IDXFReader --> ConnectionConfig : использует
 
-DS -> UC: return DXFDocument
+    IDXFWriter --> Result : возвращает
 
-@enduml
 ```
 
-### 3.2 Альтернативный ход: Слияние двух документов
+## 5.2.13.4. Детальная диаграмма классов
 
-```plantuml
-@startuml domain_services_alt
-
-participant "ExportUseCase" as UC
-participant "DocumentService" as DS
-participant "LayerService" as LS
-participant "MergedDoc" as Doc
-
-UC -> DS: merge_documents(doc1, doc2)
-activate DS
-
-DS -> DS: get layers from doc1
-DS -> LS: for each layer in doc2
-activate LS
-LS -> LS: deep_copy layer
-return copied_layer
-DS -> DS: add_layer_to_merged(copied)
-
-DS -> Doc: create merged document
-return DXFDocument
-
-@enduml
-```
-
-### 3.3 Прерывание: Невалидная сущность
-
-```plantuml
-@startuml domain_services_interruption
-
-participant "EntityService" as ES
-participant "Validator" as Val
-
-ES -> Val: validate_entity(invalid_entity)
-activate Val
-
-Val -> Val: check coordinates
-alt Координаты вне диапазона
-    Val -x ES: raise ValidationError
-else OK
-    return True
-end
-
-@enduml
-```
-
-### 3.4 Системное прерывание: Ошибка в валидации
-
-```plantuml
-@startuml domain_services_system
-
-participant "DocumentService" as DS
-participant "Validator" as Val
-
-DS -> Val: validate_document(corrupted_doc)
-
-alt Структура повреждена
-    Val -x DS: raise StructureError
-else Success
-    Val -> DS: return True
-end
-
-@enduml
-```
-
+```mermaid
 ---
-
-## 4. Уточненная диаграмма классов
-
-```plantuml
-@startuml domain_services_refined
-
-package "domain.services" {
-    class DocumentService {
-        + create_document(name): DXFDocument
-        + validate_document(): bool
-        + merge_documents(): DXFDocument
-    }
-    
-    class LayerService {
-        + create_layer(name, doc): DXFLayer
-        + compute_layer_bounds(): Bounds
-    }
-    
-    class EntityService {
-        + create_entity(type): DXFEntity
-        + validate_entity(): bool
-    }
-    
-    class SelectionService {
-        - selected: set[DXFEntity]
-        + select_entity(entity): void
-        + get_selected_entities(): list
-    }
-}
-
-DocumentService --> DXFDocument: operates on
-LayerService --> DXFLayer: operates on
-EntityService --> DXFEntity: operates on
-
-@enduml
-```
-
+config:
+    layout: elk
 ---
+classDiagram
+    class IAreaSelector {
+        +select_handles(filepath: str, params: AreaSelectionParams) Result
+    }
 
-## 5. Детальная диаграмма классов
+    class IDXFReader {
+        +open(filepath: str) Result
+        +save_svg_preview(filepath: str, output_dir: str, filename: str) Result
+    }
 
-```plantuml
-@startuml domain_services_detailed
+    class IDXFWriter {
+        +save(document, filepath: str) Result
+        +save_selected_by_handles(source_filepath: str, output_path: str, selected_handles: set[str]) Result
+    }
 
-package "domain.services" {
-    
-    class DocumentService {
-        - _logger: ILogger
+    class ConnectionConfig {
+        +db_type: str
+        +name: str
+        +host: str
+        +port: str
+        +database: str
+        +username: str
+        +password: str
+    }
+
+    class AreaSelectionParams {
+        +shape_type: ShapeType
+        +selection_rule: SelectionRule
+        +selection_mode: SelectionMode
+        +shape_args: tuple
+    }
+
+    class SelectionRule {
+        INSIDE
+        OUTSIDE
+        INTERSECT
+    }
+
+    class ShapeType {
+        RECTANGLE
+        CIRCLE
+        POLYGON
+    }
+
+    class SelectionMode {
+        JOIN
+        REPLACE
+        SUBTRACT
+    }
+
+    class DxfEntityType {
+        
+        CIRCLE    
+        ELLIPSE
+        HATCH        
+        INSERT        
+        LINE
+        LWPOLYLINE
+        MLINE        
+        POINT
+        POLYLINE
+        VERTEX
+        POLYMESH
+        POLYFACE
+        RAY
+        REGION        
+        TEXT
+        TRACE        
+        UNKNOWN
+    }
+
+    class Result~T~ {
+        - _success: bool
+        - _value: Optional[T]
+        - _error: Optional[str]
         --
-        + create_document(name: str): DXFDocument
-        + validate_document(doc: DXFDocument): bool
-        + get_document_info(doc: DXFDocument): dict
-        + merge_documents(doc1, doc2): DXFDocument
-        - _validate_document_structure(doc): bool
-        - _validate_document_data(doc): bool
+        +success(value: T) Result~T~
+        +fail(error: str) Result~T~
+        +is_success: bool
+        +is_fail: bool
+        +value: T
+        +error: str
     }
-    
-    class LayerService {
-        - _logger: ILogger
-        --
-        + create_layer(name: str, doc: DXFDocument): DXFLayer
-        + validate_layer(layer: DXFLayer): bool
-        + compute_layer_bounds(layer: DXFLayer): Bounds
-        + get_layer_statistics(layer: DXFLayer): dict
-        - _calculate_centroid(entities): tuple
+
+    class Unit {
     }
-    
-    class EntityService {
-        - _logger: ILogger
-        --
-        + create_entity(entity_type: str, geometry): DXFEntity
-        + validate_entity(entity: DXFEntity): bool
-        + compute_entity_properties(entity: DXFEntity): dict
-        + get_entity_relationships(entity: DXFEntity): list
-        - _infer_entity_type(geometry): str
-    }
-    
-    class SelectionService {
-        - _selected_entities: set[DXFEntity]
-        - _selection_history: list[set]
-        - _logger: ILogger
-        --
-        + select_entity(entity: DXFEntity): None
-        + deselect_entity(entity: DXFEntity): None
-        + clear_selection(): None
-        + get_selected_entities(): list[DXFEntity]
-        + is_selected(entity: DXFEntity): bool
-        + undo_selection(): None
-    }
-}
+
+   AreaSelectionParams *-- SelectionRule : содержит
+    AreaSelectionParams *-- ShapeType : содержит
+    AreaSelectionParams *-- SelectionMode : содержит
+
+    IAreaSelector --> AreaSelectionParams : использует
+    IAreaSelector --> Result : возвращает
+
+    IDXFReader ..> Result : возвращает
+    IDXFReader --> ConnectionConfig : использует
+
+    IDXFWriter --> Result : возвращает
+```
+
+### Таблица 2. Ключевые поля классов пакета «services»
+
+| Класс | Поле | Описание |
+|---|---|---|
+| ConnectionConfig | db_type/name/host/port/database/username/password | Параметры подключения к БД |
+| AreaSelectionParams | shape_type/selection_rule/selection_mode/shape_args | Параметры геометрического выбора |
+| Result | _success/_value/_error | Унифицированное состояние операции |
+
+### Таблица 3. Ключевые методы классов пакета «services»
+
+| Класс | Метод | Назначение |
+|---|---|---|
+| IAreaSelector | select_handles | Поиск handle сущностей, попавших в заданную область |
+| IDXFReader | open | Открытие DXF-файла и построение доменного документа |
+| IDXFReader | save_svg_preview | Создание SVG-предпросмотра DXF-файла |
+| IDXFWriter | save | Сохранение DXF-документа в файл |
+| IDXFWriter | save_selected_by_handles | Сохранение только выбранных сущностей по handle |
+| Result | success/fail | Создание результата операции |
+| Result | is_success/is_fail | Проверка состояния результата |
+| Result | value/error | Получение значения или текста ошибки |
+
+## 5.2.13.5. Подробные таблицы полей и методов классов
+
+Таблица 4
+Описание методов класса «IAreaSelector»
+
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| select_handles | filepath: str, params: AreaSelectionParams | Result[list[str]] | Возвращает список handle сущностей, попавших в область выбора |
+
+Таблица 5
+Описание методов класса «IDXFReader»
+
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| open | filepath: str | Result[DXFDocument] | Открывает DXF-файл и формирует доменный документ |
+| save_svg_preview | filepath: str, output_dir: str, filename: str = "" | Result[str] | Создает SVG-предпросмотр DXF-файла |
+
+Таблица 6
+Описание методов класса «IDXFWriter»
+
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| save | document: DXFDocument, filepath: str | Result[Unit] | Сохраняет документ в DXF-файл |
+| save_selected_by_handles | source_filepath: str, output_path: str, selected_handles: set[str] | Result[int] | Сохраняет только сущности с указанными handle и возвращает число удаленных сущностей |
+
+Таблица 7
+Описание полей класса «ConnectionConfig»
+
+| Название | Тип | Описание |
+|---|---|---|
+| db_type | str | Тип СУБД |
+| name | str | Название соединения |
+| host | str | Хост |
+| port | str | Порт |
+| database | str | Имя базы данных |
+| username | str | Имя пользователя |
+| password | str | Пароль |
+
+Таблица 8
+Описание полей класса «AreaSelectionParams»
+
+| Название | Тип | Описание |
+|---|---|---|
+| shape_type | ShapeType | Тип геометрической области |
+| selection_rule | SelectionRule | Правило попадания сущности в область |
+| selection_mode | SelectionMode | Режим объединения результата выбора |
+| shape_args | tuple[Any, ...] | Параметры формы области |
+
+Таблица 9
+Описание полей класса «SelectionRule»
+
+| Значение | Описание |
+|---|---|
+| INSIDE | Полностью внутри |
+| OUTSIDE | Полностью снаружи |
+| INTERSECT | Частичное пересечение |
+
+Таблица 10
+Описание полей класса «ShapeType»
+
+| Значение | Описание |
+|---|---|
+| RECTANGLE | Прямоугольник |
+| CIRCLE | Круг |
+| POLYGON | Полигон |
+
+Таблица 11
+Описание полей класса «SelectionMode»
+
+| Значение | Описание |
+|---|---|
+| JOIN | Добавить к выбору |
+| REPLACE | Заменить выбор |
+| SUBTRACT | Вычесть из выбора |
+
+Таблица 12
+Описание полей класса «DxfEntityType»
+
+| Название | Описание |
+|---|---|
+| FACE3D, SOLID3D, ACADPROXYENTITY, ARC, ATTRIB, BODY, CIRCLE, DIMENSION, ARC_DIMENSION, ELLIPSE, HATCH, HELIX, IMAGE, INSERT, LEADER, LINE, LWPOLYLINE, MLINE, MESH, MPOLYGON, MTEXT, MULTI_LEADER, POINT, POLYLINE, VERTEX, POLYMESH, POLYFACE, RAY, REGION, SHAPE, SOLID, SPLINE, SURFACE, TEXT, TRACE, UNDERLAY, VIEWPORT, WIPEOUT, XLINE, UNKNOWN | Все поддерживаемые типы сущностей DXF |
+
+Таблица 13
+Описание полей класса «Result»
+
+| Название | Тип | Описание |
+|---|---|---|
+| _success | bool | Признак успешного результата |
+| _value | Optional[T] | Значение результата |
+| _error | Optional[str] | Сообщение об ошибке |
+
+Таблица 14
+Описание методов класса «Result»
+
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| success | value: T | Result[T] | Создает успешный результат |
+| fail | error: str | Result[T] | Создает результат с ошибкой |
+| is_success | - | bool | Проверяет успешность результата |
+| is_fail | - | bool | Проверяет неуспешность результата |
+| value | - | T | Возвращает значение успешного результата |
+| error | - | str | Возвращает сообщение об ошибке |
+
+Таблица 15
+Описание полей класса «Unit»
+
+| Название | Тип | Описание |
+|---|---|---|
+| Unit | Value Object | Пустой тип для операций без полезного значения |
 
 @enduml
 ```

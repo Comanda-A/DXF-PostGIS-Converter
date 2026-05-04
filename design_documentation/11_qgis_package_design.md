@@ -1,605 +1,468 @@
-# Проектирование пакета qgis
+# 5.2.11. Проектирование классов пакета «qgis»
 
-**Пакет**: `infrastructure/qgis`
+Пакет «qgis» реализует инфраструктурную интеграцию с QGIS API: логирование, настройки, событийную шину и чтение конфигураций подключений.
 
-**Назначение**: Интеграция с QGIS фреймворком через Qt/PyQt5, включая логирование, управление событиями, хранение настроек и локализацию через QGIS API.
+## 5.2.11.1. Исходная диаграмма классов
 
-**Расположение**: `src/infrastructure/qgis/`
+Диаграмма содержит только классы пакета `infrastructure/qgis`.
 
----
+```mermaid
+graph LR
+     Logger
+     Settings
+     QtEvent
+     QtSignalHolder
+     QtAppEvents
+     QgisConnectionProvider
 
-## 1. Исходная диаграмма классов (внутренние отношения)
-
-```plantuml
-@startuml infrastructure_qgis_original
-
-package "infrastructure.qgis" {
-    
-    class QtLogger {
-        - qgis_iface: QgisInterface
-        - log_level: LogLevel
-        --
-        + __init__(qgis_iface: QgisInterface)
-        + debug(message: str)
-        + info(message: str)
-        + warning(message: str)
-        + error(message: str)
-        + critical(message: str)
-        + _log_to_qgis(level: str, message: str)
-    }
-    
-    class QtAppEvents {
-        - canvas: QgsMapCanvas
-        - layer_tree: QgsLayerTree
-        --
-        + __init__(canvas: QgsMapCanvas)
-        + on_selection_changed(selected_ids: set)
-        + on_layer_added(layer: QgsVectorLayer)
-        + on_layer_removed(layer_id: str)
-        + on_canvas_extent_changed()
-        + emit_event(event_type: str, data: dict)
-    }
-    
-    class QtSettings {
-        - qgis_settings: QSettings
-        - app_key: str
-        --
-        + __init__(app_key: str)
-        + get(key: str, default: Any): Any
-        + set(key: str, value: Any)
-        + get_bool(key: str, default: bool): bool
-        + get_int(key: str, default: int): int
-        + remove(key: str)
-        + clear()
-        + get_all_keys(): list[str]
-    }
-    
-    class QtEvent {
-        - event_type: str
-        - timestamp: datetime
-        - data: dict
-        --
-        + __init__(event_type: str, data: dict)
-        + get_event_type(): str
-        + get_timestamp(): datetime
-        + get_data(): dict
-    }
-    
-    QtLogger -.-> QgisInterface
-    QtAppEvents -.-> QgsMapCanvas
-    QtAppEvents -.-> QgsLayerTree
-    QtEvent -.-> dict
-}
-
-package "application.interfaces" {
-    interface ILogger
-    interface IEventManager
-    interface ISettings
-    interface IEvent
-}
-
-QtLogger --|> ILogger
-QtAppEvents --|> IEventManager
-QtSettings --|> ISettings
-QtEvent --|> IEvent
-
-@enduml
+    QtAppEvents -.->|"создает"| QtEvent 
+    QtEvent -.-> |"создает"|QtSignalHolder 
+    QgisConnectionProvider -->|"использует"| Logger 
+    Logger -->|"использует"| Settings
 ```
 
----
+### Таблица 1. Описание классов пакета «qgis»
 
-## 2. Таблица описания классов
+| Класс | Описание |
+|---|---|
+| Logger | Запись сообщений в `QgsMessageLog`, управление флагом enabled |
+| Settings | Адаптер над `QgsSettings` |
+| QtEvent | Обертка над Qt-сигналом с connect/disconnect/emit/clear |
+| QtSignalHolder | Внутренний QObject с `pyqtSignal(object)` |
+| QtAppEvents | Контейнер доменных событий приложения на базе `QtEvent` |
+| QgisConnectionProvider | Получение PostgreSQL подключений из `QSettings` QGIS |
 
-| Класс | Назначение | Тип |
-|-------|-----------|-----|
-| **QtLogger** | Логирование в QGIS Message Bar и лог файлы | Logger |
-| **QtAppEvents** | Управление событиями приложения через QGIS сигналы | Event Manager |
-| **QtSettings** | Хранение настроек приложения в QSettings | Settings Provider |
-| **QtEvent** | Представление события приложения с типом и данными | Event |
+## 5.2.11.2. Диаграмма последовательностей взаимодействия объектов классов
 
----
+На одной диаграмме показано взаимодействие всех классов пакета. Первый блок намеренно без названия и используется как общий инициатор сценариев. Внешние объекты QGIS на диаграмме не отображаются.
 
-## 3. Диаграммы последовательности
+```mermaid
+sequenceDiagram
+    participant Entry as ""
+    participant Cfg as Settings
+    participant Log as Logger
+    participant Provider as QgisConnectionProvider
+    participant Events as QtAppEvents
+    participant EventObj as QtEvent
+    participant Holder as QtSignalHolder
 
-### 3.1 Нормальный ход: Логирование события в QGIS
+    alt Нормальный сценарий
+        Entry->>Cfg: Сценарий: нормальный ход
+        activate Cfg
+        Cfg-->>Entry: logger_enabled
+        deactivate Cfg
 
-```plantuml
-@startuml qgis_normal_flow
+        Entry->>Log: set_enabled(logger_enabled)
+        activate Log
+        Log->>Cfg: set_value("Logger", enabled)
+        Cfg-->>Log: ok
+        deactivate Log
 
-actor Developer
-participant "DXFPostGISConverter" as App
-participant "QtLogger" as Logger
-participant "QGIS" as QGISApp
-participant "MessageBar" as Bar
-participant "LogFile" as File
+        Entry->>Provider: Сценарий: нормальный ход
+        activate Provider
+        Provider->>Log: message("Loaded QGIS connection")
+        Provider-->>Entry: list[ConnectionConfigDTO]
+        deactivate Provider
 
-Developer -> App: select entity
-App -> Logger: logger.info("Entity selected: ID=123")
-activate Logger
+        Entry->>Holder: Сценарий: нормальный ход
+        Holder-->>Entry: holder ready
 
-Logger -> Logger: format message
+        Entry->>Events: Сценарий: нормальный ход
+        activate Events
+        Events->>EventObj: on_document_opened()
+        Events-->>Entry: event channel
+        deactivate Events
 
-alt Log level is INFO (enabled)
-    Logger -> QGISApp: iface.messageBar().pushInfo()
-    activate QGISApp
-    QGISApp -> Bar: show message in UI
-    return void
-else Log level is DEBUG (disabled)
-    Logger -> Logger: skip UI logging
-end
+        Entry->>EventObj: connect(handler)
+        activate EventObj
+        EventObj->>Holder: signal connect
+        Holder-->>EventObj: connected
 
-Logger -> File: write to log file
-activate File
-File -> File: append to dxf-postgis.log
-return void
+        Entry->>EventObj: emit(data)
+        EventObj->>Holder: signal emit
+        Holder-->>EventObj: delivered
+        EventObj->>Holder: clear subscriptions
+        deactivate EventObj
 
-deactivate Logger
+    else Системное прерывание
+        Entry->>Provider: Сценарий: прерывание системой
+        activate Provider
+        Provider--xProvider: internal exception while reading settings
+        Provider->>Log: error("Error reading PostgreSQL connections")
+        
+        Provider-->>Entry: empty list
+        deactivate Provider
+        activate Log
+        Log->>Cfg: set_value("ErrorState", critical)
+        deactivate Log
 
-@enduml
-```
+        Entry->>Events: Сценарий: экстренное завершение
+        activate Events
+        Events->>EventObj: on_document_opened()
+        activate EventObj
+        EventObj->>Holder: disconnect all
+        Holder-->>EventObj: emergency cleared
+        deactivate EventObj
+        
+        Events->>EventObj: on_document_saved()
+        activate EventObj
+        EventObj->>Holder: disconnect all
+        Holder-->>EventObj: emergency cleared
+        deactivate EventObj
+        
+        Events->>EventObj: on_document_closed()
+        activate EventObj
+        EventObj->>Holder: disconnect all
+        Holder-->>EventObj: emergency cleared
+        deactivate EventObj
+        
+        Events->>EventObj: on_document_modified()
+        activate EventObj
+        EventObj->>Holder: disconnect all
+        Holder-->>EventObj: emergency cleared
+        deactivate EventObj
+        
+        Events-->>Entry: all event channels cleaned
+        deactivate Events
 
-### 3.2 Альтернативный нормальный ход: Изменение настроек и сохранение
+        Entry->>Log: error("System emergency shutdown completed")
+        activate Log
+        Log->>Cfg: set_value("SystemReady", False)
+        Log-->>Entry: emergency logged
+        deactivate Log
 
-```plantuml
-@startuml qgis_alt_normal_flow
+    else Прерывание пользователем
+        Entry->>Log: Сценарий: прерывание пользователем
+        activate Log
+        Log->>Cfg: set_value("Logger", False)
+        Log-->>Entry: logging disabled
+        deactivate Log
 
-actor User
-participant "ConverterDialog" as Dialog
-participant "QtSettings" as Settings
-participant "QSettings" as QSet
-
-User -> Dialog: Change database connection
-Dialog -> Settings: set("db_host", "localhost:5432")
-activate Settings
-
-Settings -> QSet: beginGroup("DXF-PostGIS-Converter")
-Settings -> QSet: setValue("db_host", "localhost:5432")
-Settings -> QSet: endGroup()
-activate QSet
-QSet -> QSet: save to Windows Registry / ~/.config
-return void
-
-deactivate Settings
-
-User -> Dialog: Open settings
-Dialog -> Settings: get("db_host", default="127.0.0.1")
-activate Settings
-
-Settings -> QSet: beginGroup("DXF-PostGIS-Converter")
-Settings -> QSet: value("db_host", "127.0.0.1")
-activate QSet
-QSet -> QSet: read from Registry / config file
-return "localhost:5432"
-
-return "localhost:5432"
-
-Dialog -> Dialog: populate_db_host_field("localhost:5432")
-
-@enduml
-```
-
-### 3.3 Сценарий прерывания пользователем: Обработка ошибки логирования
-
-```plantuml
-@startuml qgis_user_interruption
-
-participant "ImportUseCase" as UseCase
-participant "QtLogger" as Logger
-participant "MessageBar" as Bar
-
-UseCase -> UseCase: process entity
-
-alt Ошибка при сохранении в БД
-    UseCase -> Logger: logger.error("Database error: connection lost")
-    activate Logger
-    
-    Logger -> Logger: create error message
-    Logger -> Bar: pushError("Database error: connection lost")
-    
-    alt User clicks on message
-        User -> Bar: dismiss error
-        Bar -> Bar: clear from UI
-    else User ignores
-        Bar -> Bar: auto-hide after timeout
+        Entry->>EventObj: clear()
+        activate EventObj
+        EventObj->>Holder: disconnect all
+        Holder-->>EventObj: cleared
+        EventObj-->>Entry: notifications stopped
+        deactivate EventObj
     end
-    
-    deactivate Logger
-end
-
-@enduml
 ```
 
-### 3.4 Сценарий системного прерывания: QGIS недоступна
+```mermaid
+sequenceDiagram
+    participant Entry as 
+    participant Cfg as Settings
+    participant Log as Logger
+    participant Provider as QgisConnectionProvider
+    participant Events as QtAppEvents
+    participant EventObj as QtEvent
+    participant Holder as QtSignalHolder
 
-```plantuml
-@startuml qgis_system_interruption
+        Entry->>Cfg: set_value(...)
+        activate Cfg
+        Cfg-->>Entry: logger_enabled
+        deactivate Cfg
 
-participant "QtLogger" as Logger
-participant "QgisInterface" as QGIS
-participant "LogFile" as File
+        Entry->>Log: set_enabled(logger_enabled)
+        activate Log
+        Log->>Cfg: set_value("Logger", enabled)
+        Cfg-->>Log: ok
+        deactivate Log
 
-Logger -> QGIS: check if iface is available
+        Entry->>Provider: _get_postgres_connections(...)
+        activate Provider
+        Provider->>Log: message("Loaded QGIS connection")
+        Provider-->>Entry: list[ConnectionConfigDTO]
+        deactivate Provider
 
-alt QGIS интерфейс недоступен
-    QGIS -x Logger: iface is None
-    Logger -> Logger: except AttributeError
-    Logger -> File: logger.error("QGIS interface unavailable")
-    Logger -> Logger: fall back to file logging only
-else QGIS доступна
-    QGIS -> Logger: return iface reference
-    Logger -> QGIS: use iface normally
-end
+        Entry->>Holder: connect(...)
+        Holder-->>Entry: holder ready
 
-@enduml
+        Entry->>Events: get_file(...)
+        activate Events
+        Events->>EventObj: on_document_opened()
+        Events-->>Entry: event channel
+        deactivate Events
+
+        Entry->>EventObj: connect(handler)
+        activate EventObj
+        EventObj->>Holder: signal connect
+        Holder-->>EventObj: connected
+
+        Entry->>EventObj: emit(data)
+        EventObj->>Holder: signal emit
+        Holder-->>EventObj: delivered
+        EventObj->>Holder: clear subscriptions
+        deactivate EventObj
+
 ```
 
+```mermaid
+sequenceDiagram
+    participant Entry as ""
+    participant Cfg as Settings
+    participant Log as Logger
+    participant Provider as QgisConnectionProvider
+    participant Events as QtAppEvents
+    participant EventObj as QtEvent
+    participant Holder as QtSignalHolder
+
+        Entry->>Provider: _get_postgres_connections(...)
+        activate Provider
+        Provider--xProvider: internal exception while reading settings
+        Provider->>Log: error("Error reading PostgreSQL connections")
+        
+        Provider-->>Entry: empty list
+        deactivate Provider
+        activate Log
+        Log->>Cfg: set_value("ErrorState", critical)
+        deactivate Log
+
+        Entry->>Events: Сценарий: экстренное завершение
+        activate Events
+        Events->>EventObj: on_document_opened()
+        activate EventObj
+        EventObj->>Holder: disconnect all
+        Holder-->>EventObj: emergency cleared
+        deactivate EventObj
+        
+        Events->>EventObj: on_document_saved()
+        activate EventObj
+        EventObj->>Holder: disconnect all
+        Holder-->>EventObj: emergency cleared
+        deactivate EventObj
+        
+        Events->>EventObj: on_document_closed()
+        activate EventObj
+        EventObj->>Holder: disconnect all
+        Holder-->>EventObj: emergency cleared
+        deactivate EventObj
+        
+        Events->>EventObj: on_document_modified()
+        activate EventObj
+        EventObj->>Holder: disconnect all
+        Holder-->>EventObj: emergency cleared
+        deactivate EventObj
+        
+        Events-->>Entry: all event channels cleaned
+        deactivate Events
+
+        Entry->>Log: error("System emergency shutdown completed")
+        activate Log
+        Log->>Cfg: set_value("SystemReady", False)
+        Log-->>Entry: emergency logged
+        deactivate Log
+
+
+```
+
+## 5.2.11.3. Уточненная диаграмма классов
+
+```mermaid
 ---
+config:
+    layout: elk
+---
+classDiagram
+    class Logger
+    class Settings
+    class QtEvent
+    class QtSignalHolder
+    class QtAppEvents
+    class QgisConnectionProvider
 
-## 4. Уточненная диаграмма классов (с типами связей)
+    QtAppEvents *-- QtEvent : создает
+    QtEvent *-- QtSignalHolder : создает
+    QgisConnectionProvider o-- Logger : использует
+    Logger o-- Settings : использует
 
-```plantuml
-@startuml infrastructure_qgis_refined
+```
 
-package "infrastructure.qgis" {
-    class QtLogger {
-        + debug(message: str)
-        + info(message: str)
-        + warning(message: str)
-        + error(message: str)
+## 5.2.11.4. Детальная диаграмма классов
+
+```mermaid
+classDiagram
+    class Logger {
+        -_LOGGER_KEY: str
+        -_settings: ISettings
+        -_enabled: bool
+        +is_enabled() bool
+        +set_enabled(enabled) None
+        +message(message, tag) None
+        +warning(message, tag) None
+        +error(message, tag) None
     }
-    
-    class QtAppEvents {
-        + on_selection_changed(ids: set)
-        + on_layer_added(layer)
-        + on_canvas_extent_changed()
+
+    class Settings {
+        -_settings
+        +get_value(key, default, value_type)
+        +set_value(key, value) None
+        +remove(key) None
     }
-    
-    class QtSettings {
-        + get(key: str): Any
-        + set(key: str, value: Any)
-        + get_bool(key: str): bool
-        + get_int(key: str): int
+
+    class QtSignalHolder {
+        +event
     }
-    
+
     class QtEvent {
-        + get_event_type(): str
-        + get_data(): dict
+        -_signal_holder: QtSignalHolder
+        +connect(receiver) None
+        +disconnect(receiver) None
+        +emit(data) None
+        +clear() None
     }
-}
 
-package "application.interfaces" {
-    interface ILogger {
-        + debug()
-        + info()
-        + warning()
-        + error()
-    }
-    
-    interface ISettings {
-        + get()
-        + set()
-    }
-}
-
-QtLogger -.implements-> ILogger
-QtSettings -.implements-> ISettings
-QtAppEvents --> QtEvent: emits
-
-@enduml
-```
-
----
-
-## 5. Детальная диаграмма классов (со всеми полями и методами)
-
-```plantuml
-@startuml infrastructure_qgis_detailed
-
-package "infrastructure.qgis" {
-    
-    class QtLogger {
-        - _qgis_iface: QgisInterface
-        - _log_level: LogLevel
-        - _log_file: str
-        - _max_log_size: int
-        --
-        + __init__(qgis_iface: QgisInterface)
-        + debug(message: str, exception: Exception | None = None): None
-        + info(message: str): None
-        + warning(message: str): None
-        + error(message: str, exception: Exception | None = None): None
-        + critical(message: str): None
-        + set_log_level(level: LogLevel): None
-        + get_log_level(): LogLevel
-        - _log_to_qgis(level: str, message: str): None
-        - _log_to_file(level: str, message: str, exc_info: bool = False): None
-        - _format_message(level: str, message: str): str
-        - _rotate_log_file(): None
-    }
-    
     class QtAppEvents {
-        - _canvas: QgsMapCanvas
-        - _layer_tree: QgsLayerTree
-        - _event_listeners: dict[str, Callable]
-        - _logger: ILogger
-        --
-        + __init__(canvas: QgsMapCanvas, layer_tree: QgsLayerTree, logger: ILogger)
-        + on_selection_changed(selected_ids: set[int]): None
-        + on_layer_added(layer: QgsVectorLayer): None
-        + on_layer_removed(layer_id: str): None
-        + on_canvas_extent_changed(): None
-        + on_canvas_crs_changed(): None
-        + subscribe(event_type: str, callback: Callable): None
-        + unsubscribe(event_type: str, callback: Callable): None
-        + emit_event(event_type: str, data: dict): None
-        - _trigger_callbacks(event_type: str, event: QtEvent): None
+        -_on_document_opened: QtEvent
+        -_on_document_saved: QtEvent
+        -_on_document_closed: QtEvent
+        -_on_document_modified: QtEvent
+        +__init__()
+        +on_document_opened()
+        +on_document_saved()
+        +on_document_closed()
+        +on_document_modified()
     }
-    
-    class QtSettings {
-        - _qgis_settings: QSettings
-        - _app_key: str = "DXF-PostGIS-Converter"
-        - _defaults: dict[str, Any]
-        --
-        + __init__(app_key: str = "DXF-PostGIS-Converter")
-        + get(key: str, default: Any = None): Any
-        + get_str(key: str, default: str = ""): str
-        + get_bool(key: str, default: bool = False): bool
-        + get_int(key: str, default: int = 0): int
-        + get_list(key: str, default: list = None): list
-        + set(key: str, value: Any): None
-        + set_str(key: str, value: str): None
-        + set_bool(key: str, value: bool): None
-        + set_int(key: str, value: int): None
-        + set_list(key: str, value: list): None
-        + remove(key: str): None
-        + clear(): None
-        + get_all_keys(): list[str]
-        + key_exists(key: str): bool
-        + reset_to_defaults(): None
-        - _init_defaults(): None
+
+    class QgisConnectionProvider {
+        -_logger
+        +get_qgis_connections() list
+        +get_qgis_connection_password(connection_name) optional
+        -_get_postgres_connections() list
     }
-    
-    class QtEvent {
-        - _event_type: str
-        - _timestamp: datetime
-        - _data: dict[str, Any]
-        --
-        + __init__(event_type: str, data: dict = None)
-        + get_event_type(): str
-        + get_timestamp(): datetime
-        + get_data(): dict
-        + get_data_item(key: str, default: Any = None): Any
-        + set_data(data: dict): None
-        + __str__(): str
-    }
-}
 
-@enduml
+    QtAppEvents *-- QtEvent : создает
+    QtEvent *-- QtSignalHolder : создает
+    QgisConnectionProvider o-- Logger : использует
+    Logger o-- Settings : использует
 ```
 
----
+### Таблица 2. Ключевые поля классов пакета «qgis»
 
-## 6. Таблицы описания полей и методов
+| Класс | Поле | Описание |
+|---|---|---|
+| Logger | _settings | Доступ к persistent настройкам |
+| Logger | _enabled | Флаг включенности логирования |
+| Settings | _settings | Объект `QgsSettings` |
+| QtEvent | _signal_holder | Держатель `pyqtSignal` |
+| QtAppEvents | _on_document_* | Набор событий приложения |
+| QgisConnectionProvider | _logger | Логирование чтения и ошибок |
 
-### 6.1 QtLogger
+### Таблица 3. Ключевые методы классов пакета «qgis»
 
-#### Поля
+| Класс | Метод | Назначение |
+|---|---|---|
+| Logger | set_enabled | Переключение логгера и запись состояния в Settings |
+| Logger | message/warning/error | Вывод сообщений в QGIS log |
+| Settings | get_value/set_value/remove | Работа с `QgsSettings` |
+| QtEvent | connect/disconnect | Управление подписками |
+| QtEvent | emit/clear | Публикация и очистка обработчиков |
+| QtAppEvents | on_document_opened/... | Выдача каналов событий |
+| QgisConnectionProvider | get_qgis_connections | Получение списка подключений |
+| QgisConnectionProvider | get_qgis_connection_password | Получение пароля подключения |
 
-| Название | Тип | Модификатор | Описание |
-|----------|-----|-------------|---------|
-| `_qgis_iface` | QgisInterface | private | QGIS интерфейс для доступа к UI |
-| `_log_level` | LogLevel | private | минимальный уровень логирования |
-| `_log_file` | str | private | путь к файлу логирования |
-| `_max_log_size` | int | private | максимальный размер файла логирования |
+## 5.2.11.5. Подробные таблицы полей и методов классов
 
-#### Методы
+### Класс Logger
+
+#### Описание полей класса
+
+| Название | Тип | Описание |
+|---|---|---|
+| _LOGGER_KEY | str | Ключ настройки, включающей/отключающей логирование |
+| _settings | ISettings | Адаптер доступа к persistent-настройкам |
+| _enabled | bool | Текущее состояние логирования |
+
+#### Описание методов класса
 
 | Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| `__init__()` | qgis_iface | void | инициализирует с QGIS интерфейсом |
-| `debug()` | message, exception | void | логирует на уровне DEBUG |
-| `info()` | message | void | логирует информационное сообщение |
-| `warning()` | message | void | логирует предупреждение |
-| `error()` | message, exception | void | логирует ошибку с исключением |
-| `critical()` | message | void | логирует критическую ошибку |
-| `set_log_level()` | level: LogLevel | void | устанавливает минимальный уровень |
-| `get_log_level()` | - | LogLevel | получает текущий уровень |
-| `_log_to_qgis()` | level, message | void | отправляет в QGIS Message Bar |
-| `_log_to_file()` | level, message, exc_info | void | записывает в файл логирования |
+|---|---|---|---|
+| is_enabled | - | bool | Возвращает текущее состояние логирования |
+| set_enabled | enabled: bool | None | Устанавливает флаг и сохраняет его в Settings |
+| message | message: str, tag: str | None | Пишет информационное сообщение в журнал QGIS |
+| warning | message: str, tag: str | None | Пишет предупреждение в журнал QGIS |
+| error | message: str, tag: str | None | Пишет ошибку в журнал QGIS |
 
-### 6.2 QtAppEvents
+### Класс Settings
 
-#### Поля
+#### Описание полей класса
 
-| Название | Тип | Модификатор | Описание |
-|----------|-----|-------------|---------|
-| `_canvas` | QgsMapCanvas | private | QGIS canvas для работы с картой |
-| `_layer_tree` | QgsLayerTree | private | дерево слоев QGIS |
-| `_event_listeners` | dict | private | подписчики на события |
-| `_logger` | ILogger | private | логирование |
+| Название | Тип | Описание |
+|---|---|---|
+| _settings | QgsSettings | Объект QGIS для хранения пользовательских параметров |
 
-#### Методы
+#### Описание методов класса
 
 | Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| `__init__()` | canvas, layer_tree, logger | void | инициализирует менеджер событий |
-| `on_selection_changed()` | selected_ids: set | void | обработчик изменения выбора |
-| `on_layer_added()` | layer: QgsVectorLayer | void | обработчик добавления слоя |
-| `on_layer_removed()` | layer_id: str | void | обработчик удаления слоя |
-| `on_canvas_extent_changed()` | - | void | обработчик изменения extent |
-| `on_canvas_crs_changed()` | - | void | обработчик изменения CRS |
-| `subscribe()` | event_type, callback | void | подписаться на событие |
-| `unsubscribe()` | event_type, callback | void | отписаться от события |
-| `emit_event()` | event_type, data | void | испустить событие |
+|---|---|---|---|
+| get_value | key: str, default: Any, value_type: type | Any | Возвращает значение настройки с типизацией |
+| set_value | key: str, value: Any | None | Сохраняет значение настройки |
+| remove | key: str | None | Удаляет настройку |
 
-### 6.3 QtSettings
+### Класс QtSignalHolder
 
-#### Поля
+#### Описание полей класса
 
-| Название | Тип | Модификатор | Описание |
-|----------|-----|-------------|---------|
-| `_qgis_settings` | QSettings | private | Qt настройки (Registry/config) |
-| `_app_key` | str | private | префикс для ключей приложения |
-| `_defaults` | dict | private | значения по умолчанию |
+| Название | Тип | Описание |
+|---|---|---|
+| event | pyqtSignal(object) | Qt-сигнал для публикации событий с payload |
 
-#### Методы
+#### Описание методов класса
 
 | Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| `get()` | key, default | Any | получить значение |
-| `get_str()` | key, default | str | получить строку |
-| `get_bool()` | key, default | bool | получить логическое значение |
-| `get_int()` | key, default | int | получить целое число |
-| `get_list()` | key, default | list | получить список |
-| `set()` | key, value | void | установить значение |
-| `set_str()` | key, value | void | установить строку |
-| `set_bool()` | key, value | void | установить логическое значение |
-| `set_int()` | key, value | void | установить целое число |
-| `set_list()` | key, value | void | установить список |
-| `remove()` | key | void | удалить значение |
-| `clear()` | - | void | очистить все настройки |
-| `get_all_keys()` | - | list[str] | получить все ключи |
-| `key_exists()` | key | bool | проверить наличие ключа |
-| `reset_to_defaults()` | - | void | вернуть значения по умолчанию |
+|---|---|---|---|
+| Нет публичных методов | - | - | Класс используется как holder сигнала внутри QtEvent |
 
-### 6.4 QtEvent
+### Класс QtEvent
 
-#### Поля
+#### Описание полей класса
 
-| Название | Тип | Модификатор | Описание |
-|----------|-----|-------------|---------|
-| `_event_type` | str | private | тип события (строковый идентификатор) |
-| `_timestamp` | datetime | private | время возникновения события |
-| `_data` | dict | private | данные события |
+| Название | Тип | Описание |
+|---|---|---|
+| _signal_holder | QtSignalHolder | Владеет объектом Qt-сигнала |
 
-#### Методы
+#### Описание методов класса
 
 | Название | Параметры | Возвращает | Описание |
-|----------|-----------|-----------|---------|
-| `__init__()` | event_type, data | void | инициализирует событие |
-| `get_event_type()` | - | str | получить тип события |
-| `get_timestamp()` | - | datetime | получить время события |
-| `get_data()` | - | dict | получить данные события |
-| `get_data_item()` | key, default | Any | получить значение из данных |
-| `set_data()` | data | void | установить данные |
-| `__str__()` | - | str | строковое представление |
+|---|---|---|---|
+| connect | receiver: Callable[[Any], None] | None | Подписывает обработчик на событие |
+| disconnect | receiver: Callable[[Any], None] | None | Отписывает обработчик |
+| emit | data: Any | None | Публикует событие подписчикам |
+| clear | - | None | Очищает все подписки |
 
----
+### Класс QtAppEvents
 
-## 7. Типы событий приложения
+#### Описание полей класса
 
-| Тип события | Данные | Описание |
-|-------------|--------|---------|
-| `document_opened` | {doc_id, doc_name} | Документ открыт |
-| `document_closed` | {doc_id} | Документ закрыт |
-| `import_started` | {file_path, layer_count} | Импорт начат |
-| `import_completed` | {doc_id, entities_imported} | Импорт завершен |
-| `selections_changed` | {selected_ids, layer_id} | Выбор изменился |
-| `layer_added` | {layer_id, layer_name} | Слой добавлен в QGIS |
-| `layer_removed` | {layer_id, layer_name} | Слой удалён из QGIS |
-| `export_started` | {doc_id, file_path} | Экспорт начат |
-| `export_completed` | {file_path, entities_exported} | Экспорт завершен |
+| Название | Тип | Описание |
+|---|---|---|
+| _on_document_opened | QtEvent | Канал события открытия документа |
+| _on_document_saved | QtEvent | Канал события сохранения документа |
+| _on_document_closed | QtEvent | Канал события закрытия документа |
+| _on_document_modified | QtEvent | Канал события изменения документа |
+| _on_language_changed | QtEvent | Канал события смены языка |
 
----
+#### Описание методов класса
 
-## 8. Пространство хранения настроек
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| on_document_opened | - | QtEvent | Возвращает канал открытия документа |
+| on_document_saved | - | QtEvent | Возвращает канал сохранения документа |
+| on_document_closed | - | QtEvent | Возвращает канал закрытия документа |
+| on_document_modified | - | QtEvent | Возвращает канал изменения документа |
+| on_language_changed | - | QtEvent | Возвращает канал смены языка |
 
-### Ключи QSettings (Windows Registry)
+### Класс QgisConnectionProvider
 
-```
-HKEY_CURRENT_USER
-└── Software
-    └── DXF-PostGIS-Converter
-        ├── db_host: "localhost"
-        ├── db_port: 5432
-        ├── db_name: "dxf_postgis"
-        ├── db_user: "postgres"
-        ├── last_opened_file: "/path/to/file.dxf"
-        ├── last_export_dir: "/path/to/exports"
-        ├── auto_sync_qgis: true
-        ├── import_mode: "MERGE_WITH_EXISTING"
-        ├── export_mode: "WITH_ATTRIBUTES"
-        ├── language: "en"
-        ├── window_geometry: {...}
-        └── recent_files: ["file1.dxf", "file2.dxf", ...]
-```
+#### Описание полей класса
 
-### Аналог на Linux (~/.config)
+| Название | Тип | Описание |
+|---|---|---|
+| _logger | ILogger | Логгер операций чтения подключений и ошибок |
 
-```
-~/.config/DXF-PostGIS-Converter/DXF-PostGIS-Converter.conf
-[General]
-db_host=localhost
-db_port=5432
-db_name=dxf_postgis
-language=en
-```
+#### Описание методов класса
 
----
-
-## 9. Взаимодействие с другими пакетами
-
-### Входящие зависимости (другие пакеты используют qgis)
-
-- **application/use_cases**
-  - используют QtLogger для логирования
-  - используют QtSettings для получения конфигурации
-  
-- **presentation/dialogs, widgets**
-  - используют QtLogger для ошибок
-  - используют QtAppEvents для синхронизации с QGIS
-
-### Исходящие зависимости (qgis использует)
-
-- **application/interfaces** (ILogger, ISettings, IEventManager)
-  - реализует контракты интерфейсов
-
-- **QGIS Python API** (PyQGIS)
-  - QgisInterface, QgsMapCanvas, QgsLayerTree, QSettings
-
-- **Python standard library**
-  - datetime, logging, json
-
----
-
-## 10. Правила проектирования и ограничения
-
-### Архитектурные правила
-
-1. **Слой**: infrastructure/qgis - **Infrastructure Layer**
-2. **Framework Integration**: тесно интегрирована с QGIS API
-3. **Зависимости**: только ВЫШЕ к application и domain
-4. **Инверсия управления**: реализует интерфейсы из application слоя
-
-### Паттерны проектирования
-
-- **Adapter Pattern** (QtLogger, QtSettings, QtEvent)
-  - адаптирует QGIS API к приложению
-
-- **Observer Pattern** (QtAppEvents)
-  - управление событиями и подписками
-  
-- **Singleton Pattern** (QtSettings)
-  - единый доступ к хранилищу настроек
-
-### Правила безопасности
-
-1. **Валидация настроек**: типы проверяются при get/set
-2. **Логирование**: чувствительные данные не логируются
-3. **Изоляция**: QGIS api обёрнута в классы приложения
-4. **Обработка ошибок**: исключения QGIS перехватываются
-
-### Рекомендации
-
-✓ используйте QtLogger вместо встроенного print()
-✓ подписывайте на события QtAppEvents для синхронизации
-✓ сохраняйте пользовательские настройки через QtSettings
-✗ не обращайтесь к QGIS API напрямую, используйте wrapper классы
-
----
-
-## 11. Состояние проектирования
-
-✅ **Завершено**: полная документация infrastructure/qgis интеграции.
-
-**Готово к использованию в диплому**: детальное описание взаимодействия с QGIS фреймворком, логирование, события и управление настройками.
+| Название | Параметры | Возвращает | Описание |
+|---|---|---|---|
+| _get_postgres_connections | - | list[ConnectionConfigDTO] | Читает и парсит подключения PostgreSQL из QSettings |
+| get_qgis_connections | - | list[ConnectionConfigDTO] | Публичный API получения подключений |
+| get_qgis_connection_password | connection_name: str | Optional[str] | Возвращает пароль выбранного подключения |

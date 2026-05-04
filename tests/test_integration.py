@@ -169,7 +169,8 @@ class TestDbImportExportIntegration(unittest.TestCase):
 
         self._reader = DXFReader()
         self._open_use_case = OpenDocumentUseCase(self._active_repo, self._reader, self._events, self._logger)
-        self._import_use_case = ImportUseCase(self._active_repo, self._reader, self._logger)
+        self._writer = DXFWriter()
+        self._import_use_case = ImportUseCase(self._active_repo, self._reader, self._writer, self._logger)
         self._export_use_case = ExportUseCase(self._logger)
 
         if any(not os.path.exists(path) for path in [EXAMPLE_1, EXAMPLE_2, EXAMPLE_3, EXAMPLE_4]):

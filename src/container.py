@@ -47,7 +47,7 @@ class Container:
             close_use_case = CloseDocumentUseCase(active_repo, dxfreader, app_events)
             select_use_case = SelectEntityUseCase(active_repo, app_events, logger)
             select_area_use_case = SelectAreaUseCase(active_repo, area_selector, app_events, logger)
-            import_use_case = ImportUseCase(active_repo, dxfreader, logger)
+            import_use_case = ImportUseCase(active_repo, dxfreader, dxfwriter, logger)
             export_use_case = ExportUseCase(logger)
             data_viewer_use_case = DataViewerUseCase(logger)
             save_selected_to_file_use_case = SaveSelectedToFileUseCase(active_repo, dxfwriter, logger)

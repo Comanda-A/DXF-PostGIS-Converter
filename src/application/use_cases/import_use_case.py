@@ -6,7 +6,7 @@ from unidecode import unidecode
 
 from ...domain.entities import DXFDocument, DXFContent, DXFLayer, DXFEntity
 from ...domain.repositories import IActiveDocumentRepository
-from ...domain.services import IDXFReader
+from ...domain.services import IDXFReader, IDXFWriter
 
 from ...application.dtos import ImportConfigDTO, ConnectionConfigDTO, ImportMode
 from ...application.results import AppResult, Unit
@@ -20,10 +20,12 @@ class ImportUseCase:
         self,
         active_repo: IActiveDocumentRepository,
         dxf_reader: IDXFReader,
+        dxf_writer: IDXFWriter,
         logger: ILogger
     ):
         self._active_repo = active_repo
         self._dxf_reader = dxf_reader
+        self._dxf_writer = dxf_writer
         self._logger = logger
     
     def _transliterate_layer_name(self, layer_name: str) -> str:
@@ -121,74 +123,121 @@ class ImportUseCase:
             for config in configs:
                 report_lines.append(f"\n--- Processing file: {config.filename} ---")
 
-                doc_for_preview = docs[config.filename]
-                preview_source_path = doc_for_preview.filepath
+                source_doc = docs[config.filename]
+                selected_handles = self._get_selected_handles(source_doc)
+                use_selected_subset = bool(selected_handles)
+
+                if use_selected_subset:
+                    selected_layers = [
+                        layer
+                        for layer in source_doc.layers.values()
+                        if any(entity.is_selected for entity in layer.entities.values())
+                    ]
+                else:
+                    selected_layers = list(source_doc.layers.values())
+
+                preview_source_path, temp_source_file = self._prepare_preview_source(source_doc)
                 temp_preview_file = ""
+                filtered_content = b""
 
-                if (not preview_source_path or not os.path.exists(preview_source_path)) and doc_for_preview.content:
-                    fd, temp_preview_file = tempfile.mkstemp(suffix=".dxf")
-                    os.close(fd)
-                    with open(temp_preview_file, "wb") as tmp_file:
-                        tmp_file.write(doc_for_preview.content.content)
-                    preview_source_path = temp_preview_file
+                try:
+                    if not preview_source_path:
+                        error_msg = f"Source file for '{config.filename}' is unavailable"
+                        report_lines.append(f"ERROR: {error_msg}")
+                        return AppResult.fail(error_msg), "\n".join(report_lines)
 
-                if preview_source_path and os.path.exists(preview_source_path):
-                    preview_result = self._dxf_reader.save_svg_preview(
-                        filepath=preview_source_path,
-                        output_dir=previews_dir,
-                        filename=config.filename,
-                    )
-                    if preview_result.is_success:
-                        report_lines.append(f"Preview saved: {preview_result.value}")
+                    if use_selected_subset:
+                        fd, temp_preview_file = tempfile.mkstemp(suffix=".dxf")
+                        os.close(fd)
+
+                        preview_save_result = self._dxf_writer.save_selected_by_handles(
+                            source_filepath=preview_source_path,
+                            output_path=temp_preview_file,
+                            selected_handles=selected_handles,
+                        )
+                        if preview_save_result.is_fail:
+                            error_msg = f"Failed to prepare selected DXF for '{config.filename}': {preview_save_result.error}"
+                            report_lines.append(f"ERROR: {error_msg}")
+                            return AppResult.fail(error_msg), "\n".join(report_lines)
+
+                        preview_result = self._dxf_reader.save_svg_preview(
+                            filepath=temp_preview_file,
+                            output_dir=previews_dir,
+                            filename=config.filename,
+                        )
+                        if preview_result.is_success:
+                            report_lines.append(f"Preview saved: {preview_result.value}")
+                        else:
+                            report_lines.append(f"WARNING: Failed to save preview for '{config.filename}': {preview_result.error}")
+
+                        with open(temp_preview_file, "rb") as preview_file:
+                            filtered_content = preview_file.read()
                     else:
-                        report_lines.append(f"WARNING: Failed to save preview for '{config.filename}': {preview_result.error}")
+                        preview_result = self._dxf_reader.save_svg_preview(
+                            filepath=preview_source_path,
+                            output_dir=previews_dir,
+                            filename=config.filename,
+                        )
+                        if preview_result.is_success:
+                            report_lines.append(f"Preview saved: {preview_result.value}")
+                        else:
+                            report_lines.append(f"WARNING: Failed to save preview for '{config.filename}': {preview_result.error}")
 
-                if temp_preview_file and os.path.exists(temp_preview_file):
-                    os.remove(temp_preview_file)
-                
-                # Импортируем файлы
-                doc = None
+                        if source_doc.content:
+                            filtered_content = source_doc.content.content
+                        elif preview_source_path and os.path.exists(preview_source_path):
+                            with open(preview_source_path, "rb") as preview_file:
+                                filtered_content = preview_file.read()
+                        else:
+                            filtered_content = b""
+
+                finally:
+                    if temp_source_file and os.path.exists(temp_source_file):
+                        os.remove(temp_source_file)
+                    if temp_preview_file and os.path.exists(temp_preview_file):
+                        os.remove(temp_preview_file)
+
+                # Импортируем только выбранные сущности
+                doc = source_doc
                 doc_repo = None
                 content_repo = None
                 layer_repo = None
-                
+
                 if not config.import_layers_only:
                     report_lines.append(f"Importing document structure to schema '{config.file_schema}'")
-                    
+
                     doc_repo = self._session._get_document_repository(config.file_schema).value
                     content_repo = self._session._get_content_repository(config.file_schema).value
                     layer_repo = self._session._get_layer_repository(config.file_schema).value
-                    
+
                     report_lines.append(f"All repositories initialized for schema '{config.file_schema}'")
 
-                    # Подготавливаем документ с датами
                     now = datetime.now()
                     doc_to_save = DXFDocument(
-                        id=docs[config.filename].id,
-                        filename=docs[config.filename].filename,
-                        filepath=docs[config.filename].filepath,
-                        layers=list(docs[config.filename].layers.values()),
-                        content=docs[config.filename].content,
+                        id=source_doc.id,
+                        filename=source_doc.filename,
+                        filepath=source_doc.filepath,
+                        layers=selected_layers,
+                        content=DXFContent(document_id=source_doc.id, content=filtered_content),
                         upload_date=now,
-                        update_date=now
+                        update_date=now,
                     )
 
                     if doc_repo.exists(config.filename).value:
                         report_lines.append(f"Document already exists in database, updating...")
-                        # Сохраняем дату создания, обновляем дату обновления
                         existing_doc_result = doc_repo.get_by_filename(config.filename)
                         if existing_doc_result.is_success and existing_doc_result.value:
                             existing_doc = existing_doc_result.value
                             doc_to_save = DXFDocument(
-                                id=docs[config.filename].id,
-                                filename=docs[config.filename].filename,
-                                filepath=docs[config.filename].filepath,
-                                layers=list(docs[config.filename].layers.values()),
-                                content=docs[config.filename].content,
-                                upload_date=existing_doc.upload_date,  # Сохраняем оригинальную дату
-                                update_date=now  # Обновляем дату изменения
+                                id=source_doc.id,
+                                filename=source_doc.filename,
+                                filepath=source_doc.filepath,
+                                layers=selected_layers,
+                                content=DXFContent(document_id=source_doc.id, content=filtered_content),
+                                upload_date=existing_doc.upload_date,
+                                update_date=now,
                             )
-                        
+
                         result = doc_repo.update(doc_to_save)
                         report_lines.append(f"Document updated successfully (ID: {result.value.id})")
                     else:
@@ -202,43 +251,30 @@ class ImportUseCase:
                     if content_result.is_fail:
                         report_lines.append(f"Creating new content record for document...")
                         dxf_content = content_repo.create(
-                            DXFContent(
-                                document_id=doc.id,
-                                content=docs[config.filename].content.content
-                            )
+                            DXFContent(document_id=doc.id, content=filtered_content)
                         ).value
-                        report_lines.append(f"Content record created (size: {len(docs[config.filename].content.content)} bytes)")
+                        report_lines.append(f"Content record created (size: {len(filtered_content)} bytes)")
                     else:
                         report_lines.append(f"Updating existing content record...")
                         dxf_content = content_result.value
                         dxf_content = content_repo.update(
-                            DXFContent(
-                                id=dxf_content.id,
-                                document_id=doc.id,
-                                content=docs[config.filename].content.content
-                            )
+                            DXFContent(id=dxf_content.id, document_id=doc.id, content=filtered_content)
                         ).value
-                        report_lines.append(f"Content record updated (size: {len(docs[config.filename].content.content)} bytes)")
+                        report_lines.append(f"Content record updated (size: {len(filtered_content)} bytes)")
                 else:
-                    # Если импортируем только слои, нужно найти/создать документ
                     report_lines.append(f"Importing layers only to schema '{config.layer_schema}'")
-                    
-                    doc = docs[config.filename]
-                
+
                 # Обработка слоев - выполняется для обоих режимов
                 if doc and layer_repo:
                     layers_processed = 0
-                    # Создаем компактный идентификатор документа для имен таблиц
                     doc_short_id = self._make_short_id(doc.id)
-                    
+
                     if not config.import_layers_only:
-                        for layer in docs[config.filename].layers.values():
-                            # Применяем транслитерацию если включено в конфиге
+                        for layer in selected_layers:
                             base_table_name = self._transliterate_layer_name(layer.name) if config.transliterate_layer_names else layer.name
-                            
-                            # Добавляем компактный префикс для уникальности имени таблицы при импорте разных файлов
+
                             table_name = f"l{doc_short_id}_{base_table_name}" if doc_short_id else base_table_name
-                            
+
                             ex_layer_result = layer_repo.get_by_document_id_and_layer_name(doc.id, layer.name)
 
                             if ex_layer_result.is_fail:
@@ -248,13 +284,12 @@ class ImportUseCase:
                                         document_id=doc.id,
                                         name=layer.name,
                                         schema_name=config.layer_schema,
-                                        table_name=table_name
+                                        table_name=table_name,
                                     )
                                 ).value
                                 layers_processed += 1
                             else:
                                 ex_layer = ex_layer_result.value
-                                # если объекты слоя хранятся в другой схеме или таблице, то создаем еще одну сущность слоя
                                 if ex_layer.schema_name != config.layer_schema or ex_layer.table_name != table_name:
                                     report_lines.append(f"Layer '{layer.name}' already exists but with different schema/table, creating new layer record")
                                     ex_layer = layer_repo.create(
@@ -268,53 +303,47 @@ class ImportUseCase:
                                     layers_processed += 1
                                 else:
                                     report_lines.append(f"Layer '{layer.name}' already exists in target schema, skipping")
-                        
-                        report_lines.append(f"Layers processed: {layers_processed} created, {len(docs[config.filename].layers.values()) - layers_processed} existing")
-                    
-                    # Теперь сохраняем сущности (entities) слоев в базу данных
+
+                        report_lines.append(f"Layers processed: {layers_processed} created, {len(selected_layers) - layers_processed} existing")
+
                     report_lines.append(f"\nSaving layer entities for schema '{config.layer_schema}'...")
-                    
+
                     total_entities = 0
-                    
-                    for layer in docs[config.filename].layers.values():
-                        # Применяем транслитерацию если включено в конфиге
+
+                    for layer in selected_layers:
                         base_table_name = self._transliterate_layer_name(layer.name) if config.transliterate_layer_names else layer.name
-                        
-                        # Добавляем компактный префикс для уникальности имени таблицы при импорте разных файлов
                         table_name = f"l{doc_short_id}_{base_table_name}" if doc_short_id else base_table_name
-                        
-                        # Для каждого слоя получаем свой repository с правильным именем таблицы
+
                         entity_repo_result = self._session._get_entity_repository(config.layer_schema, table_name)
                         if entity_repo_result.is_fail:
                             report_lines.append(f"ERROR: Failed to get repository for layer '{layer.name}': {entity_repo_result.error}")
                             continue
-                        
+
                         entity_repo = entity_repo_result.value
                         report_lines.append(f"Processing layer '{layer.name}' (table: {table_name})...")
-                        
+
                         layer_entity_count = 0
-                        # Для каждого слоя сохраняем все его сущности
                         for entity in layer.entities.values():
-                            # Проверяем, существует ли сущность с таким именем и типом
+                            if not entity.is_selected:
+                                continue
+
                             check_result = entity_repo.get_by_name_and_type(entity.name, entity.entity_type)
-                            
+
                             if check_result.is_success and check_result.value:
-                                # Обновляем существующую сущность
                                 result = entity_repo.update(entity)
                                 if result.is_success:
                                     total_entities += 1
                                     layer_entity_count += 1
                             else:
-                                # Создаём новую сущность в базе
                                 result = entity_repo.create(entity)
                                 if result.is_success:
                                     total_entities += 1
                                     layer_entity_count += 1
                                 else:
                                     report_lines.append(f"WARNING: Failed to create entity '{entity.name}': {result.error}")
-                        
+
                         report_lines.append(f"Layer '{layer.name}' completed: {layer_entity_count} entities saved")
-                    
+
                     report_lines.append(f"Total entities saved: {total_entities}")
 
             self._session.commit()
@@ -340,3 +369,27 @@ class ImportUseCase:
             report_lines.append("IMPORT FAILED")
             
             return AppResult.fail(str(e)), "\n".join(report_lines)
+
+    def _get_selected_handles(self, document: DXFDocument) -> set[str]:
+        selected_handles: set[str] = set()
+        for layer in document.layers.values():
+            for entity in layer.entities.values():
+                if not entity.is_selected:
+                    continue
+                handle = str(entity.attributes.get("handle", "")).strip().upper()
+                if handle:
+                    selected_handles.add(handle)
+        return selected_handles
+
+    def _prepare_preview_source(self, document: DXFDocument) -> tuple[str, str]:
+        if document.filepath and os.path.exists(document.filepath):
+            return document.filepath, ""
+
+        if not document.content:
+            return "", ""
+
+        fd, temp_source_file = tempfile.mkstemp(suffix=".dxf")
+        os.close(fd)
+        with open(temp_source_file, "wb") as tmp_file:
+            tmp_file.write(document.content.content)
+        return temp_source_file, temp_source_file

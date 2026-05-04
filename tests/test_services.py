@@ -587,8 +587,10 @@ class TestImportUseCase(unittest.TestCase):
         self.active_repo = MagicMock()
         self.logger = _DummyLogger()
         self.dxf_reader = MagicMock()
+        self.dxf_writer = MagicMock()
         self.dxf_reader.save_svg_preview.return_value = AppResult.success("preview.svg")
-        self.use_case = ImportUseCase(self.active_repo, self.dxf_reader, self.logger)
+        self.dxf_writer.save_selected_by_handles.return_value = AppResult.success(0)
+        self.use_case = ImportUseCase(self.active_repo, self.dxf_reader, self.dxf_writer, self.logger)
 
         self.connection = ConnectionConfigDTO(
             db_type="postgis",
@@ -680,6 +682,66 @@ class TestImportUseCase(unittest.TestCase):
         self.assertIn("IMPORT COMPLETED SUCCESSFULLY", report)
         fake_session.commit.assert_called_once()
         fake_session.close.assert_called_once()
+
+    def test_execute_uses_only_selected_entities_when_selection_exists(self):
+        """
+        Проверяет, что при наличии выбранных сущностей импорт пишет в writer только их.
+
+        Что тестируется:
+        1. В документе есть выбранная и невыбранная сущности.
+        2. ImportUseCase вызывает writer для подготовки временного DXF.
+        3. В writer передается только handle выбранной сущности.
+
+        Почему это важно:
+        Это регрессионная проверка на баг, когда в импорт попадал весь файл вместо выбора.
+        """
+        doc = DXFDocument(filename="subset.dxf", filepath="")
+        layer = DXFLayer.create(
+            document_id=doc.id,
+            name="Layer1",
+            schema_name="public",
+            table_name="Layer1",
+        )
+
+        selected_entity = DXFEntity.create(
+            entity_type=DxfEntityType.LINE,
+            name="selected",
+            selected=True,
+        )
+        selected_entity.add_attributes({"handle": "ABCD12"})
+
+        other_entity = DXFEntity.create(
+            entity_type=DxfEntityType.LINE,
+            name="other",
+            selected=False,
+        )
+        other_entity.add_attributes({"handle": "FFFF00"})
+
+        layer.add_entities([selected_entity, other_entity])
+        doc.add_layers([layer])
+        doc.add_content(DXFContent(document_id=doc.id, content=b"0\nEOF\n"))
+
+        config = ImportConfigDTO(
+            filename="subset.dxf",
+            import_mode=ImportMode.ADD_OBJECTS,
+            layer_schema="layer_schema",
+            file_schema="file_schema",
+            import_layers_only=True,
+        )
+
+        self.active_repo.get_by_filename.return_value = AppResult.success(doc)
+
+        fake_session = MagicMock()
+        fake_session.connect.return_value = AppResult.success(Unit())
+        fake_session.schema_exists.return_value = AppResult.success(True)
+
+        with patch("src.application.use_cases.import_use_case.inject.instance", return_value=fake_session):
+            result, report = self.use_case.execute(self.connection, [config])
+
+        self.assertTrue(result.is_success, msg=report)
+        self.dxf_writer.save_selected_by_handles.assert_called_once()
+        call_kwargs = self.dxf_writer.save_selected_by_handles.call_args.kwargs
+        self.assertEqual(call_kwargs["selected_handles"], {"ABCD12"})
 
     def test_execute_fails_when_layer_schema_not_found(self):
         """

@@ -128,15 +128,16 @@ class ImportDialog(QDialog, FORM_CLASS):
     def _init_components(self):
         docs = self._active_doc_service.get_all()
         for doc in docs:
-            self._import_configs.append(
-                ImportConfigDTO(
-                    filename=doc.filename,
-                    import_mode=ImportMode.OVERWRITE_LAYERS,
-                    layer_schema="",
-                    file_schema="",
-                    import_layers_only=False
+            if doc.selected:
+                self._import_configs.append(
+                    ImportConfigDTO(
+                        filename=doc.filename,
+                        import_mode=ImportMode.OVERWRITE_LAYERS,
+                        layer_schema="",
+                        file_schema="",
+                        import_layers_only=False
+                    )
                 )
-            )
         self._tree_widget_handler.rebuild_tree(docs, only_selected=True)
 
     def _connect_signals(self):

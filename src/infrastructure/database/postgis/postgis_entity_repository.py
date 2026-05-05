@@ -109,9 +109,14 @@ class PostGISEntityRepository(IEntityRepository):
             if not result.is_success:
                 return result
 
-            geometry, extra_data = result.value
-            entity.add_extra_data(extra_data)
-            
+            geometry, converter_extra_data  = result.value
+
+            # TODO: При импорте сохраняется мусор PostGIS конвертера в extra_data сущности.
+            # Нужно во время экспорта его убирать, иначе этот мусор будет висеть и в случае импорта в другие СУБД попадет в них.
+            for key, value in converter_extra_data.items():
+                if key not in entity.extra_data:
+                    entity.add_extra_data({key: value})
+
             data = {
                 'id': str(entity.id),
                 'entity_type': entity.entity_type.value,

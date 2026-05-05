@@ -136,15 +136,9 @@ class PostGISEntityConverter:
 
     def _build_extra_data(self, entity: DXFEntity, additional_data: Dict = None) -> Dict[str, Any]:
         """Формирует словарь с дополнительными данными сущности"""
-        extra_data = {
-            'attributes': entity.attributes.copy(),
-            'entity_type': entity.entity_type.value,
-            'name': entity.name
-        }
+        extra_data = entity.extra_data.copy()
         if additional_data:
             extra_data.update(additional_data)
-        if entity.extra_data:
-            extra_data['extra'] = entity.extra_data
         return extra_data
 
     def _get_geometry_value(self, entity: DXFEntity, key: str, default=None):

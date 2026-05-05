@@ -39,6 +39,59 @@ class ImportUseCase:
         uuid_str = str(uuid_obj).replace("-", "")
         return uuid_str[:6]
     
+    def _table_exists(self, schema_name: str, table_name: str) -> AppResult[bool]:
+        """Проверяет существование таблицы в указанной схеме"""
+        tables_result = self._session.get_tables(schema_name)
+        if tables_result.is_fail:
+            return AppResult.fail(f"Failed to get tables for schema '{schema_name}': {tables_result.error}")
+        
+        tables = tables_result.value
+        exists = table_name in tables
+        return AppResult.success(exists)
+    
+    def _get_layer_table_name(
+        self, 
+        config: ImportConfigDTO, 
+        layer_name: str, 
+        doc_short_id: str
+    ) -> str:
+        """Определяет название таблицы для слоя на основе настроек"""
+        
+        # Проверяем, есть ли индивидуальные настройки для этого слоя
+        layer_settings = config.layer_settings.get(layer_name)
+        
+        if layer_settings:
+            # Если есть настройки слоя
+            if layer_settings.create_new_table:
+                # Создаем новую таблицу
+                base_name = layer_settings.new_table_name or layer_name
+                
+                # Транслитерация, если требуется
+                if config.transliterate_layer_names:
+                    base_name = self._transliterate_layer_name(base_name)
+                
+                # Добавляем префикс, если требуется
+                if config.prefix_check and doc_short_id:
+                    return f"l{doc_short_id}_{base_name}"
+                else:
+                    return base_name
+            else:
+                # Используем существующую таблицу
+                return layer_settings.existing_table_name
+        else:
+            # Нет индивидуальных настроек - используем глобальные настройки
+            base_name = layer_name
+            
+            # Транслитерация, если требуется
+            if config.transliterate_layer_names:
+                base_name = self._transliterate_layer_name(base_name)
+            
+            # Добавляем префикс, если требуется
+            if config.prefix_check and doc_short_id:
+                return f"l{doc_short_id}_{base_name}"
+            else:
+                return base_name
+    
     def execute(
         self,
         connection: ConnectionConfigDTO,
@@ -86,7 +139,7 @@ class ImportUseCase:
 
         report_lines.append(f"Successfully connected to database")
 
-        # check repos
+        # check repos and validate layer settings
         for config in configs:
             result = self._session.schema_exists(config.layer_schema)
             if result.is_fail:
@@ -111,8 +164,39 @@ class ImportUseCase:
                 return AppResult.fail(error_msg), "\n".join(report_lines)
             
             report_lines.append(f"File schema verified: '{config.file_schema}'")
+            
+            # Валидация настроек слоев
+            if config.layer_settings:
+                report_lines.append(f"\nValidating layer settings for '{config.filename}'...")
+                for layer_name, layer_settings in config.layer_settings.items():
+                    if not layer_settings.create_new_table:
+                        # Если используется существующая таблица, проверяем её существование
+                        if not layer_settings.existing_table_name:
+                            error_msg = f"Layer '{layer_name}': existing_table_name is required when create_new_table=False"
+                            report_lines.append(f"ERROR: {error_msg}")
+                            return AppResult.fail(error_msg), "\n".join(report_lines)
+                        
+                        table_exists_result = self._table_exists(
+                            config.layer_schema, 
+                            layer_settings.existing_table_name
+                        )
+                        
+                        if table_exists_result.is_fail:
+                            error_msg = f"Layer '{layer_name}': error checking table '{layer_settings.existing_table_name}': {table_exists_result.error}"
+                            report_lines.append(f"ERROR: {error_msg}")
+                            return AppResult.fail(error_msg), "\n".join(report_lines)
+                        
+                        if not table_exists_result.value:
+                            error_msg = f"Layer '{layer_name}': table '{layer_settings.existing_table_name}' does not exist in schema '{config.layer_schema}'"
+                            report_lines.append(f"ERROR: {error_msg}")
+                            return AppResult.fail(error_msg), "\n".join(report_lines)
+                        
+                        report_lines.append(f"  Layer '{layer_name}': will use existing table '{layer_settings.existing_table_name}'")
+                    else:
+                        new_table_name = layer_settings.new_table_name or layer_name
+                        report_lines.append(f"  Layer '{layer_name}': will create new table '{new_table_name}'")
 
-        report_lines.append("All database schemas verified successfully")
+        report_lines.append("All database schemas and layer settings verified successfully")
 
         # start import
         try:
@@ -122,6 +206,7 @@ class ImportUseCase:
 
             for config in configs:
                 report_lines.append(f"\n--- Processing file: {config.filename} ---")
+                report_lines.append(f"Settings: prefix_check={config.prefix_check}, transliterate={config.transliterate_layer_names}")
 
                 source_doc = docs[config.filename]
                 selected_handles = self._get_selected_handles(source_doc)
@@ -265,15 +350,18 @@ class ImportUseCase:
                     report_lines.append(f"Importing layers only to schema '{config.layer_schema}'")
 
                 # Обработка слоев - выполняется для обоих режимов
-                if doc and layer_repo:
+                if doc:
                     layers_processed = 0
                     doc_short_id = self._make_short_id(doc.id)
 
+                    # Инициализируем layer_repo если его еще нет (для режима import_layers_only)
+                    if not layer_repo:
+                        layer_repo = self._session._get_layer_repository(config.file_schema).value
+
                     if not config.import_layers_only:
                         for layer in selected_layers:
-                            base_table_name = self._transliterate_layer_name(layer.name) if config.transliterate_layer_names else layer.name
-
-                            table_name = f"l{doc_short_id}_{base_table_name}" if doc_short_id else base_table_name
+                            # Получаем название таблицы на основе настроек
+                            table_name = self._get_layer_table_name(config, layer.name, doc_short_id)
 
                             ex_layer_result = layer_repo.get_by_document_id_and_layer_name(doc.id, layer.name)
 
@@ -311,8 +399,8 @@ class ImportUseCase:
                     total_entities = 0
 
                     for layer in selected_layers:
-                        base_table_name = self._transliterate_layer_name(layer.name) if config.transliterate_layer_names else layer.name
-                        table_name = f"l{doc_short_id}_{base_table_name}" if doc_short_id else base_table_name
+                        # Получаем название таблицы на основе настроек
+                        table_name = self._get_layer_table_name(config, layer.name, doc_short_id)
 
                         entity_repo_result = self._session._get_entity_repository(config.layer_schema, table_name)
                         if entity_repo_result.is_fail:
@@ -320,7 +408,13 @@ class ImportUseCase:
                             continue
 
                         entity_repo = entity_repo_result.value
-                        report_lines.append(f"Processing layer '{layer.name}' (table: {table_name})...")
+                        
+                        # Информация о настройках слоя
+                        layer_settings = config.layer_settings.get(layer.name)
+                        if layer_settings and not layer_settings.create_new_table:
+                            report_lines.append(f"Processing layer '{layer.name}' (using existing table: {table_name})...")
+                        else:
+                            report_lines.append(f"Processing layer '{layer.name}' (table: {table_name})...")
 
                         layer_entity_count = 0
                         for entity in layer.entities.values():

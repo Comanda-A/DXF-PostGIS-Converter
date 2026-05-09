@@ -161,7 +161,8 @@ class PostGISLayerRepository(ILayerRepository):
                 )
                 return Result.success(layer)
 
-            return Result.fail(f"Layer '{layer_name}' not found for document '{document_id}'")
+            # Если слой не найден, возвращаем None
+            return Result.success(None)
         except Exception as e:
             return Result.fail(f"Failed to get layers by document ID: {e}")
 

@@ -150,8 +150,13 @@ class PostGISEntityRepository(IEntityRepository):
             if not result.is_success:
                 return result
 
-            geometry, extra_data = result.value
-            entity.add_extra_data(extra_data)
+            geometry, converter_extra_data  = result.value
+
+            # TODO: При импорте сохраняется мусор PostGIS конвертера в extra_data сущности.
+            # Нужно во время экспорта его убирать, иначе этот мусор будет висеть и в случае импорта в другие СУБД попадет в них.
+            for key, value in converter_extra_data.items():
+                if key not in entity.extra_data:
+                    entity.add_extra_data({key: value})
             
             data = {
                 'id': str(entity.id),
@@ -183,7 +188,7 @@ class PostGISEntityRepository(IEntityRepository):
     def get_by_id(self, id: UUID) -> Result[DXFEntity | None]:
         try:
             query = f"SELECT * FROM {self.full_name} WHERE id = %(id)s"
-            result = self._connection.execute_query(query, {'id': str(id)})
+            result = self._connection.execute_query(query, {'id': str(id)}).value
             if result and len(result) > 0:
                 entity = DXFEntity.create(
                     id=result[0]['id'],
@@ -201,17 +206,26 @@ class PostGISEntityRepository(IEntityRepository):
     def get_by_name_and_type(self, name: str, type: DxfEntityType) -> Result[DXFEntity | None]:
         try:
             query = f"SELECT * FROM {self.full_name} WHERE name = %(name)s AND entity_type = %(entity_type)s"
-            result = self._connection.execute_query(query, {'name': str(name), 'entity_type': type.value})
+            result = self._connection.execute_query(query, {'name': str(name), 'entity_type': type.value}).value
+            
             if result and len(result) > 0:
+                row = result[0]
+                
+                # Проверяем, нужна ли десериализация или данные уже dict
+                attributes = row['attributes'] if isinstance(row['attributes'], dict) else json.loads(row['attributes'])
+                geometries = row['geometries'] if isinstance(row['geometries'], dict) else json.loads(row['geometries'])
+                extra_data = row['extra_data'] if isinstance(row['extra_data'], dict) else json.loads(row['extra_data'])
+                
                 entity = DXFEntity.create(
-                    id=result[0]['id'],
-                    entity_type=result[0]['entity_type'],
-                    name=result[0]['name'],
-                    attributes=json.loads(result[0]['attributes']),
-                    geometries=json.loads(result[0]['geometries']),
-                    extra_data=json.loads(result[0]['extra_data'])
+                    id=row['id'],
+                    entity_type=row['entity_type'],
+                    name=row['name'],
+                    attributes=attributes,
+                    geometries=geometries,
+                    extra_data=extra_data
                 )
                 return Result.success(entity)
+            
             return Result.success(None)
         except Exception as e:
             return Result.fail(f"Failed to get entity: {e}")
@@ -219,19 +233,33 @@ class PostGISEntityRepository(IEntityRepository):
     def get_all(self) -> Result[List[DXFEntity]]:
         try:
             query = f"SELECT * FROM {self.full_name}"
-            result = self._connection.execute_query(query)
+            result = self._connection.execute_query(query).value
             entities = []
             for row in result:
+                # Проверяем, нужна ли десериализация или данные уже dict
+                attributes = row['attributes'] if isinstance(row['attributes'], dict) else json.loads(row['attributes'])
+                geometries = row['geometries'] if isinstance(row['geometries'], dict) else json.loads(row['geometries'])
+                extra_data = row['extra_data'] if isinstance(row['extra_data'], dict) else json.loads(row['extra_data'])
+                
                 entity = DXFEntity.create(
                     id=row['id'],
                     entity_type=row['entity_type'],
                     name=row['name'],
-                    attributes=json.loads(row['attributes']),
-                    geometries=json.loads(row['geometries']),
-                    extra_data=json.loads(row['extra_data'])    
+                    attributes=attributes,
+                    geometries=geometries,
+                    extra_data=extra_data
                 )
                 entities.append(entity)
             return Result.success(entities)
         except Exception as e:
             return Result.fail(f"Failed to get all entities: {e}")
+    
+    def delete_all(self) -> Result[Unit]:
+        """Удалить все сущности из таблицы"""
+        try:
+            query = f"DELETE FROM {self.full_name}"
+            self._connection.execute_query(query)
+            return Result.success(Unit())
+        except Exception as e:
+            return Result.fail(f"Failed to delete all entities from {self.full_name}: {e}")
     

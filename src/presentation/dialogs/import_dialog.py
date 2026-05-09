@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
 )
 from ...application.services import ConnectionConfigService
 from ...application.services import ActiveDocumentService
-from ...application.interfaces import ILocalization, ILogger
+from ...application.interfaces import ILocalization, ILogger, ISettings
 from ...application.dtos import ConnectionConfigDTO, ImportConfigDTO, ImportMode, LayerSettingsDTO, DXFLayerDTO
 from ...application.database import DBSession
 from ...application.use_cases import ImportUseCase
@@ -37,7 +37,8 @@ class ImportDialog(QDialog, FORM_CLASS):
         'connection_service',
         'import_use_case',
         'localization',
-        'logger'
+        'logger',
+        'settings'
     )
     def __init__(
         self,
@@ -47,7 +48,8 @@ class ImportDialog(QDialog, FORM_CLASS):
         session: DBSession,
         import_use_case: ImportUseCase,
         localization: ILocalization,
-        logger: ILogger
+        logger: ILogger,
+        settings: ISettings,
     ):
         super().__init__(parent)
         self.setupUi(self)
@@ -58,15 +60,20 @@ class ImportDialog(QDialog, FORM_CLASS):
         self._import_use_case = import_use_case
         self._localization = localization
         self._logger = logger
+        self._settings = settings
 
         self._tree_widget_handler = ViewerDxfTreeHandler(self.dxf_files_tree)
-        self._connection_config: ConnectionConfigDTO | None = None
         self._import_configs: list[ImportConfigDTO] = []
         self._selected_layer_name: str | None = None  # Для отслеживания выбранного слоя
         
         self._init_components()
         self._connect_signals()
         self._setup_ui()
+        
+        last_connection = self._settings.get_value("last_import_connection", "")
+        if last_connection:
+            config = self._connection_service.get_config_by_name(last_connection)
+            self._connect_to_db(config)
     
     @property
     def processed_filename(self) -> str | None:
@@ -81,6 +88,17 @@ class ImportDialog(QDialog, FORM_CLASS):
         for config in self._import_configs:
             if config.filename == filename:
                 return config
+        return None
+
+    @property
+    def processed_connection(self):
+        text = self.connection_combo.currentText()
+        if text:
+            config = self._connection_service.get_config_by_name(text)
+            if not config:
+                self._logger.error(f"Selected connection config '{text}' not found.")
+                return None
+            return config
         return None
     
     def _get_selected_item_type(self) -> str | None:
@@ -155,6 +173,7 @@ class ImportDialog(QDialog, FORM_CLASS):
         self.cancel_button.clicked.connect(self._on_cancel_button_click)
         self.transliteration_check.stateChanged.connect(self._on_transliteration_check_changed)
         self.prefix_check.stateChanged.connect(self._on_prefix_check_changed)
+        self.prereport_button.clicked.connect(self._on_prereport_button_click)
         
         # Сигналы для страницы 2 (layer settings)
         self.new_layer_table_check.stateChanged.connect(self._on_new_layer_table_check_changed)
@@ -202,6 +221,13 @@ class ImportDialog(QDialog, FORM_CLASS):
             self.import_mode_combo.addItem(self.tr("add_objects"))
 
     def _update_ui(self):
+        
+        # Проверка подключения
+        self._check_connection()
+        
+        if not self._session.is_connected:
+            self._logger.message("Session is not connected.")
+
         item_type = self._get_selected_item_type()
         
         enable = bool(item_type and self._session.is_connected)
@@ -212,6 +238,8 @@ class ImportDialog(QDialog, FORM_CLASS):
         self.layer_table_db_group.setEnabled(False)
         self.cancel_button.setEnabled(enable)
         self.import_button.setEnabled(enable)
+        self.prereport_button.setEnabled(enable)
+        
 
         if enable and item_type == 'file':
             # Показать страницу 1 (настройки файла)
@@ -316,19 +344,52 @@ class ImportDialog(QDialog, FORM_CLASS):
     def _connect_to_db(self, config: ConnectionConfigDTO):
         result = self._session.connect(config)
         if not self._session.is_connected:
-            # ★ Если учётные данные есть, но подключение не удалось —
-            #   значит проблема на стороне сервера (неверный пароль, недоступен хост и т.д.)
+            # Если учётные данные есть, но подключение не удалось —
+            # значит проблема на стороне сервера (неверный пароль, недоступен хост и т.д.)
+
+            # Сбрасываем комбо обратно на пустой элемент, 
+            # чтобы не оставлять невалидный выбор
+            with QSignalBlocker(self.connection_combo):
+                self.connection_combo.setCurrentIndex(0)
+            
             QMessageBox.critical(
                 self,
                 self.tr("error_title"),
                 self.tr("connection_failed_error")
             )
             self._logger.error(
-                f"Failed to connect to database with config '{config.name}': {result.error}"
+                f"Failed to connect to database: {result.error}"
             )
+
+            self._session.close()
+        else:
+            # Если подключение успешно
+
+            self._settings.set_value("last_import_connection", self._session.config.name)
+
+            # Перенастраиваем схемы в конфигурациях импорта
+            result = self._session.get_schemas()
+            if result.is_success:
+                schemas = result.value
+                for import_config in self._import_configs:
+                    if import_config.layer_schema not in schemas:
+                        import_config.layer_schema = schemas[0] if schemas else ""
+                    if import_config.file_schema not in schemas:
+                        import_config.file_schema = schemas[0] if schemas else ""
+            else:
+                self._logger.error(f"Failed to get schemas after connecting to DB. {result.error}")
+
         self._update_db_connection_info()
         self._update_schemas_combo()
         self._update_ui()
+
+    def _check_connection(self) -> bool:
+        """Проверяет подключение и переподключается"""
+        if not self._session.is_connected and self.processed_connection:
+            self._logger.message("Session is not connected but config exists. Attempting to reconnect...")
+            self._connect_to_db(self.processed_connection)
+            return self._session.is_connected
+        return True
 
     def _update_db_connection_info(self):
         if self._session.is_connected:
@@ -374,34 +435,36 @@ class ImportDialog(QDialog, FORM_CLASS):
             for config in configs:
                 self.connection_combo.addItem(config.name)
 
-            if current_name and self.connection_combo.findText(current_name) >= 0:
-                self._connect_to_db(self._connection_service.get_config_by_name(current_name))
-            elif configs:
+            if current_name:
+                index = self.connection_combo.findText(current_name)
+                if index >= 0 and self._session.is_connected and self._session.config.name == current_name:
+                    self.connection_combo.setCurrentIndex(index)
+            else:
                 self.connection_combo.setCurrentIndex(0)
 
     def _update_schemas_combo(self):
+        with QSignalBlocker(self.layers_schema_combo):
+            self.layers_schema_combo.clear()
+        with QSignalBlocker(self.files_schema_combo):
+            self.files_schema_combo.clear()
         
         if not self._session.is_connected:
             return
 
         result = self._session.get_schemas()
-
         if result.is_fail:
             self._logger.error(f"Error updating schemas. {result.error}")
             return
         
         schemas = result.value
 
-        self.layers_schema_combo.clear()
-        self.files_schema_combo.clear()
-
-        self.layers_schema_combo.addItems(schemas)
-        self.files_schema_combo.addItems(schemas)
-        
+        with QSignalBlocker(self.layers_schema_combo):
+            self.layers_schema_combo.addItems(schemas)
+        with QSignalBlocker(self.files_schema_combo):
+            self.files_schema_combo.addItems(schemas)
+            
         # Обновить список таблиц
         self._update_db_tables_combo()
-
-        self._update_ui()
     
     def _update_db_tables_combo(self):
         """Обновить список таблиц в комбо для выбора существующей таблицы слоя"""
@@ -442,7 +505,9 @@ class ImportDialog(QDialog, FORM_CLASS):
         if dialog.exec_() == QDialog.Accepted:
             if dialog.selected_connection is None:
                 return
+            # Обновляем комбо с подключениями
             self._update_connection_combo()
+            # И подключаемся к выбранному подключению
             self._connect_to_db(dialog.selected_connection)
 
     def _on_create_schema_button_click(self):
@@ -500,31 +565,7 @@ class ImportDialog(QDialog, FORM_CLASS):
             )
     
     def _on_connection_combo_changed(self, index=None):
-        text = self.connection_combo.currentText()
-
-        if not text:
-            self._session.close()
-            self._update_db_connection_info()
-            self._update_schemas_combo()
-            self._update_ui()
-            return
-
-        config = self._connection_service.get_config_by_name(text)
-
-        if not config:
-            QMessageBox.critical(
-                self,
-                self.tr("error_title"),
-                self.tr("connection_config_not_found_error")
-            )
-
-            # Сбрасываем комбо обратно на пустой элемент, 
-            # чтобы не оставлять невалидный выбор
-            with QSignalBlocker(self.connection_combo):
-                self.connection_combo.setCurrentIndex(0)
-
-            return
-
+        config = self.processed_connection
         self._connect_to_db(config)
 
     def _on_import_mode_combo_changed(self, index=None):
@@ -638,21 +679,47 @@ class ImportDialog(QDialog, FORM_CLASS):
             res, report = result
             self._logger.message(report)
             progress_dialog.close()
-            QMessageBox.information(
+            
+            # Создаем кастомное окно с кнопкой просмотра отчета
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Информация")
+            msg_box.setText("Импортирование успешно завершено")
+            msg_box.setIcon(QMessageBox.Information)
+            
+            # Добавляем кнопку просмотра отчета
+            view_report_button = msg_box.addButton("Просмотр отчета", QMessageBox.ActionRole)
+            ok_button = msg_box.addButton(QMessageBox.Ok)
+            
+            msg_box.exec_()
+            
+            # Проверяем, какая кнопка была нажата
+            if msg_box.clickedButton() == view_report_button:
+                _show_import_report(report)
+
+        def _show_import_report(report: str):
+            from .info_dialog import InfoDialog
+            dialog = InfoDialog(
+                "Отчет об импорте",
+                report,
                 self,
-                "Информация",
-                "Импортирование успешно завершено"
+                width=900,
+                height=700,
+                is_html=False
             )
+            dialog.exec_()
 
         def _on_import_error(error: str, progress_dialog):
             self._logger.error(f'error {error}')
             QMessageBox.critical(
-                    self,
-                    "Ошибка",
-                    'error. {error}'
-                )
+                self,
+                "Ошибка",
+                f'error. {error}'  # Исправлена f-строка
+            )
             progress_dialog.close()
         
+        # Проверка подключения
+        self._check_connection()
+
         # Создаем и настраиваем воркер
         self.import_worker = LongTaskWorker(import_task)
         
@@ -704,6 +771,25 @@ class ImportDialog(QDialog, FORM_CLASS):
             # Если выбран слой, показываем страницу 2
         
         self._update_ui()
+
+    def _on_prereport_button_click(self):
+        
+        # Если нет подключения к БД но есть сохраненная конфигурация, пробуем переподключиться
+        if not self._session.is_connected and self.processed_connection:
+            self._logger.message("Session is not connected but config exists. Attempting to reconnect...")
+            self._connect_to_db(self.processed_connection)
+
+        report = self._import_use_case.generate_pre_import_report(self._session.config, self._import_configs)
+        from .info_dialog import InfoDialog
+        dialog = InfoDialog(
+            "Пререпорт",
+            report,
+            self,
+            width=900,
+            height=700,
+            is_html=False
+        )
+        dialog.exec_()
 
     def resizeEvent(self, event):
         """Resize event."""

@@ -9,7 +9,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>850</width>
+    <width>950</width>
     <height>650</height>
    </rect>
   </property>
@@ -21,7 +21,7 @@
   </property>
   <property name="minimumSize">
    <size>
-    <width>850</width>
+    <width>950</width>
     <height>650</height>
    </size>
   </property>
@@ -1308,6 +1308,19 @@
          <property name="spacing">
           <number>0</number>
          </property>
+         <item>
+          <widget class="QPushButton" name="prereport_button">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
+             <horstretch>125</horstretch>
+             <verstretch>25</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="text">
+            <string>Предварительный отчет</string>
+           </property>
+          </widget>
+         </item>
          <item>
           <spacer name="horizontalSpacer_4">
            <property name="orientation">

@@ -31,3 +31,7 @@ class DXFContent(DXFBase):
     @property
     def content(self) -> bytes:
         return self._content
+    
+    @content.setter
+    def content(self, value: bytes):
+        self._content = value

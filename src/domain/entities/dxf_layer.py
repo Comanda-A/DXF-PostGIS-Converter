@@ -48,9 +48,17 @@ class DXFLayer(DXFBase):
     def schema_name(self) -> str:
         return self._schema_name
 
+    @schema_name.setter
+    def schema_name(self, value: str) -> None:
+        self._schema_name = value
+
     @property
     def table_name(self) -> str:
         return self._table_name
+
+    @table_name.setter
+    def table_name(self, value: str) -> None:
+        self._table_name = value
 
     @property
     def entities(self) -> Dict[int, DXFEntity]:

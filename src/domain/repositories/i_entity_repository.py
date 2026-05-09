@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from ...domain.value_objects import Result, DxfEntityType
+from ...domain.value_objects import Result, DxfEntityType, Unit
 from ...domain.entities import DXFEntity
 from ...domain.repositories import IRepository
 
@@ -17,4 +17,9 @@ class IEntityRepository(IRepository[DXFEntity]):
     @abstractmethod
     def get_all(self) -> list[DXFEntity]:
         """Все сохраненные сущности"""
+        pass
+    
+    @abstractmethod
+    def delete_all(self) -> Result:
+        """Удалить все сущности из таблицы"""
         pass

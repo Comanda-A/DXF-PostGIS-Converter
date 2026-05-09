@@ -1,5 +1,6 @@
 
 from abc import ABC, abstractmethod
+from typing import Any
 from ...domain.value_objects import ConnectionConfig, Result, Unit
 
 class IConnection(ABC):
@@ -59,3 +60,10 @@ class IConnection(ABC):
     def get_tables(self, schema_name: str) -> Result[list[str]]:
         """Список таблиц в схеме"""
         pass
+
+    def execute_query(self, query: str, params: tuple = ()) -> Result[list]:
+        """Выполняет SQL-запрос и возвращает результат"""
+        pass
+
+    def execute_queries(self, queries: list[tuple[str, Any]]) -> Result[Unit]:
+        """Выполнение нескольких запросов в транзакции"""

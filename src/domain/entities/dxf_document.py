@@ -61,6 +61,10 @@ class DXFDocument(DXFBase):
     def update_date(self) -> Optional[datetime]:
         return self._update_date
     
+    @update_date.setter
+    def update_date(self, value: datetime):
+        self._update_date = value
+
     @property
     def content(self) -> Optional[DXFContent]:
         return self._content

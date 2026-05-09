@@ -19,14 +19,17 @@ class InfoDialog(QDialog):
         Начальная ширина диалога (по умолчанию: 800)
     height : int, optional
         Начальная высота диалога (по умолчанию: 600)
+    is_html : bool, optional
+        True если контент это HTML, False если обычный текст (по умолчанию: True)
     """
     
-    def __init__(self, title, content, parent=None, width=800, height=600):
+    def __init__(self, title, content, parent=None, width=800, height=600, is_html=True):
         super().__init__(parent)
         self.title = title
         self.content = content
         self.default_width = width
         self.default_height = height
+        self.is_html = is_html
         self.setup_ui()
         
     def setup_ui(self):
@@ -53,7 +56,20 @@ class InfoDialog(QDialog):
         # Создание и настройка текстового браузера
         text_widget = QTextBrowser()
         text_widget.setOpenExternalLinks(True)
-        text_widget.setHtml(self.content)
+        
+        # Выбираем метод отображения в зависимости от типа контента
+        if self.is_html:
+            text_widget.setHtml(self.content)
+        else:
+            # Для обычного текста используем setPlainText
+            text_widget.setPlainText(self.content)
+            # Используем монопространственный шрифт для отчетов
+            from PyQt5.QtGui import QFont
+            font = QFont()
+            font.setFamily("Courier New")
+            font.setPointSize(9)
+            text_widget.setFont(font)
+        
         text_widget.setStyleSheet("""
             QTextBrowser {
                 background-color: white;

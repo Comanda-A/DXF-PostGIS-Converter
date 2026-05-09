@@ -13,13 +13,6 @@ class Result(Generic[T]):
     _value: Optional[T] = None
     _error: Optional[str] = None
     
-    def __post_init__(self):
-        """Валидация при создании"""
-        if self._success and self._value is None:
-            raise ValueError("Success result must have a value")
-        if not self._success and self._error is None:
-            raise ValueError("Failure result must have an error message")
-    
     @classmethod
     def success(cls, value: T) -> 'Result[T]':
         """Создает успешный результат"""

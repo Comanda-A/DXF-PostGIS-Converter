@@ -22,6 +22,10 @@ class DXFReader(IDXFReader):
             drawing = ezdxf.readfile(filepath)
             drawing.audit()
             msp = drawing.modelspace()
+            # keep drawing reference for block extraction in geometry methods
+            self._drawing = drawing
+            # track visited blocks to avoid infinite recursion when blocks reference other blocks
+            self._visited_blocks = set()
 
             filename = os.path.basename(filepath)
 
@@ -71,6 +75,12 @@ class DXFReader(IDXFReader):
                     
                     # Добавляем сущность в слой
                     layer.add_entities([entity])
+            # clear drawing reference and visited state
+            self._drawing = None
+            try:
+                del self._visited_blocks
+            except Exception:
+                pass
 
             return Result.success(doc)
         except Exception as e:
@@ -90,6 +100,22 @@ class DXFReader(IDXFReader):
         attributes['transparency'] = dxfentity.dxf.transparency
         
         entity.add_attributes(attributes)
+        
+        # Собираем данные для ezdxf.xref.write_block
+        extra_data = {
+            "dxftype": dxfentity.dxftype(),
+            "dxf_attribs": {}
+        }
+        
+        for key, value in attributes.items():
+            if hasattr(value, "x"): # Векторы
+                extra_data["dxf_attribs"][key] = [value.x, getattr(value, "y", 0.0), getattr(value, "z", 0.0)]
+            elif isinstance(value, (int, float, str, bool, list, tuple)):
+                extra_data["dxf_attribs"][key] = value
+            else:
+                extra_data["dxf_attribs"][key] = str(value)
+                
+        entity.add_extra_data(extra_data)
 
     def _extract_geometry_data(self, dxfentity: EzDXFEntity, entity: DXFEntity):
         """Извлекает все геометрические данные в зависимости от типа сущности"""
@@ -279,6 +305,65 @@ class DXFReader(IDXFReader):
             'zscale': dxfentity.dxf.zscale,
             'rotation': dxfentity.dxf.rotation
         })
+
+        # If the referenced block exists in the drawing, serialize its entities recursively.
+        try:
+            block_name = dxfentity.dxf.name
+            serialized = self._serialize_block_entities(block_name)
+            # Keep block name even if serialized content is empty, so writer can create placeholder definition.
+            entity.add_extra_data({'block_name': block_name, 'block_entities': serialized or []})
+        except Exception:
+            pass
+
+    def _serialize_block_entities(self, block_name: str) -> list[dict]:
+        if not (hasattr(self, '_drawing') and self._drawing is not None):
+            return []
+
+        if block_name not in self._drawing.blocks:
+            return []
+
+        visited = getattr(self, '_visited_blocks', set())
+        if block_name in visited:
+            return []
+
+        visited.add(block_name)
+        try:
+            block_layout = self._drawing.blocks.get(block_name)
+            serialized: list[dict] = []
+            for block_entity in block_layout:
+                payload = self._serialize_entity_for_block(block_entity)
+                if payload:
+                    serialized.append(payload)
+            return serialized
+        finally:
+            try:
+                visited.remove(block_name)
+            except Exception:
+                pass
+
+    def _serialize_entity_for_block(self, dxfentity: EzDXFEntity) -> dict:
+        try:
+            payload_entity = DXFEntity.create(entity_type=DxfEntityType(dxfentity.dxftype()), name=str(dxfentity))
+            self._extract_base_attributes(dxfentity, payload_entity)
+            self._extract_geometry_data(dxfentity, payload_entity)
+
+            payload: dict = {
+                'dxftype': dxfentity.dxftype(),
+                'dxf_attribs': dict(payload_entity.extra_data.get('dxf_attribs', {}) or {}),
+                'attributes': dict(payload_entity.attributes or {}),
+                'geometries': dict(payload_entity.geometries or {}),
+            }
+
+            if dxfentity.dxftype() == 'INSERT':
+                nested_block_name = getattr(dxfentity.dxf, 'name', '')
+                if nested_block_name:
+                    nested = self._serialize_block_entities(nested_block_name)
+                    payload['block_name'] = nested_block_name
+                    payload['block_entities'] = nested or []
+
+            return payload
+        except Exception:
+            return {}
 
     def _extract_multileader_data(self, dxfentity: EzDXFEntity, entity: DXFEntity):
         """MULTILEADER"""

@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import os
 import tempfile
+
 import inject
 
 from ...application.database import DBSession
 from ...application.dtos import ConnectionConfigDTO, ExportConfigDTO, ExportMode
 from ...application.interfaces import ILogger
 from ...application.results import AppResult, Unit
+from ...domain.services import IDXFWriter
 
 
 class ExportUseCase:
 	"""Вариант использования: Экспортировать DXF из БД в файл."""
 
-	def __init__(self, logger: ILogger):
+	def __init__(self, dxf_writer: IDXFWriter, logger: ILogger):
+		self._dxf_writer = dxf_writer
 		self._logger = logger
 
 	def execute(
@@ -62,21 +65,30 @@ class ExportUseCase:
 					return AppResult.fail(error_msg), "\n".join(report_lines)
 
 				report_lines.append(f"File schema verified: '{config.file_schema}'")
-
 				report_lines.append(f"\n--- Processing file: {config.filename} ---")
 
-				content_result = self._read_content(
-					session=session,
-					file_schema=config.file_schema,
-					filename=config.filename,
-				)
+				if config.export_mode == ExportMode.TABLES:
+					content_result = self._read_table_entities(session, config.file_schema, config.filename)
+					if content_result.is_fail:
+						error_msg = f"Failed to reconstruct DXF content for '{config.filename}': {content_result.error}"
+						report_lines.append(f"ERROR: {error_msg}")
+						return AppResult.fail(error_msg), "\n".join(report_lines)
 
-				if content_result.is_fail:
-					error_msg = f"Failed to get content for '{config.filename}': {content_result.error}"
-					report_lines.append(f"ERROR: {error_msg}")
-					return AppResult.fail(error_msg), "\n".join(report_lines)
+					content_bytes, reconstruction_report = content_result.value
+					report_lines.append(reconstruction_report)
+				else:
+					content_result = self._read_content(
+						session=session,
+						file_schema=config.file_schema,
+						filename=config.filename,
+					)
 
-				content_bytes = content_result.value
+					if content_result.is_fail:
+						error_msg = f"Failed to get content for '{config.filename}': {content_result.error}"
+						report_lines.append(f"ERROR: {error_msg}")
+						return AppResult.fail(error_msg), "\n".join(report_lines)
+
+					content_bytes = content_result.value
 
 				output_path = self._resolve_output_path(config)
 				if not output_path:
@@ -116,7 +128,7 @@ class ExportUseCase:
 		if config.output_path:
 			return config.output_path
 
-		if config.export_mode == ExportMode.QGIS:
+		if config.export_mode in (ExportMode.QGIS, ExportMode.TABLES):
 			return os.path.join(tempfile.gettempdir(), config.filename)
 
 		return None
@@ -164,3 +176,76 @@ class ExportUseCase:
 			return AppResult.fail(f"Content for '{filename}' not found in database")
 
 		return AppResult.success(content_result.value.content)
+
+	def _read_table_entities(
+		self,
+		session: DBSession,
+		file_schema: str,
+		filename: str,
+	) -> AppResult[tuple[bytes, str]]:
+		report_lines: list[str] = []
+		report_lines.append(f"Reconstruction started for '{filename}' in schema '{file_schema}'")
+
+		doc_repo_result = session._get_document_repository(file_schema)
+		if doc_repo_result.is_fail:
+			return AppResult.fail(doc_repo_result.error)
+
+		doc_result = doc_repo_result.value.get_by_filename(filename)
+		if doc_result.is_fail:
+			return AppResult.fail(doc_result.error)
+
+		doc = doc_result.value
+		if doc is None:
+			return AppResult.fail("Document not found")
+
+		report_lines.append(f"Document found: id={doc.id}, filename='{doc.filename}'")
+
+		layer_repo_result = session._get_layer_repository(file_schema)
+		if layer_repo_result.is_fail:
+			return AppResult.fail(layer_repo_result.error)
+
+		layer_result = layer_repo_result.value.get_all_by_document_id(doc.id)
+		if layer_result.is_fail:
+			return AppResult.fail(layer_result.error)
+
+		layers = layer_result.value
+		if not layers:
+			return AppResult.fail("No layers found to export")
+
+		report_lines.append(f"Layers loaded: {len(layers)}")
+
+		table_entities = []
+		for layer in layers:
+			report_lines.append(
+				f"Layer '{layer.name}': schema='{layer.schema_name}', table='{layer.table_name}'"
+			)
+			entity_repo_result = session._get_entity_repository(layer.schema_name, layer.table_name)
+			if entity_repo_result.is_fail:
+				report_lines.append(
+					f"Layer '{layer.name}': ERROR getting entity repository: {entity_repo_result.error}"
+				)
+				return AppResult.fail("\n".join(report_lines))
+
+			entity_result = entity_repo_result.value.get_all()
+			if entity_result.is_fail:
+				report_lines.append(
+					f"Layer '{layer.name}': ERROR loading entities: {entity_result.error}"
+				)
+				return AppResult.fail("\n".join(report_lines))
+
+			entities = entity_result.value
+			report_lines.append(f"Layer '{layer.name}': entities loaded={len(entities)}")
+			table_entities.extend(entities)
+
+		if not table_entities:
+			report_lines.append("Reconstruction summary: reconstructed=0, skipped=0, by_type={}")
+			return AppResult.fail("\n".join(report_lines))
+
+		reconstruction_result = self._dxf_writer.reconstruct_from_entities(table_entities)
+		if reconstruction_result.is_fail:
+			report_lines.append(f"ERROR: {reconstruction_result.error}")
+			return AppResult.fail("\n".join(report_lines))
+
+		content_bytes, reconstruction_report = reconstruction_result.value
+		report_lines.append(reconstruction_report)
+		return AppResult.success((content_bytes, "\n".join(report_lines)))

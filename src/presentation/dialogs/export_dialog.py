@@ -32,9 +32,25 @@ class ExportDialog(QDialog):
         """Создание интерфейса диалога"""
         layout = QVBoxLayout()
 
-        # Заголовок
+        # Выбор источника экспорта
+        source_label = QLabel("Выберите источник экспорта (как формировать файл):")
+        source_label.setStyleSheet("font-weight: bold; font-size: 11px; margin-top: 5px;")
+        layout.addWidget(source_label)
+
+        self.source_group = QButtonGroup()
+        
+        self.source_blob_radio = QRadioButton("Как бинарный файл (оригинальный файл загруженный в БД)")
+        self.source_blob_radio.setChecked(True)
+        self.source_group.addButton(self.source_blob_radio, 0)
+        layout.addWidget(self.source_blob_radio)
+
+        self.source_table_radio = QRadioButton("Объекты из таблиц (reconstruction / new mode)")
+        self.source_group.addButton(self.source_table_radio, 1)
+        layout.addWidget(self.source_table_radio)
+
+        # Выбор места назначения
         title_label = QLabel("Выберите, куда экспортировать DXF файл:")
-        title_label.setStyleSheet("font-weight: bold; font-size: 12px; margin-bottom: 10px;")
+        title_label.setStyleSheet("font-weight: bold; font-size: 11px; margin-top: 15px;")
         layout.addWidget(title_label)
 
         # Группа радиокнопок
@@ -74,6 +90,9 @@ class ExportDialog(QDialog):
 
     def accept(self):
         """Обработка нажатия OK"""
+        # Определяем source_mode: "tables" (из таблиц-через `extra_data`) или "blob" (оригинальный)
+        self.source_mode = "tables" if self.source_table_radio.isChecked() else "blob"
+
         if self.qgis_radio.isChecked():
             self.selected_destination = "qgis"
         else:
@@ -83,3 +102,7 @@ class ExportDialog(QDialog):
     def get_selected_destination(self):
         """Возвращает выбранный способ экспорта"""
         return self.selected_destination
+
+    def get_source_mode(self):
+        """Возвращает выбранный источник (из файла или из таблиц)"""
+        return getattr(self, "source_mode", "blob")

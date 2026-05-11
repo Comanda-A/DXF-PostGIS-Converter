@@ -102,7 +102,8 @@ class TestDebugReports(unittest.TestCase):
         Этот маркер нужен для быстрой проверки результата экспорта в debug-режиме и логах.
         """
         logger = _Logger()
-        use_case = ExportUseCase(logger)
+        writer = MagicMock()
+        use_case = ExportUseCase(writer, logger)
 
         document_id = uuid4()
         document = DXFDocument(id=document_id, filename="debug.dxf", filepath="")

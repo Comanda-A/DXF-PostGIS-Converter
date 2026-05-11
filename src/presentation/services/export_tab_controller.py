@@ -208,7 +208,9 @@ class ExportTabController:
         if destination not in ("file", "qgis"):
             return
 
-        self._run_export(destination)
+        source_mode = dialog.get_source_mode()
+
+        self._run_export(destination, source_mode)
 
     def refresh_db_files(self):
         t0 = perf_counter()
@@ -610,7 +612,7 @@ class ExportTabController:
 
         return selected_files
 
-    def _run_export(self, destination: str):
+    def _run_export(self, destination: str, source_mode: str = "blob"):
         selected_files = self._get_selected_db_filenames()
         if not selected_files:
             QMessageBox.information(
@@ -636,10 +638,11 @@ class ExportTabController:
             )
             return
 
-        export_mode = ExportMode.FILE if destination == "file" else ExportMode.QGIS
+        # Учитываем, что, если выбран source_mode == "tables", export_mode должен быть TABLES
+        export_mode = ExportMode.TABLES if source_mode == "tables" else (ExportMode.FILE if destination == "file" else ExportMode.QGIS)
         output_dir = ""
 
-        if export_mode == ExportMode.FILE:
+        if destination == "file":
             output_dir = QFileDialog.getExistingDirectory(
                 self._dialog,
                 self._localization.tr("MAIN_DIALOG", "choose_export_folder"),
@@ -670,7 +673,7 @@ class ExportTabController:
                 QMessageBox.critical(self._dialog, "Ошибка", f"Экспорт завершился с ошибкой: {app_result.error}")
                 return
 
-            if export_mode == ExportMode.QGIS:
+            if destination == "qgis":
                 exported_paths = self._resolve_exported_paths(selected_files)
                 opened = self._open_qgis_import_dialog(exported_paths)
 

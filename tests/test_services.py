@@ -781,7 +781,8 @@ class TestImportUseCase(unittest.TestCase):
 class TestExportUseCase(unittest.TestCase):
     def setUp(self):
         self.logger = _DummyLogger()
-        self.use_case = ExportUseCase(self.logger)
+        self.writer = MagicMock(spec=DXFWriter)
+        self.use_case = ExportUseCase(self.writer, self.logger)
 
         self.connection = ConnectionConfigDTO(
             db_type="postgis",

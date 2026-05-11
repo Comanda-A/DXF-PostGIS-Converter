@@ -30,7 +30,8 @@ from src.infrastructure.database.postgis.postgis_connection import PostGISConnec
 from src.infrastructure.database.postgis.postgis_content_repository import PostGISContentRepository
 from src.infrastructure.database.postgis.postgis_document_repository import PostGISDocumentRepository
 from src.infrastructure.database.postgis.postgis_layer_repository import PostGISLayerRepository
-from src.infrastructure.ezdxf import DXFReader
+from src.infrastructure.database.postgis.postgis_entity_repository import PostGISEntityRepository
+from src.infrastructure.ezdxf import DXFReader, DXFWriter
 
 EXAMPLES_DIR = os.path.join(plugin_path, "dxf_examples")
 EXAMPLE_1 = os.path.join(EXAMPLES_DIR, "ex1.dxf")
@@ -74,6 +75,7 @@ def _build_db_session(logger: ILogger) -> DBSession:
         connection_type=PostGISConnection,
         document_repo_class=PostGISDocumentRepository,
         layer_repo_class=PostGISLayerRepository,
+        entity_repo_class=PostGISEntityRepository,
         content_repo_class=PostGISContentRepository,
     )
     return DBSession(connection_factory, repository_factory, logger)
@@ -129,6 +131,19 @@ class TestCoreWorkflowIntegration(unittest.TestCase):
         self.assertTrue(close_result.is_success)
         self.events.on_document_closed.emit.assert_called_once_with(first_doc.id)
 
+    def test_reader_open_loads_multiple_layers_and_entities(self):
+        """Гарантирует, что DXFReader не обрывает чтение после первой сущности."""
+        result = self.reader.open(EXAMPLE_4)
+        self.assertTrue(result.is_success, msg=result.error if result.is_fail else "")
+
+        doc = result.value
+        self.assertGreater(len(doc.layers), 1, msg="DXFReader loaded only one layer")
+
+        total_entities = 0
+        for layer in doc.layers.values():
+            total_entities += len(layer.entities)
+        self.assertGreater(total_entities, 1, msg="DXFReader loaded only one entity")
+
 
 class TestDbImportExportIntegration(unittest.TestCase):
     """Real DB integration tests for import/export and DXF roundtrip."""
@@ -171,7 +186,7 @@ class TestDbImportExportIntegration(unittest.TestCase):
         self._open_use_case = OpenDocumentUseCase(self._active_repo, self._reader, self._events, self._logger)
         self._writer = DXFWriter()
         self._import_use_case = ImportUseCase(self._active_repo, self._reader, self._writer, self._logger)
-        self._export_use_case = ExportUseCase(self._logger)
+        self._export_use_case = ExportUseCase(self._writer, self._logger)
 
         if any(not os.path.exists(path) for path in [EXAMPLE_1, EXAMPLE_2, EXAMPLE_3, EXAMPLE_4]):
             raise unittest.SkipTest("Required fixture files are missing in dxf_examples")
@@ -381,6 +396,108 @@ class TestDbImportExportIntegration(unittest.TestCase):
             exported_bytes = exported_file.read()
 
         self.assertEqual(source_bytes, exported_bytes)
+
+    def test_tables_export_reconstructs_entities(self):
+        """
+        Проверяет экспорт в режиме TABLES, когда DXF собирается заново из таблиц слоёв.
+
+        Что тестируется:
+        1. Импорт DXF в БД с сохранением сущностей по слоям.
+        2. Экспорт через ExportMode.TABLES.
+        3. Наличие результата на диске и подробного отчета о реконструкции.
+
+        Почему это важно:
+        Этот путь использует фабрику `ezdxf` и наиболее хрупкий участок экспорта.
+        """
+        is_success, report = self._import_document_to_db(self._source_path)
+        self.assertTrue(is_success, msg=report)
+
+        export_config = ExportConfigDTO(
+            filename=os.path.basename(self._source_path),
+            export_mode=ExportMode.TABLES,
+            output_path=self._export_path,
+            file_schema=self._file_schema,
+        )
+
+        with patch("src.application.use_cases.export_use_case.inject.instance", return_value=self._db_session):
+            export_result, export_report = self._export_use_case.execute(self._connection, [export_config])
+
+        self.assertTrue(export_result.is_success, msg=export_report)
+        self.assertTrue(os.path.exists(self._export_path), msg=export_report)
+        self.assertIn("Reconstruction summary:", export_report)
+        self.assertIn("reconstructed=", export_report)
+
+        reopen_result = self._reader.open(self._export_path)
+        self.assertTrue(reopen_result.is_success, msg=reopen_result.error if reopen_result.is_fail else "")
+
+        with open(self._export_path, "rb") as exported_file:
+            exported_bytes = exported_file.read()
+
+        self.assertGreater(len(exported_bytes), 0)
+
+    def test_tables_roundtrip_entity_equality(self):
+        """
+        Полная проверка roundtrip через режим TABLES: сущности из исходного
+        DXF и реконструированного файла должны совпадать по типам и структуре геометрий.
+        """
+        # Read original document
+        orig_result = self._reader.open(self._source_path)
+        self.assertTrue(orig_result.is_success, msg=orig_result.error if orig_result.is_fail else "")
+        orig_doc = orig_result.value
+
+        # Import into DB
+        is_success, report = self._import_document_to_db(self._source_path)
+        self.assertTrue(is_success, msg=report)
+
+        # Export using TABLES mode
+        export_config = ExportConfigDTO(
+            filename=os.path.basename(self._source_path),
+            export_mode=ExportMode.TABLES,
+            output_path=self._export_path,
+            file_schema=self._file_schema,
+        )
+
+        with patch("src.application.use_cases.export_use_case.inject.instance", return_value=self._db_session):
+            export_result, export_report = self._export_use_case.execute(self._connection, [export_config])
+
+        self.assertTrue(export_result.is_success, msg=export_report)
+        self.assertTrue(os.path.exists(self._export_path), msg=export_report)
+
+        # Open reconstructed file
+        recon_result = self._reader.open(self._export_path)
+        self.assertTrue(recon_result.is_success, msg=recon_result.error if recon_result.is_fail else "")
+        recon_doc = recon_result.value
+
+        # Compare layer sets
+        orig_layers = {l.name: l for l in orig_doc.layers.values()}
+        recon_layers = {l.name: l for l in recon_doc.layers.values()}
+        self.assertEqual(set(orig_layers.keys()), set(recon_layers.keys()), msg="Layer names differ between original and reconstructed DXF")
+
+        # Helper: build summary multiset per layer
+        def layer_summary(layer):
+            from collections import Counter
+
+            ctr = Counter()
+            for e in layer.entities.values():
+                dxftype = (e.extra_data or {}).get('dxftype') or getattr(e.entity_type, 'value', str(e.entity_type))
+                geom_keys = tuple(sorted((e.geometries or {}).keys()))
+                # use basic fingerprint: (dxftype, geom_keys, number of geometry items)
+                geom_count = 0
+                for v in (e.geometries or {}).values():
+                    try:
+                        if isinstance(v, (list, tuple)):
+                            geom_count += len(v)
+                        else:
+                            geom_count += 1
+                    except Exception:
+                        geom_count += 1
+                ctr[(str(dxftype).upper(), geom_keys, geom_count)] += 1
+            return ctr
+
+        for lname in orig_layers.keys():
+            orig_ctr = layer_summary(orig_layers[lname])
+            recon_ctr = layer_summary(recon_layers[lname])
+            self.assertEqual(orig_ctr, recon_ctr, msg=f"Entity fingerprint mismatch on layer '{lname}'")
 
     def test_import_and_export_multiple_files(self):
         """

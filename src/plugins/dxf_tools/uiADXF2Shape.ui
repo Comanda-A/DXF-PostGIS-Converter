@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>729</width>
-    <height>438</height>
+    <width>701</width>
+    <height>480</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -24,6 +24,12 @@
     <widget class="QStackedWidget" name="stackedWidget">
      <property name="enabled">
       <bool>true</bool>
+     </property>
+     <property name="font">
+      <font>
+       <family>Segoe UI</family>
+       <pointsize>9</pointsize>
+      </font>
      </property>
      <property name="toolTip">
       <string/>
@@ -49,6 +55,12 @@
              <height>0</height>
             </size>
            </property>
+           <property name="font">
+            <font>
+             <family>Segoe UI</family>
+             <pointsize>9</pointsize>
+            </font>
+           </property>
            <property name="frameShape">
             <enum>QFrame::StyledPanel</enum>
            </property>
@@ -64,6 +76,12 @@
                 <verstretch>0</verstretch>
                </sizepolicy>
               </property>
+              <property name="font">
+               <font>
+                <family>Segoe UI</family>
+                <pointsize>9</pointsize>
+               </font>
+              </property>
               <property name="text">
                <string>Файлы:</string>
               </property>
@@ -76,6 +94,12 @@
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
+              </property>
+              <property name="font">
+               <font>
+                <family>Segoe UI</family>
+                <pointsize>9</pointsize>
+               </font>
               </property>
               <property name="locale">
                <locale language="English" country="UnitedKingdom"/>
@@ -95,6 +119,12 @@
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
+              </property>
+              <property name="font">
+               <font>
+                <family>Segoe UI</family>
+                <pointsize>9</pointsize>
+               </font>
               </property>
               <property name="horizontalScrollBarPolicy">
                <enum>Qt::ScrollBarAlwaysOff</enum>
@@ -124,6 +154,12 @@
              <height>0</height>
             </size>
            </property>
+           <property name="font">
+            <font>
+             <family>Segoe UI</family>
+             <pointsize>9</pointsize>
+            </font>
+           </property>
            <property name="currentIndex">
             <number>0</number>
            </property>
@@ -137,6 +173,12 @@
             <layout class="QVBoxLayout" name="verticalLayout_6">
              <item>
               <widget class="QCheckBox" name="chkQgis">
+               <property name="font">
+                <font>
+                 <family>Segoe UI</family>
+                 <pointsize>9</pointsize>
+                </font>
+               </property>
                <property name="text">
                 <string>Открывать в QGIS</string>
                </property>
@@ -144,6 +186,12 @@
              </item>
              <item>
               <widget class="QCheckBox" name="chk3D">
+               <property name="font">
+                <font>
+                 <family>Segoe UI</family>
+                 <pointsize>9</pointsize>
+                </font>
+               </property>
                <property name="text">
                 <string>Использовать 3Д если возможно</string>
                </property>
@@ -151,6 +199,12 @@
              </item>
              <item>
               <widget class="QCheckBox" name="chkTransform">
+               <property name="font">
+                <font>
+                 <family>Segoe UI</family>
+                 <pointsize>9</pointsize>
+                </font>
+               </property>
                <property name="text">
                 <string>Использовать преобразовыание координат</string>
                </property>
@@ -172,6 +226,12 @@
                    <verstretch>0</verstretch>
                   </sizepolicy>
                  </property>
+                 <property name="font">
+                  <font>
+                   <family>Segoe UI</family>
+                   <pointsize>9</pointsize>
+                  </font>
+                 </property>
                  <property name="text">
                   <string>Текстовое представление кода</string>
                  </property>
@@ -179,6 +239,12 @@
                </item>
                <item row="0" column="1">
                 <widget class="QCheckBox" name="chkUseTextFormat">
+                 <property name="font">
+                  <font>
+                   <family>Segoe UI</family>
+                   <pointsize>9</pointsize>
+                  </font>
+                 </property>
                  <property name="text">
                   <string>Скрыть и использовать</string>
                  </property>
@@ -197,6 +263,12 @@
                    <width>50</width>
                    <height>16777215</height>
                   </size>
+                 </property>
+                 <property name="font">
+                  <font>
+                   <family>Segoe UI</family>
+                   <pointsize>9</pointsize>
+                  </font>
                  </property>
                  <property name="text">
                   <string>Факторы</string>
@@ -217,6 +289,12 @@
                    <height>16777215</height>
                   </size>
                  </property>
+                 <property name="font">
+                  <font>
+                   <family>Segoe UI</family>
+                   <pointsize>9</pointsize>
+                  </font>
+                 </property>
                 </widget>
                </item>
                <item row="2" column="0">
@@ -226,6 +304,12 @@
                    <horstretch>0</horstretch>
                    <verstretch>0</verstretch>
                   </sizepolicy>
+                 </property>
+                 <property name="font">
+                  <font>
+                   <family>Segoe UI</family>
+                   <pointsize>9</pointsize>
+                  </font>
                  </property>
                  <property name="text">
                   <string>Заменить вкладку</string>
@@ -240,10 +324,22 @@
                    <verstretch>0</verstretch>
                   </sizepolicy>
                  </property>
+                 <property name="font">
+                  <font>
+                   <family>Segoe UI</family>
+                   <pointsize>9</pointsize>
+                  </font>
+                 </property>
                 </widget>
                </item>
                <item row="3" column="0">
                 <widget class="QLabel" name="lblCharSet">
+                 <property name="font">
+                  <font>
+                   <family>Segoe UI</family>
+                   <pointsize>9</pointsize>
+                  </font>
+                 </property>
                  <property name="text">
                   <string>Кодировка</string>
                  </property>
@@ -253,10 +349,23 @@
                 </widget>
                </item>
                <item row="3" column="1">
-                <widget class="QComboBox" name="cbCharSet"/>
+                <widget class="QComboBox" name="cbCharSet">
+                 <property name="font">
+                  <font>
+                   <family>Segoe UI</family>
+                   <pointsize>9</pointsize>
+                  </font>
+                 </property>
+                </widget>
                </item>
                <item row="4" column="1">
                 <widget class="QCheckBox" name="chkUseColor4Point">
+                 <property name="font">
+                  <font>
+                   <family>Segoe UI</family>
+                   <pointsize>9</pointsize>
+                  </font>
+                 </property>
                  <property name="text">
                   <string>Метка(Точка)</string>
                  </property>
@@ -270,6 +379,12 @@
                    <verstretch>0</verstretch>
                   </sizepolicy>
                  </property>
+                 <property name="font">
+                  <font>
+                   <family>Segoe UI</family>
+                   <pointsize>9</pointsize>
+                  </font>
+                 </property>
                  <property name="text">
                   <string>Использовать элемент палитры DXF</string>
                  </property>
@@ -277,6 +392,12 @@
                </item>
                <item row="5" column="1">
                 <widget class="QCheckBox" name="chkUseColor4Line">
+                 <property name="font">
+                  <font>
+                   <family>Segoe UI</family>
+                   <pointsize>9</pointsize>
+                  </font>
+                 </property>
                  <property name="text">
                   <string>Линия</string>
                  </property>
@@ -284,6 +405,12 @@
                </item>
                <item row="6" column="1">
                 <widget class="QCheckBox" name="chkUseColor4Poly">
+                 <property name="font">
+                  <font>
+                   <family>Segoe UI</family>
+                   <pointsize>9</pointsize>
+                  </font>
+                 </property>
                  <property name="text">
                   <string>Полигон</string>
                  </property>
@@ -293,6 +420,12 @@
              </item>
              <item>
               <spacer name="verticalSpacer">
+               <property name="font">
+                <font>
+                 <family>Segoe UI</family>
+                 <pointsize>9</pointsize>
+                </font>
+               </property>
                <property name="orientation">
                 <enum>Qt::Vertical</enum>
                </property>
@@ -317,6 +450,12 @@
                    <verstretch>0</verstretch>
                   </sizepolicy>
                  </property>
+                 <property name="font">
+                  <font>
+                   <family>Segoe UI</family>
+                   <pointsize>9</pointsize>
+                  </font>
+                 </property>
                  <property name="text">
                   <string>Сгруппировать в 1 слой
 (займёт много времени)</string>
@@ -330,6 +469,12 @@
                    <horstretch>0</horstretch>
                    <verstretch>0</verstretch>
                   </sizepolicy>
+                 </property>
+                 <property name="font">
+                  <font>
+                   <family>Segoe UI</family>
+                   <pointsize>9</pointsize>
+                  </font>
                  </property>
                  <property name="toolTip">
                   <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Преобразует обьединяемые юлоки в геометрические фигуры из коллекции&lt;/p&gt;&lt;p&gt;If there is a symbol of the polygon &lt;span style=&quot; font-weight:600;&quot;&gt;and&lt;/span&gt; line can not be generated by this symbol, because ESRI shapefiles can only store one kind of geometry per layer.&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
@@ -353,6 +498,12 @@
              </item>
              <item>
               <spacer name="verticalSpacer_4">
+               <property name="font">
+                <font>
+                 <family>Segoe UI</family>
+                 <pointsize>9</pointsize>
+                </font>
+               </property>
                <property name="orientation">
                 <enum>Qt::Vertical</enum>
                </property>
@@ -371,7 +522,6 @@
             <zorder>chkTransform</zorder>
             <zorder>verticalSpacer_4</zorder>
             <zorder>chk3D</zorder>
-            <zorder></zorder>
             <zorder>verticalSpacer</zorder>
             <zorder>chkQgis</zorder>
            </widget>
@@ -560,6 +710,12 @@
         <layout class="QGridLayout" name="gridLayout_2">
          <item row="0" column="1">
           <widget class="QCheckBox" name="chkGPKG">
+           <property name="font">
+            <font>
+             <family>Segoe UI</family>
+             <pointsize>9</pointsize>
+            </font>
+           </property>
            <property name="text">
             <string>Сохранить как GeoPackage</string>
            </property>
@@ -567,6 +723,12 @@
          </item>
          <item row="0" column="0">
           <widget class="QCheckBox" name="chkSHP">
+           <property name="font">
+            <font>
+             <family>Segoe UI</family>
+             <pointsize>9</pointsize>
+            </font>
+           </property>
            <property name="text">
             <string>Сохранить как shape файл</string>
            </property>
@@ -587,6 +749,12 @@
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
+           <property name="font">
+            <font>
+             <family>Segoe UI</family>
+             <pointsize>9</pointsize>
+            </font>
+           </property>
            <property name="orientation">
             <enum>Qt::Horizontal</enum>
            </property>
@@ -600,6 +768,12 @@
          </item>
          <item>
           <spacer name="horizontalSpacer">
+           <property name="font">
+            <font>
+             <family>Segoe UI</family>
+             <pointsize>9</pointsize>
+            </font>
+           </property>
            <property name="orientation">
             <enum>Qt::Horizontal</enum>
            </property>
@@ -619,6 +793,12 @@
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
+           <property name="font">
+            <font>
+             <family>Segoe UI</family>
+             <pointsize>9</pointsize>
+            </font>
+           </property>
            <property name="text">
             <string>Сбросить UI</string>
            </property>
@@ -626,6 +806,12 @@
          </item>
          <item>
           <spacer name="horizontalSpacer_3">
+           <property name="font">
+            <font>
+             <family>Segoe UI</family>
+             <pointsize>9</pointsize>
+            </font>
+           </property>
            <property name="orientation">
             <enum>Qt::Horizontal</enum>
            </property>
@@ -644,6 +830,12 @@
              <horstretch>0</horstretch>
              <verstretch>0</verstretch>
             </sizepolicy>
+           </property>
+           <property name="font">
+            <font>
+             <family>Segoe UI</family>
+             <pointsize>9</pointsize>
+            </font>
            </property>
            <property name="text">
             <string>Открыть</string>

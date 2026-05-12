@@ -202,7 +202,7 @@ class TestDbImportExportIntegration(unittest.TestCase):
         self._third_export_path = os.path.join(self._tmp_export_dir, f"exported_{uuid4().hex[:8]}_third.dxf")
         self._fourth_export_path = os.path.join(self._tmp_export_dir, f"exported_{uuid4().hex[:8]}_fourth.dxf")
 
-        open_result = self._open_use_case.execute_single(self._source_path)
+        open_result = self._open_use_case.execute_single(self._fourth_source_path)
         if open_result.is_fail:
             self.fail(f"Failed to open generated DXF fixture: {open_result.error}")
 
@@ -335,7 +335,7 @@ class TestDbImportExportIntegration(unittest.TestCase):
         Почему это важно:
         Без целостной пары document/content экспорт и повторное открытие файла работать не будут.
         """
-        is_success, report = self._import_document_to_db(self._source_path)
+        is_success, report = self._import_document_to_db(self._fourth_source_path)
 
         self.assertTrue(is_success, msg=report)
         self.assertIn("IMPORT COMPLETED SUCCESSFULLY", report)
@@ -345,7 +345,7 @@ class TestDbImportExportIntegration(unittest.TestCase):
 
         doc_repo_result = self._db_session._get_document_repository(self._file_schema)
         self.assertTrue(doc_repo_result.is_success, msg=doc_repo_result.error if doc_repo_result.is_fail else "")
-        doc_result = doc_repo_result.value.get_by_filename(os.path.basename(self._source_path))
+        doc_result = doc_repo_result.value.get_by_filename(os.path.basename(self._fourth_source_path))
 
         self.assertTrue(doc_result.is_success, msg=doc_result.error if doc_result.is_fail else "")
         self.assertIsNotNone(doc_result.value)
@@ -370,11 +370,11 @@ class TestDbImportExportIntegration(unittest.TestCase):
         Почему это важно:
         Гарантирует, что экспорт не вносит скрытых модификаций в содержимое DXF.
         """
-        is_success, report = self._import_document_to_db(self._source_path)
+        is_success, report = self._import_document_to_db(self._fourth_source_path)
         self.assertTrue(is_success, msg=report)
 
         export_config = ExportConfigDTO(
-            filename=os.path.basename(self._source_path),
+            filename=os.path.basename(self._fourth_source_path),
             export_mode=ExportMode.FILE,
             output_path=self._export_path,
             file_schema=self._file_schema,
@@ -390,7 +390,7 @@ class TestDbImportExportIntegration(unittest.TestCase):
         reopen_result = self._reader.open(self._export_path)
         self.assertTrue(reopen_result.is_success, msg=reopen_result.error if reopen_result.is_fail else "")
 
-        with open(self._source_path, "rb") as source_file:
+        with open(self._fourth_source_path, "rb") as source_file:
             source_bytes = source_file.read()
         with open(self._export_path, "rb") as exported_file:
             exported_bytes = exported_file.read()
@@ -409,11 +409,11 @@ class TestDbImportExportIntegration(unittest.TestCase):
         Почему это важно:
         Этот путь использует фабрику `ezdxf` и наиболее хрупкий участок экспорта.
         """
-        is_success, report = self._import_document_to_db(self._source_path)
+        is_success, report = self._import_document_to_db(self._fourth_source_path)
         self.assertTrue(is_success, msg=report)
 
         export_config = ExportConfigDTO(
-            filename=os.path.basename(self._source_path),
+            filename=os.path.basename(self._fourth_source_path),
             export_mode=ExportMode.TABLES,
             output_path=self._export_path,
             file_schema=self._file_schema,
@@ -441,17 +441,17 @@ class TestDbImportExportIntegration(unittest.TestCase):
         DXF и реконструированного файла должны совпадать по типам и структуре геометрий.
         """
         # Read original document
-        orig_result = self._reader.open(self._source_path)
+        orig_result = self._reader.open(self._fourth_source_path)
         self.assertTrue(orig_result.is_success, msg=orig_result.error if orig_result.is_fail else "")
         orig_doc = orig_result.value
 
         # Import into DB
-        is_success, report = self._import_document_to_db(self._source_path)
+        is_success, report = self._import_document_to_db(self._fourth_source_path)
         self.assertTrue(is_success, msg=report)
 
         # Export using TABLES mode
         export_config = ExportConfigDTO(
-            filename=os.path.basename(self._source_path),
+            filename=os.path.basename(self._fourth_source_path),
             export_mode=ExportMode.TABLES,
             output_path=self._export_path,
             file_schema=self._file_schema,
@@ -498,6 +498,275 @@ class TestDbImportExportIntegration(unittest.TestCase):
             orig_ctr = layer_summary(orig_layers[lname])
             recon_ctr = layer_summary(recon_layers[lname])
             self.assertEqual(orig_ctr, recon_ctr, msg=f"Entity fingerprint mismatch on layer '{lname}'")
+
+    def test_tables_roundtrip_preserves_text_and_main_geometry_counts(self):
+        """
+        Проверяет, что TABLES export не теряет видимые детали: подписи текста и основные типы геометрии.
+        """
+        orig_result = self._reader.open(self._source_path)
+        self.assertTrue(orig_result.is_success, msg=orig_result.error if orig_result.is_fail else "")
+        orig_doc = orig_result.value
+
+        load_result = self._open_use_case.execute_single(self._source_path)
+        self.assertTrue(load_result.is_success, msg=load_result.error if load_result.is_fail else "")
+
+        is_success, report = self._import_document_to_db(self._source_path)
+        self.assertTrue(is_success, msg=report)
+
+        export_config = ExportConfigDTO(
+            filename=os.path.basename(self._source_path),
+            export_mode=ExportMode.TABLES,
+            output_path=self._export_path,
+            file_schema=self._file_schema,
+        )
+
+        with patch("src.application.use_cases.export_use_case.inject.instance", return_value=self._db_session):
+            export_result, export_report = self._export_use_case.execute(self._connection, [export_config])
+
+        self.assertTrue(export_result.is_success, msg=export_report)
+
+        recon_result = self._reader.open(self._export_path)
+        self.assertTrue(recon_result.is_success, msg=recon_result.error if recon_result.is_fail else "")
+        recon_doc = recon_result.value
+
+        def collect(doc, dxftypes):
+            collected = []
+            for layer in doc.layers.values():
+                for entity in layer.entities.values():
+                    entity_type = (entity.extra_data or {}).get("dxftype") or getattr(entity.entity_type, "value", str(entity.entity_type))
+                    if str(entity_type).upper() in dxftypes:
+                        collected.append(entity)
+            return collected
+
+        for dxftype in ("TEXT", "MTEXT", "LINE", "POINT", "CIRCLE", "ARC", "INSERT"):
+            orig_entities = collect(orig_doc, {dxftype})
+            recon_entities = collect(recon_doc, {dxftype})
+            self.assertEqual(
+                len(orig_entities),
+                len(recon_entities),
+                msg=f"Count mismatch for {dxftype}",
+            )
+
+        orig_texts = sorted([
+            str((entity.geometries or {}).get("text") or (entity.attributes or {}).get("text") or "")
+            for entity in collect(orig_doc, {"TEXT", "MTEXT"})
+        ])
+        recon_texts = sorted([
+            str((entity.geometries or {}).get("text") or (entity.attributes or {}).get("text") or "")
+            for entity in collect(recon_doc, {"TEXT", "MTEXT"})
+        ])
+        self.assertEqual(orig_texts, recon_texts, msg="Text labels differ after TABLES roundtrip")
+
+    def test_tables_roundtrip_preserves_reachable_block_structure_for_ex4(self):
+        """
+        Сравнивает структуру достижимых block definition для EXAMPLE_4.
+
+        Проверяет, что после TABLES-экспорта у блоков, достижимых из modelspace INSERT,
+        сохраняются:
+        1. Состав сущностей по типам.
+        2. Структура HATCH boundary paths (polyline/edge и геометрия ребер).
+        """
+        from collections import Counter, defaultdict
+        import tempfile
+        import ezdxf
+
+        orig_result = self._reader.open(self._fourth_source_path)
+        self.assertTrue(orig_result.is_success, msg=orig_result.error if orig_result.is_fail else "")
+
+        is_success, report = self._import_document_to_db(self._fourth_source_path)
+        self.assertTrue(is_success, msg=report)
+
+        export_config = ExportConfigDTO(
+            filename=os.path.basename(self._fourth_source_path),
+            export_mode=ExportMode.TABLES,
+            output_path=self._export_path,
+            file_schema=self._file_schema,
+        )
+
+        with patch("src.application.use_cases.export_use_case.inject.instance", return_value=self._db_session):
+            export_result, export_report = self._export_use_case.execute(self._connection, [export_config])
+        self.assertTrue(export_result.is_success, msg=export_report)
+
+        original_doc = ezdxf.readfile(self._fourth_source_path)
+        reconstructed_doc = ezdxf.readfile(self._export_path)
+
+        def block_refs(doc):
+            refs = defaultdict(set)
+            for block in doc.blocks:
+                block_name = getattr(block.dxf, "name", "")
+                if not block_name:
+                    continue
+                for block_entity in block:
+                    if block_entity.dxftype() == "INSERT":
+                        refs[block_name].add(block_entity.dxf.name)
+            return refs
+
+        def modelspace_insert_roots(doc):
+            return {entity.dxf.name for entity in doc.modelspace() if entity.dxftype() == "INSERT"}
+
+        def closure(roots, refs):
+            seen = set()
+            stack = list(roots)
+            while stack:
+                name = stack.pop()
+                if name in seen:
+                    continue
+                seen.add(name)
+                for nested in refs.get(name, set()):
+                    if nested not in seen:
+                        stack.append(nested)
+            return seen
+
+        def round_num(value):
+            try:
+                return round(float(value), 6)
+            except Exception:
+                return value
+
+        def to_xy(point):
+            if isinstance(point, (list, tuple)) and len(point) >= 2:
+                return (round_num(point[0]), round_num(point[1]))
+            return tuple(point)
+
+        def hatch_signature(hatch):
+            paths = []
+            for boundary in hatch.paths:
+                if hasattr(boundary, "vertices"):
+                    vertices = []
+                    for vertex in boundary.vertices:
+                        if isinstance(vertex, (list, tuple)) and len(vertex) >= 3:
+                            vertices.append((round_num(vertex[0]), round_num(vertex[1]), round_num(vertex[2])))
+                        elif isinstance(vertex, (list, tuple)) and len(vertex) >= 2:
+                            vertices.append((round_num(vertex[0]), round_num(vertex[1])))
+                    paths.append(("polyline", bool(getattr(boundary, "is_closed", True)), tuple(vertices)))
+                elif hasattr(boundary, "edges"):
+                    edges = []
+                    for edge in boundary.edges:
+                        if hasattr(edge, "start") and hasattr(edge, "end"):
+                            edges.append(("line", to_xy(edge.start), to_xy(edge.end)))
+                        elif hasattr(edge, "center") and hasattr(edge, "radius") and hasattr(edge, "start_angle") and hasattr(edge, "end_angle"):
+                            edges.append((
+                                "arc",
+                                to_xy(edge.center),
+                                round_num(edge.radius),
+                                round_num(edge.start_angle),
+                                round_num(edge.end_angle),
+                                bool(getattr(edge, "ccw", True)),
+                            ))
+                    paths.append(("edge", tuple(edges)))
+
+            return (
+                str(getattr(hatch.dxf, "pattern_name", "")),
+                int(getattr(hatch.dxf, "solid_fill", 0)),
+                tuple(paths),
+            )
+
+        def entity_signature(entity):
+            etype = entity.dxftype()
+            if etype == "HATCH":
+                return (etype, hatch_signature(entity))
+            return (etype,)
+
+        reachable_blocks = closure(modelspace_insert_roots(original_doc), block_refs(original_doc))
+
+        for block_name in sorted(reachable_blocks):
+            self.assertIn(block_name, reconstructed_doc.blocks, msg=f"Reachable block is missing after export: {block_name}")
+
+            original_block = original_doc.blocks.get(block_name)
+            reconstructed_block = reconstructed_doc.blocks.get(block_name)
+
+            original_types = Counter(entity.dxftype() for entity in original_block)
+            reconstructed_types = Counter(entity.dxftype() for entity in reconstructed_block)
+            self.assertEqual(
+                original_types,
+                reconstructed_types,
+                msg=f"Entity type composition differs for block '{block_name}'",
+            )
+
+            original_hatch_sig = Counter(entity_signature(entity) for entity in original_block if entity.dxftype() == "HATCH")
+            reconstructed_hatch_sig = Counter(entity_signature(entity) for entity in reconstructed_block if entity.dxftype() == "HATCH")
+            self.assertEqual(
+                original_hatch_sig,
+                reconstructed_hatch_sig,
+                msg=f"HATCH path structure differs for block '{block_name}'",
+            )
+
+    def test_tables_roundtrip_preserves_insert_attached_attributes_for_ex4(self):
+        """
+        Проверяет, что TABLES roundtrip сохраняет attached ATTRIB у INSERT.
+
+        Это критично для подписей, которые задаются значениями атрибутов блоков,
+        а не обычными TEXT/MTEXT сущностями.
+        """
+        from collections import Counter
+        import ezdxf
+
+        is_success, report = self._import_document_to_db(self._fourth_source_path)
+        self.assertTrue(is_success, msg=report)
+
+        export_config = ExportConfigDTO(
+            filename=os.path.basename(self._fourth_source_path),
+            export_mode=ExportMode.TABLES,
+            output_path=self._export_path,
+            file_schema=self._file_schema,
+        )
+
+        with patch("src.application.use_cases.export_use_case.inject.instance", return_value=self._db_session):
+            export_result, export_report = self._export_use_case.execute(self._connection, [export_config])
+        self.assertTrue(export_result.is_success, msg=export_report)
+
+        original_doc = ezdxf.readfile(self._fourth_source_path)
+        reconstructed_doc = ezdxf.readfile(self._export_path)
+
+        def collect_insert_attribs(doc):
+            total_attrs = 0
+            non_empty_attrs = 0
+            tag_counter = Counter()
+            text_counter = Counter()
+
+            for insert_entity in doc.modelspace():
+                if insert_entity.dxftype() != "INSERT":
+                    continue
+
+                for attrib in getattr(insert_entity, "attribs", []):
+                    total_attrs += 1
+                    tag = str(getattr(attrib.dxf, "tag", ""))
+                    text = str(getattr(attrib.dxf, "text", ""))
+                    tag_counter[tag] += 1
+                    text_counter[text] += 1
+                    if text.strip():
+                        non_empty_attrs += 1
+
+            return {
+                "total": total_attrs,
+                "non_empty": non_empty_attrs,
+                "tags": tag_counter,
+                "texts": text_counter,
+            }
+
+        original_stats = collect_insert_attribs(original_doc)
+        reconstructed_stats = collect_insert_attribs(reconstructed_doc)
+
+        self.assertEqual(
+            original_stats["total"],
+            reconstructed_stats["total"],
+            msg="INSERT attached ATTRIB count differs after TABLES roundtrip",
+        )
+        self.assertEqual(
+            original_stats["non_empty"],
+            reconstructed_stats["non_empty"],
+            msg="INSERT non-empty ATTRIB text count differs after TABLES roundtrip",
+        )
+        self.assertEqual(
+            original_stats["tags"],
+            reconstructed_stats["tags"],
+            msg="INSERT ATTRIB tag distribution differs after TABLES roundtrip",
+        )
+        self.assertEqual(
+            original_stats["texts"],
+            reconstructed_stats["texts"],
+            msg="INSERT ATTRIB text distribution differs after TABLES roundtrip",
+        )
 
     def test_import_and_export_multiple_files(self):
         """

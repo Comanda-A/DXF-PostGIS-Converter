@@ -55,6 +55,9 @@ class DXFWriter(IDXFWriter):
 			report_lines: list[str] = []
 			report_lines.append(f"Reconstruction started for {len(entities)} entity(ies)")
 
+			temp_doc = ezdxf.new()
+			temp_modelspace = temp_doc.modelspace()
+
 			dxf_entities_to_write = []
 			skipped_entities = 0
 			reconstructed_by_type: dict[str, int] = {}
@@ -73,9 +76,23 @@ class DXFWriter(IDXFWriter):
 
 				attribs = self._build_ezdxf_attribs(entity, dxftype)
 				try:
-					ez_entity = ezdxf_factory.new(dxftype, dxfattribs=attribs)
-					self._apply_entity_geometry(ez_entity, entity, dxftype)
-					dxf_entities_to_write.append(ez_entity)
+					if dxftype == "ATTRIB":
+						attrib_text = (entity.geometries or {}).get("text") or (entity.attributes or {}).get("text") or ""
+						text_attribs = dict(attribs)
+						text_attribs["text"] = attrib_text
+						text_entity = ezdxf_factory.new("TEXT", dxfattribs=self._clean_ezdxf_attribs(text_attribs, "TEXT"))
+						self._apply_geometry_dict(text_entity, entity.geometries or {}, "TEXT")
+						ez_entity = text_entity
+					elif dxftype == "MULTILEADER":
+						ez_entity = self._build_multileader(temp_modelspace, entity)
+					elif dxftype == "LEADER":
+						ez_entity = ezdxf_factory.new(dxftype, dxfattribs=attribs)
+						self._apply_entity_geometry(ez_entity, entity, dxftype)
+					else:
+						ez_entity = ezdxf_factory.new(dxftype, dxfattribs=attribs)
+						self._apply_entity_geometry(ez_entity, entity, dxftype)
+					if ez_entity is not None:
+						dxf_entities_to_write.append(ez_entity)
 					reconstructed_by_type[dxftype] = reconstructed_by_type.get(dxftype, 0) + 1
 					report_lines.append(
 						f"ok entity id={getattr(entity, 'id', None)}, name='{entity_name}', dxftype={dxftype}, attr_keys={sorted(list(attribs.keys()))[:12]}, geom_keys={sorted(list((entity.geometries or {}).keys()))[:12]}"
@@ -95,9 +112,6 @@ class DXFWriter(IDXFWriter):
 			report_lines.append(
 				f"Reconstruction summary: reconstructed={len(dxf_entities_to_write)}, skipped={skipped_entities}, by_type={reconstructed_by_type}"
 			)
-
-			temp_doc = ezdxf.new()
-			temp_modelspace = temp_doc.modelspace()
 
 			# Build all block definitions recursively from serialized payloads.
 			block_definitions = self._collect_block_definitions_from_entities(entities)
@@ -183,8 +197,146 @@ class DXFWriter(IDXFWriter):
 		self._apply_geometry_dict(ez_entity, geometry, dxftype)
 
 	def _apply_geometry_dict(self, ez_entity, geometry: dict, dxftype: str) -> None:
+		if dxftype == "POINT":
+			location = geometry.get("location")
+			if location:
+				try:
+					ez_entity.dxf.location = location
+				except Exception:
+					pass
 
-		if dxftype == "LWPOLYLINE":
+		elif dxftype == "LINE":
+			start = geometry.get("start")
+			end = geometry.get("end")
+			if start:
+				try:
+					ez_entity.dxf.start = start
+				except Exception:
+					pass
+			if end:
+				try:
+					ez_entity.dxf.end = end
+				except Exception:
+					pass
+
+		elif dxftype == "TEXT":
+			insert = geometry.get("insert")
+			if insert:
+				try:
+					ez_entity.dxf.insert = insert
+				except Exception:
+					pass
+			for key in ("text", "height", "rotation", "oblique", "style", "halign", "valign"):
+				if key in geometry and geometry.get(key) is not None:
+					try:
+						setattr(ez_entity.dxf, key, geometry.get(key))
+					except Exception:
+						pass
+
+		elif dxftype == "MTEXT":
+			insert = geometry.get("insert")
+			if insert:
+				try:
+					ez_entity.dxf.insert = insert
+				except Exception:
+					pass
+			if geometry.get("text") is not None:
+				try:
+					ez_entity.text = geometry.get("text")
+				except Exception:
+					pass
+			for key in ("height", "rotation"):
+				if key in geometry and geometry.get(key) is not None:
+					try:
+						setattr(ez_entity.dxf, key if key != "height" else "char_height", geometry.get(key))
+					except Exception:
+						pass
+
+		elif dxftype == "INSERT":
+			insert = geometry.get("insert")
+			if insert:
+				try:
+					ez_entity.dxf.insert = insert
+				except Exception:
+					pass
+			for key in ("name", "xscale", "yscale", "zscale", "rotation"):
+				if key in geometry and geometry.get(key) is not None:
+					try:
+						setattr(ez_entity.dxf, key, geometry.get(key))
+					except Exception:
+						pass
+
+			for attrib_payload in (geometry.get("insert_attribs") or []):
+				try:
+					tag = str(attrib_payload.get("tag") or "")
+					text = str(attrib_payload.get("text") or "")
+					insert_point = attrib_payload.get("insert") or insert or (0.0, 0.0, 0.0)
+					dxfattribs = {}
+					for key in ("height", "rotation", "style", "layer", "color"):
+						value = attrib_payload.get(key)
+						if value is not None:
+							dxfattribs[key] = value
+
+					ez_entity.add_attrib(
+						tag,
+						text,
+						insert=insert_point,
+						dxfattribs=dxfattribs or None,
+					)
+				except Exception:
+					pass
+
+		elif dxftype == "CIRCLE":
+			center = geometry.get("center")
+			if center:
+				try:
+					ez_entity.dxf.center = center
+				except Exception:
+					pass
+			radius = geometry.get("radius")
+			if radius is not None:
+				try:
+					ez_entity.dxf.radius = radius
+				except Exception:
+					pass
+
+		elif dxftype == "ARC":
+			center = geometry.get("center")
+			if center:
+				try:
+					ez_entity.dxf.center = center
+				except Exception:
+					pass
+			for key in ("radius", "start_angle", "end_angle"):
+				if key in geometry and geometry.get(key) is not None:
+					try:
+						setattr(ez_entity.dxf, key, geometry.get(key))
+					except Exception:
+						pass
+
+		elif dxftype == "ELLIPSE":
+			for key in ("center", "major_axis", "ratio", "start_param", "end_param", "extrusion"):
+				if key in geometry and geometry.get(key) is not None:
+					try:
+						setattr(ez_entity.dxf, key, geometry.get(key))
+					except Exception:
+						pass
+
+		elif dxftype == "POLYLINE":
+			points = geometry.get("points") or []
+			if points:
+				try:
+					for point in points:
+						ez_entity.append_vertex(point)
+				except Exception:
+					pass
+			if "is_closed" in geometry:
+				try:
+					ez_entity.closed = bool(geometry.get("is_closed"))
+				except Exception:
+					pass
+
+		elif dxftype == "LWPOLYLINE":
 			points = geometry.get("points") or []
 			if points:
 				try:
@@ -209,6 +361,153 @@ class DXFWriter(IDXFWriter):
 					ez_entity.dxf.const_width = geometry.get("const_width")
 				except Exception:
 					pass
+
+		elif dxftype == "3DFACE":
+			for key in ("vtx0", "vtx1", "vtx2", "vtx3"):
+				if key in geometry and geometry.get(key) is not None:
+					try:
+						setattr(ez_entity.dxf, key, geometry.get(key))
+					except Exception:
+						pass
+
+		elif dxftype in {"SOLID", "TRACE"}:
+			for key in ("vtx0", "vtx1", "vtx2", "vtx3"):
+				if key in geometry and geometry.get(key) is not None:
+					try:
+						setattr(ez_entity.dxf, key, geometry.get(key))
+					except Exception:
+						pass
+
+		elif dxftype == "RAY" or dxftype == "XLINE":
+			for key in ("start", "unit_vector"):
+				if key in geometry and geometry.get(key) is not None:
+					try:
+						setattr(ez_entity.dxf, key, geometry.get(key))
+					except Exception:
+						pass
+
+		elif dxftype == "VIEWPORT":
+			for key in ("center", "width", "height"):
+				if key in geometry and geometry.get(key) is not None:
+					try:
+						setattr(ez_entity.dxf, key, geometry.get(key))
+					except Exception:
+						pass
+
+		elif dxftype == "LEADER":
+			vertices = geometry.get("vertices") or []
+			if vertices:
+				try:
+					ez_entity.set_vertices(vertices)
+				except Exception:
+					pass
+			if geometry.get("text") is not None:
+				try:
+					ez_entity.dxf.text = geometry.get("text")
+				except Exception:
+					pass
+
+		elif dxftype == "HATCH":
+			try:
+				if geometry.get("solid_fill"):
+					try:
+						ez_entity.dxf.solid_fill = 1
+					except Exception:
+						pass
+
+				pattern_name = geometry.get("pattern_name") or "SOLID"
+				try:
+					ez_entity.dxf.pattern_name = pattern_name
+				except Exception:
+					pass
+
+				hatch_paths = geometry.get("hatch_paths") or []
+				if hatch_paths:
+					for path in hatch_paths:
+						path_type = str(path.get("path_type") or "").lower()
+						if path_type == "polyline":
+							vertices = []
+							for vertex in (path.get("vertices") or []):
+								if isinstance(vertex, (list, tuple)) and len(vertex) >= 3:
+									vertices.append((float(vertex[0]), float(vertex[1]), float(vertex[2])))
+								elif isinstance(vertex, (list, tuple)) and len(vertex) >= 2:
+									vertices.append((float(vertex[0]), float(vertex[1])))
+
+							if len(vertices) >= 2:
+								ez_entity.paths.add_polyline_path(
+									vertices,
+									is_closed=bool(path.get("is_closed", True)),
+								)
+
+						elif path_type == "edge":
+							edge_path = ez_entity.paths.add_edge_path()
+							for edge in (path.get("edges") or []):
+								edge_type = str(edge.get("edge_type") or "").lower()
+								if edge_type == "line":
+									start = edge.get("start") or []
+									end = edge.get("end") or []
+									if len(start) >= 2 and len(end) >= 2:
+										edge_path.add_line((float(start[0]), float(start[1])), (float(end[0]), float(end[1])))
+								elif edge_type == "arc":
+									center = edge.get("center") or []
+									radius = edge.get("radius")
+									start_angle = edge.get("start_angle")
+									end_angle = edge.get("end_angle")
+									if len(center) >= 2 and radius is not None and start_angle is not None and end_angle is not None:
+										edge_path.add_arc(
+											(float(center[0]), float(center[1])),
+											float(radius),
+											float(start_angle),
+											float(end_angle),
+											ccw=bool(edge.get("ccw", True)),
+										)
+				else:
+					boundaries = geometry.get("boundaries") or []
+					for boundary in boundaries:
+						points_2d = [(float(point[0]), float(point[1])) for point in boundary if len(point) >= 2]
+						if len(points_2d) >= 2:
+							ez_entity.paths.add_polyline_path(points_2d, is_closed=True)
+			except Exception:
+				pass
+
+	def _build_multileader(self, temp_modelspace, entity: DXFEntity):
+		"""Build a visual MULTILEADER using the ezdxf builder API."""
+		from ezdxf.math import Vec2
+
+		geometry = entity.geometries or {}
+		leader_lines = geometry.get("leader_lines") or []
+		text = geometry.get("text") or (entity.attributes or {}).get("text") or ""
+		char_height = geometry.get("char_height")
+
+		first_line = leader_lines[0] if leader_lines else []
+		if len(first_line) >= 2:
+			target_raw = first_line[-1]
+			prev_raw = first_line[-2]
+		else:
+			target_raw = geometry.get("base_point") or [0.0, 0.0, 0.0]
+			prev_raw = [float(target_raw[0]) - 20.0, float(target_raw[1]), float(target_raw[2] if len(target_raw) > 2 else 0.0)]
+
+		target = Vec2(float(target_raw[0]), float(target_raw[1]))
+		segment1 = Vec2(float(prev_raw[0]) - float(target_raw[0]), float(prev_raw[1]) - float(target_raw[1]))
+
+		builder = temp_modelspace.add_multileader_mtext("Standard")
+		try:
+			if char_height is not None:
+				builder.set_content(text, char_height=char_height)
+			else:
+				builder.set_content(text)
+		except Exception:
+			pass
+
+		try:
+			builder.quick_leader(text, target=target, segment1=segment1)
+		except Exception:
+			pass
+
+		try:
+			return builder.build(insert=target)
+		except Exception:
+			return None
 
 	def _collect_block_definitions_from_entities(self, entities: Sequence[DXFEntity]) -> dict[str, list[dict]]:
 		block_defs: dict[str, list[dict]] = {}

@@ -289,13 +289,30 @@ class DXFReader(IDXFReader):
 
     def _extract_insert_data(self, dxfentity: EzDXFEntity, entity: DXFEntity):
         """INSERT"""
+        insert_attribs = []
+        try:
+            for attrib in getattr(dxfentity, 'attribs', []):
+                insert_attribs.append({
+                    'tag': getattr(attrib.dxf, 'tag', ''),
+                    'text': getattr(attrib.dxf, 'text', ''),
+                    'insert': self._vec3_to_list(getattr(attrib.dxf, 'insert', (0.0, 0.0, 0.0))),
+                    'height': getattr(attrib.dxf, 'height', None),
+                    'rotation': getattr(attrib.dxf, 'rotation', None),
+                    'style': getattr(attrib.dxf, 'style', None),
+                    'layer': getattr(attrib.dxf, 'layer', None),
+                    'color': getattr(attrib.dxf, 'color', None),
+                })
+        except Exception:
+            insert_attribs = []
+
         geometry = {
             'insert': self._vec3_to_list(dxfentity.dxf.insert),
             'name': dxfentity.dxf.name,
             'xscale': dxfentity.dxf.xscale,
             'yscale': dxfentity.dxf.yscale,
             'zscale': dxfentity.dxf.zscale,
-            'rotation': dxfentity.dxf.rotation
+            'rotation': dxfentity.dxf.rotation,
+            'insert_attribs': insert_attribs,
         }
         entity.add_geometries(geometry)
         entity.add_attributes({
@@ -480,14 +497,57 @@ class DXFReader(IDXFReader):
         """HATCH"""
         try:
             boundaries = []
+            hatch_paths = []
             if hasattr(dxfentity, 'paths'):
                 for boundary in dxfentity.paths:
+                    path_payload = {}
                     if hasattr(boundary, 'vertices'):
-                        points = [self._vec3_to_list(v) for v in boundary.vertices()]
+                        points = []
+                        for vertex in boundary.vertices:
+                            if isinstance(vertex, (list, tuple)):
+                                if len(vertex) >= 3:
+                                    points.append([float(vertex[0]), float(vertex[1]), float(vertex[2])])
+                                elif len(vertex) >= 2:
+                                    points.append([float(vertex[0]), float(vertex[1])])
+                            else:
+                                points.append(self._vec3_to_list(vertex))
                         boundaries.append(points)
+                        path_payload = {
+                            'path_type': 'polyline',
+                            'is_closed': bool(getattr(boundary, 'is_closed', True)),
+                            'vertices': points,
+                        }
+
+                    elif hasattr(boundary, 'edges'):
+                        edges_payload = []
+                        for edge in boundary.edges:
+                            if hasattr(edge, 'start') and hasattr(edge, 'end'):
+                                edges_payload.append({
+                                    'edge_type': 'line',
+                                    'start': self._vec3_to_list(edge.start),
+                                    'end': self._vec3_to_list(edge.end),
+                                })
+                            elif hasattr(edge, 'center') and hasattr(edge, 'radius') and hasattr(edge, 'start_angle') and hasattr(edge, 'end_angle'):
+                                edges_payload.append({
+                                    'edge_type': 'arc',
+                                    'center': self._vec3_to_list(edge.center),
+                                    'radius': float(edge.radius),
+                                    'start_angle': float(edge.start_angle),
+                                    'end_angle': float(edge.end_angle),
+                                    'ccw': bool(getattr(edge, 'ccw', True)),
+                                })
+
+                        path_payload = {
+                            'path_type': 'edge',
+                            'edges': edges_payload,
+                        }
+
+                    if path_payload:
+                        hatch_paths.append(path_payload)
             
             geometry = {
                 'boundaries': boundaries,
+                'hatch_paths': hatch_paths,
                 'pattern_name': dxfentity.dxf.pattern_name if hasattr(dxfentity.dxf, 'pattern_name') else '',
                 'solid_fill': dxfentity.dxf.solid_fill if hasattr(dxfentity.dxf, 'solid_fill') else False
             }

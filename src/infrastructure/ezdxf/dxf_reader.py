@@ -114,6 +114,34 @@ class DXFReader(IDXFReader):
                 extra_data["dxf_attribs"][key] = value
             else:
                 extra_data["dxf_attribs"][key] = str(value)
+
+        # Preserve source layer style so ByLayer entities keep visual appearance after TABLES reconstruction.
+        try:
+            layer_name = str(getattr(dxfentity.dxf, 'layer', '') or '')
+            if layer_name and hasattr(self, '_drawing') and self._drawing is not None and layer_name in self._drawing.layers:
+                layer = self._drawing.layers.get(layer_name)
+                layer_attribs = {}
+                for key in ('color', 'linetype', 'lineweight', 'plot', 'true_color', 'transparency', 'ltscale'):
+                    try:
+                        value = getattr(layer.dxf, key)
+                    except Exception:
+                        continue
+
+                    if value is None:
+                        continue
+
+                    if hasattr(value, 'x'):
+                        layer_attribs[key] = [value.x, getattr(value, 'y', 0.0), getattr(value, 'z', 0.0)]
+                    elif isinstance(value, (int, float, str, bool, list, tuple)):
+                        layer_attribs[key] = value
+                    else:
+                        layer_attribs[key] = str(value)
+
+                if layer_attribs:
+                    extra_data['layer_name'] = layer_name
+                    extra_data['layer_dxf_attribs'] = layer_attribs
+        except Exception:
+            pass
                 
         entity.add_extra_data(extra_data)
 
@@ -190,7 +218,12 @@ class DXFReader(IDXFReader):
 
     def _extract_lwpolyline_data(self, dxfentity: EzDXFEntity, entity: DXFEntity):
         """LWPOLYLINE"""
-        points = [list(v) for v in dxfentity.vertices_in_ocs()]
+        points = []
+        try:
+            for point in dxfentity.get_points("xyseb"):
+                points.append(list(point))
+        except Exception:
+            points = [list(v) for v in dxfentity.vertices_in_ocs()]
         geometry = {
             'points': points,
             'is_closed': dxfentity.is_closed,
@@ -263,7 +296,10 @@ class DXFReader(IDXFReader):
             'oblique': dxfentity.dxf.oblique,
             'style': dxfentity.dxf.style,
             'halign': dxfentity.dxf.halign,
-            'valign': dxfentity.dxf.valign
+            'valign': dxfentity.dxf.valign,
+            'color': getattr(dxfentity.dxf, 'color', None),
+            'true_color': getattr(dxfentity.dxf, 'true_color', None),
+            'transparency': getattr(dxfentity.dxf, 'transparency', None),
         }
         entity.add_geometries(geometry)
         entity.add_attributes({
@@ -278,7 +314,10 @@ class DXFReader(IDXFReader):
             'insert': self._vec3_to_list(dxfentity.dxf.insert),
             'text': dxfentity.text,
             'height': dxfentity.dxf.char_height,
-            'rotation': dxfentity.dxf.rotation
+            'rotation': dxfentity.dxf.rotation,
+            'color': getattr(dxfentity.dxf, 'color', None),
+            'true_color': getattr(dxfentity.dxf, 'true_color', None),
+            'transparency': getattr(dxfentity.dxf, 'transparency', None),
         }
         entity.add_geometries(geometry)
         entity.add_attributes({
@@ -301,6 +340,8 @@ class DXFReader(IDXFReader):
                     'style': getattr(attrib.dxf, 'style', None),
                     'layer': getattr(attrib.dxf, 'layer', None),
                     'color': getattr(attrib.dxf, 'color', None),
+                    'true_color': getattr(attrib.dxf, 'true_color', None),
+                    'transparency': getattr(attrib.dxf, 'transparency', None),
                 })
         except Exception:
             insert_attribs = []
@@ -588,7 +629,10 @@ class DXFReader(IDXFReader):
         geometry = {
             'insert': self._vec3_to_list(dxfentity.dxf.insert),
             'tag': dxfentity.dxf.tag,
-            'text': dxfentity.dxf.text
+            'text': dxfentity.dxf.text,
+            'color': getattr(dxfentity.dxf, 'color', None),
+            'true_color': getattr(dxfentity.dxf, 'true_color', None),
+            'transparency': getattr(dxfentity.dxf, 'transparency', None),
         }
         entity.add_geometries(geometry)
         entity.add_attributes({

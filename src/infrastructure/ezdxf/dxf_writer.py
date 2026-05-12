@@ -58,6 +58,23 @@ class DXFWriter(IDXFWriter):
 			temp_doc = ezdxf.new()
 			temp_modelspace = temp_doc.modelspace()
 
+			# Restore layer table attributes so ByLayer entities keep original visual styles.
+			layer_definitions = self._collect_layer_definitions_from_entities(entities)
+			report_lines.append(f"Layer definitions collected: {len(layer_definitions)}")
+			for layer_name, layer_attribs in layer_definitions.items():
+				try:
+					if layer_name in temp_doc.layers:
+						layer = temp_doc.layers.get(layer_name)
+						for key, value in layer_attribs.items():
+							try:
+								setattr(layer.dxf, key, value)
+							except Exception:
+								pass
+					else:
+						temp_doc.layers.new(name=layer_name, dxfattribs=layer_attribs)
+				except Exception:
+					continue
+
 			dxf_entities_to_write = []
 			skipped_entities = 0
 			reconstructed_by_type: dict[str, int] = {}
@@ -80,6 +97,9 @@ class DXFWriter(IDXFWriter):
 						attrib_text = (entity.geometries or {}).get("text") or (entity.attributes or {}).get("text") or ""
 						text_attribs = dict(attribs)
 						text_attribs["text"] = attrib_text
+						for color_key in ("color", "true_color", "transparency"):
+							if color_key not in text_attribs and (entity.geometries or {}).get(color_key) is not None:
+								text_attribs[color_key] = (entity.geometries or {}).get(color_key)
 						text_entity = ezdxf_factory.new("TEXT", dxfattribs=self._clean_ezdxf_attribs(text_attribs, "TEXT"))
 						self._apply_geometry_dict(text_entity, entity.geometries or {}, "TEXT")
 						ez_entity = text_entity
@@ -226,6 +246,12 @@ class DXFWriter(IDXFWriter):
 					ez_entity.dxf.insert = insert
 				except Exception:
 					pass
+			for key in ("color", "true_color", "transparency"):
+				if key in geometry and geometry.get(key) is not None:
+					try:
+						setattr(ez_entity.dxf, key, geometry.get(key))
+					except Exception:
+						pass
 			for key in ("text", "height", "rotation", "oblique", "style", "halign", "valign"):
 				if key in geometry and geometry.get(key) is not None:
 					try:
@@ -240,6 +266,12 @@ class DXFWriter(IDXFWriter):
 					ez_entity.dxf.insert = insert
 				except Exception:
 					pass
+			for key in ("color", "true_color", "transparency"):
+				if key in geometry and geometry.get(key) is not None:
+					try:
+						setattr(ez_entity.dxf, key, geometry.get(key))
+					except Exception:
+						pass
 			if geometry.get("text") is not None:
 				try:
 					ez_entity.text = geometry.get("text")
@@ -272,7 +304,7 @@ class DXFWriter(IDXFWriter):
 					text = str(attrib_payload.get("text") or "")
 					insert_point = attrib_payload.get("insert") or insert or (0.0, 0.0, 0.0)
 					dxfattribs = {}
-					for key in ("height", "rotation", "style", "layer", "color"):
+					for key in ("height", "rotation", "style", "layer", "color", "true_color", "transparency"):
 						value = attrib_payload.get(key)
 						if value is not None:
 							dxfattribs[key] = value
@@ -340,7 +372,7 @@ class DXFWriter(IDXFWriter):
 			points = geometry.get("points") or []
 			if points:
 				try:
-					ez_entity.append_points(points)
+					ez_entity.append_points(points, format="xyseb")
 				except Exception:
 					pass
 
@@ -529,6 +561,29 @@ class DXFWriter(IDXFWriter):
 				if insert_name and insert_name not in block_defs:
 					block_defs[str(insert_name)] = []
 		return block_defs
+
+	def _collect_layer_definitions_from_entities(self, entities: Sequence[DXFEntity]) -> dict[str, dict]:
+		layer_defs: dict[str, dict] = {}
+		for entity in entities:
+			extra_data = entity.extra_data or {}
+			layer_name = str(
+				extra_data.get("layer_name")
+				or (entity.attributes or {}).get("layer")
+				or (extra_data.get("dxf_attribs", {}) or {}).get("layer")
+				or ""
+			).strip()
+			if not layer_name:
+				continue
+
+			raw_layer_attribs = dict(extra_data.get("layer_dxf_attribs", {}) or {})
+			if not raw_layer_attribs:
+				continue
+
+			layer_attribs = self._clean_ezdxf_attribs(raw_layer_attribs, "LAYER")
+			if layer_attribs:
+				layer_defs[layer_name] = layer_attribs
+
+		return layer_defs
 
 	def _collect_block_definition_recursive(self, block_name: str, block_entities: list[dict], block_defs: dict[str, list[dict]]) -> None:
 		if block_name not in block_defs:

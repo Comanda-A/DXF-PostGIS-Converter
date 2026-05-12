@@ -665,6 +665,20 @@ class TestDbImportExportIntegration(unittest.TestCase):
             etype = entity.dxftype()
             if etype == "HATCH":
                 return (etype, hatch_signature(entity))
+            if etype == "LWPOLYLINE":
+                points = []
+                try:
+                    for point in entity.get_points("xyseb"):
+                        points.append(tuple(round_num(value) for value in point))
+                except Exception:
+                    points = []
+                return (
+                    etype,
+                    tuple(points),
+                    bool(getattr(entity, "closed", False)),
+                    round_num(getattr(entity.dxf, "const_width", 0)),
+                    round_num(getattr(entity.dxf, "elevation", 0)),
+                )
             return (etype,)
 
         reachable_blocks = closure(modelspace_insert_roots(original_doc), block_refs(original_doc))
@@ -689,6 +703,14 @@ class TestDbImportExportIntegration(unittest.TestCase):
                 original_hatch_sig,
                 reconstructed_hatch_sig,
                 msg=f"HATCH path structure differs for block '{block_name}'",
+            )
+
+            original_lwpoly_sig = Counter(entity_signature(entity) for entity in original_block if entity.dxftype() == "LWPOLYLINE")
+            reconstructed_lwpoly_sig = Counter(entity_signature(entity) for entity in reconstructed_block if entity.dxftype() == "LWPOLYLINE")
+            self.assertEqual(
+                original_lwpoly_sig,
+                reconstructed_lwpoly_sig,
+                msg=f"LWPOLYLINE point/bulge structure differs for block '{block_name}'",
             )
 
     def test_tables_roundtrip_preserves_insert_attached_attributes_for_ex4(self):
@@ -767,6 +789,95 @@ class TestDbImportExportIntegration(unittest.TestCase):
             reconstructed_stats["texts"],
             msg="INSERT ATTRIB text distribution differs after TABLES roundtrip",
         )
+
+    def test_tables_roundtrip_preserves_text_color_for_ex3(self):
+        """
+        Проверяет сохранение цветовых атрибутов текста (ACI/true_color) после TABLES roundtrip.
+
+        EXAMPLE_3 используется как fixture с большим количеством текстовых сущностей
+        и не-ByLayer цветов.
+        """
+        from collections import Counter
+        import ezdxf
+
+        load_result = self._open_use_case.execute_single(self._third_source_path)
+        self.assertTrue(load_result.is_success, msg=load_result.error if load_result.is_fail else "")
+
+        is_success, report = self._import_document_to_db(self._third_source_path)
+        self.assertTrue(is_success, msg=report)
+
+        export_config = ExportConfigDTO(
+            filename=os.path.basename(self._third_source_path),
+            export_mode=ExportMode.TABLES,
+            output_path=self._export_path,
+            file_schema=self._file_schema,
+        )
+
+        with patch("src.application.use_cases.export_use_case.inject.instance", return_value=self._db_session):
+            export_result, export_report = self._export_use_case.execute(self._connection, [export_config])
+        self.assertTrue(export_result.is_success, msg=export_report)
+
+        original_doc = ezdxf.readfile(self._third_source_path)
+        reconstructed_doc = ezdxf.readfile(self._export_path)
+
+        def text_color_stats(doc):
+            stat = Counter()
+            for entity in doc.modelspace():
+                if entity.dxftype() in {"TEXT", "MTEXT"}:
+                    stat[(
+                        entity.dxftype(),
+                        int(getattr(entity.dxf, "color", 256)),
+                        getattr(entity.dxf, "true_color", None),
+                        str(getattr(entity.dxf, "layer", "0")),
+                    )] += 1
+            return stat
+
+        self.assertEqual(
+            text_color_stats(original_doc),
+            text_color_stats(reconstructed_doc),
+            msg="TEXT/MTEXT color distribution differs after TABLES roundtrip",
+        )
+
+    def test_tables_roundtrip_preserves_layer_style_for_bylayer_text_ex4(self):
+        """
+        Проверяет сохранение стиля слоя для текста с цветом ByLayer.
+
+        Регрессия: слой "Водопровод хозпитьевой подземный" терял цвет после TABLES-export,
+        из-за чего текст становился чёрным.
+        """
+        import ezdxf
+
+        is_success, report = self._import_document_to_db(self._fourth_source_path)
+        self.assertTrue(is_success, msg=report)
+
+        export_config = ExportConfigDTO(
+            filename=os.path.basename(self._fourth_source_path),
+            export_mode=ExportMode.TABLES,
+            output_path=self._export_path,
+            file_schema=self._file_schema,
+        )
+
+        with patch("src.application.use_cases.export_use_case.inject.instance", return_value=self._db_session):
+            export_result, export_report = self._export_use_case.execute(self._connection, [export_config])
+        self.assertTrue(export_result.is_success, msg=export_report)
+
+        original_doc = ezdxf.readfile(self._fourth_source_path)
+        reconstructed_doc = ezdxf.readfile(self._export_path)
+
+        target_layer = "Водопровод хозпитьевой подземный"
+        self.assertIn(target_layer, original_doc.layers, msg=f"Layer '{target_layer}' not found in source fixture")
+        self.assertIn(target_layer, reconstructed_doc.layers, msg=f"Layer '{target_layer}' not found after TABLES roundtrip")
+
+        orig_layer = original_doc.layers.get(target_layer)
+        recon_layer = reconstructed_doc.layers.get(target_layer)
+
+        self.assertEqual(orig_layer.dxf.color, recon_layer.dxf.color, msg="Layer ACI color differs after TABLES roundtrip")
+        self.assertEqual(
+            getattr(orig_layer.dxf, "true_color", None),
+            getattr(recon_layer.dxf, "true_color", None),
+            msg="Layer true_color differs after TABLES roundtrip",
+        )
+        self.assertEqual(orig_layer.dxf.linetype, recon_layer.dxf.linetype, msg="Layer linetype differs after TABLES roundtrip")
 
     def test_import_and_export_multiple_files(self):
         """

@@ -316,6 +316,9 @@ class ImportUseCase:
                 doc_repo = None
                 content_repo = None
                 layer_repo = None
+                
+                # short_id открытого файла
+                doc_short_id = self._make_short_id(doc.id)
 
                 # Импорт мета
                 if not config.import_layers_only:
@@ -352,6 +355,8 @@ class ImportUseCase:
 
                     # Док в БД
                     db_doc = result.value
+
+                    # обновляем short_id файла в бд
                     doc_short_id = self._make_short_id(db_doc.id)
 
                     # Поиск контента в БД

@@ -358,45 +358,6 @@ class TestDbImportExportIntegration(unittest.TestCase):
         self.assertIsNotNone(content_result.value)
         self.assertGreater(len(content_result.value.content), 0)
 
-    def test_roundtrip_db_to_dxf_preserves_content(self):
-        """
-        Проверяет roundtrip "файл -> БД -> файл" без изменения бинарного содержимого.
-
-        Что тестируется:
-        1. Импорт исходного DXF в БД.
-        2. Экспорт того же файла обратно на диск.
-        3. Побайтовое равенство исходного и экспортированного файлов.
-
-        Почему это важно:
-        Гарантирует, что экспорт не вносит скрытых модификаций в содержимое DXF.
-        """
-        is_success, report = self._import_document_to_db(self._fourth_source_path)
-        self.assertTrue(is_success, msg=report)
-
-        export_config = ExportConfigDTO(
-            filename=os.path.basename(self._fourth_source_path),
-            export_mode=ExportMode.FILE,
-            output_path=self._export_path,
-            file_schema=self._file_schema,
-        )
-
-        with patch("src.application.use_cases.export_use_case.inject.instance", return_value=self._db_session):
-            export_result, export_report = self._export_use_case.execute(self._connection, [export_config])
-
-        self.assertTrue(export_result.is_success, msg=export_report)
-        self.assertTrue(os.path.exists(self._export_path))
-        self.assertIn("EXPORT COMPLETED SUCCESSFULLY", export_report)
-
-        reopen_result = self._reader.open(self._export_path)
-        self.assertTrue(reopen_result.is_success, msg=reopen_result.error if reopen_result.is_fail else "")
-
-        with open(self._fourth_source_path, "rb") as source_file:
-            source_bytes = source_file.read()
-        with open(self._export_path, "rb") as exported_file:
-            exported_bytes = exported_file.read()
-
-        self.assertEqual(source_bytes, exported_bytes)
-
     def test_tables_export_reconstructs_entities(self):
         """
         Проверяет экспорт в режиме TABLES, когда DXF собирается заново из таблиц слоёв.

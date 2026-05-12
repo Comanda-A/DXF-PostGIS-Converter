@@ -52,12 +52,9 @@ class PostGISEntityRepository(IEntityRepository):
         create_table_query = f"""
             CREATE TABLE IF NOT EXISTS {self.full_name} (
                 id UUID PRIMARY KEY,
-                entity_type TEXT NOT NULL,
                 name TEXT NOT NULL,
                 geometry GEOMETRY(GEOMETRYZ),
-                attributes JSONB NOT NULL,
-                geometries JSONB NOT NULL,
-                extra_data JSONB NOT NULL
+                data JSONB NOT NULL
             )
         """
         try:
@@ -67,6 +64,9 @@ class PostGISEntityRepository(IEntityRepository):
                 self._connection.rollback()
                 if self._logger:
                     self._logger.warning(f"Failed to initialize table {self.full_name}: {result.error}")
+                return
+
+            self._migrate_table_structure()
         except Exception as e:
             # Откатываем транзакцию при ошибке инициализации таблицы
             try:
@@ -75,6 +75,119 @@ class PostGISEntityRepository(IEntityRepository):
                 pass
             if self._logger:
                 self._logger.warning(f"Error initializing table {self.full_name}: {e}")
+
+    def _migrate_table_structure(self) -> None:
+        """
+        Приводит таблицу сущностей к актуальной схеме:
+        id, name, geometry, data(JSONB).
+
+        Миграция поддерживает legacy-структуру с отдельными columns
+        entity_type/attributes/geometries/extra_data и промежуточную структуру
+        без id.
+        """
+        try:
+            columns_query = """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = %(schema)s AND table_name = %(table)s
+            """
+            columns_result = self._connection.execute_query(columns_query, {
+                'schema': self._schema,
+                'table': self._table_name,
+            })
+            if columns_result.is_fail:
+                if self._logger:
+                    self._logger.warning(f"Failed to inspect columns for {self.full_name}: {columns_result.error}")
+                return
+
+            columns = {row['column_name'] for row in (columns_result.value or [])}
+
+            if 'id' not in columns:
+                self._connection.execute_query(f"ALTER TABLE {self.full_name} ADD COLUMN id UUID")
+                columns.add('id')
+
+            if 'name' not in columns:
+                self._connection.execute_query(f"ALTER TABLE {self.full_name} ADD COLUMN name TEXT")
+                columns.add('name')
+
+            if 'geometry' not in columns:
+                self._connection.execute_query(f"ALTER TABLE {self.full_name} ADD COLUMN geometry GEOMETRY(GEOMETRYZ)")
+                columns.add('geometry')
+
+            if 'data' not in columns:
+                self._connection.execute_query(f"ALTER TABLE {self.full_name} ADD COLUMN data JSONB")
+                columns.add('data')
+
+            legacy_cols = {'entity_type', 'attributes', 'geometries', 'extra_data'}
+            if legacy_cols.intersection(columns):
+                migrate_legacy_query = f"""
+                    UPDATE {self.full_name}
+                    SET data = jsonb_build_object(
+                        'entity_type', COALESCE(entity_type, 'UNKNOWN'),
+                        'attributes', COALESCE(attributes, '{{}}'::jsonb),
+                        'geometries', COALESCE(geometries, '{{}}'::jsonb),
+                        'extra_data', COALESCE(extra_data, '{{}}'::jsonb)
+                    )
+                    WHERE data IS NULL OR data = '{{}}'::jsonb
+                """
+                self._connection.execute_query(migrate_legacy_query)
+
+            self._connection.execute_query(f"UPDATE {self.full_name} SET data = '{{}}'::jsonb WHERE data IS NULL")
+
+            self._connection.execute_query("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+
+            fill_id_query = f"""
+                UPDATE {self.full_name}
+                SET id = CASE
+                    WHEN data ? 'id' AND (data->>'id') ~* '^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[1-5][0-9a-f]{{3}}-[89ab][0-9a-f]{{3}}-[0-9a-f]{{12}}$'
+                        THEN (data->>'id')::uuid
+                    ELSE gen_random_uuid()
+                END
+                WHERE id IS NULL
+            """
+            self._connection.execute_query(fill_id_query)
+
+            # DRY: keep single source for id in dedicated column.
+            self._connection.execute_query(f"UPDATE {self.full_name} SET data = data - 'id' WHERE data ? 'id'")
+
+            # Ensure id uniqueness before adding PK.
+            deduplicate_query = f"""
+                DELETE FROM {self.full_name} a
+                USING {self.full_name} b
+                WHERE a.ctid < b.ctid AND a.id = b.id
+            """
+            self._connection.execute_query(deduplicate_query)
+
+            pk_check_query = """
+                SELECT 1
+                FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                JOIN pg_namespace n ON n.oid = t.relnamespace
+                WHERE c.contype = 'p'
+                  AND n.nspname = %(schema)s
+                  AND t.relname = %(table)s
+                LIMIT 1
+            """
+            pk_check_result = self._connection.execute_query(pk_check_query, {
+                'schema': self._schema,
+                'table': self._table_name,
+            })
+            has_pk = pk_check_result.is_success and bool(pk_check_result.value)
+            if not has_pk:
+                self._connection.execute_query(f"ALTER TABLE {self.full_name} ADD PRIMARY KEY (id)")
+
+            for legacy_col in ('entity_type', 'attributes', 'geometries', 'extra_data'):
+                if legacy_col in columns:
+                    self._connection.execute_query(f"ALTER TABLE {self.full_name} DROP COLUMN IF EXISTS {legacy_col}")
+
+            self._connection.commit()
+        except Exception as exc:
+            try:
+                self._connection.rollback()
+            except Exception:
+                pass
+            if self._logger:
+                self._logger.warning(f"Failed to migrate entity table structure for {self.full_name}: {exc}")
     
     def _make_serializable(self, obj: Any) -> Any:
         """Преобразует non-JSON-serializable объекты в совместимые типы"""
@@ -101,8 +214,13 @@ class PostGISEntityRepository(IEntityRepository):
         try:
             query = f"""
                 INSERT INTO {self.full_name} 
-                (id, entity_type, name, geometry, attributes, geometries, extra_data)
-                VALUES (%(id)s, %(entity_type)s, %(name)s, %(geometry)s, %(attributes)s, %(geometries)s, %(extra_data)s)
+                (id, name, geometry, data)
+                VALUES (%(id)s, %(name)s, %(geometry)s, %(data)s)
+                ON CONFLICT (id)
+                DO UPDATE SET
+                    name = EXCLUDED.name,
+                    geometry = EXCLUDED.geometry,
+                    data = EXCLUDED.data
             """
 
             result = self._converter.to_db(entity)
@@ -117,14 +235,18 @@ class PostGISEntityRepository(IEntityRepository):
                 if key not in entity.extra_data:
                     entity.add_extra_data({key: value})
 
+            payload = {
+                'entity_type': entity.entity_type.value,
+                'attributes': self._make_serializable(entity.attributes),
+                'geometries': self._make_serializable(entity.geometries),
+                'extra_data': self._make_serializable(entity.extra_data),
+            }
+
             data = {
                 'id': str(entity.id),
-                'entity_type': entity.entity_type.value,
                 'name': entity.name,
                 'geometry': geometry,
-                'attributes': json.dumps(self._make_serializable(entity.attributes)),
-                'geometries': json.dumps(self._make_serializable(entity.geometries)),
-                'extra_data': json.dumps(self._make_serializable(entity.extra_data))
+                'data': json.dumps(payload)
             }
             
             self._connection.execute_query(query, data)
@@ -137,13 +259,10 @@ class PostGISEntityRepository(IEntityRepository):
         try:
             query = f"""
                 UPDATE {self.full_name} 
-                SET entity_type = %(entity_type)s,
-                    name = %(name)s,
+                SET name = %(name)s,
                     geometry = %(geometry)s,
-                    attributes = %(attributes)s,
-                    geometries = %(geometries)s,
-                    extra_data = %(extra_data)s
-                WHERE id = %(id)s
+                    data = %(data)s
+                WHERE id = %(id)s::uuid
             """
 
             result = self._converter.to_db(entity)
@@ -158,14 +277,18 @@ class PostGISEntityRepository(IEntityRepository):
                 if key not in entity.extra_data:
                     entity.add_extra_data({key: value})
             
+            payload = {
+                'entity_type': entity.entity_type.value,
+                'attributes': self._make_serializable(entity.attributes),
+                'geometries': self._make_serializable(entity.geometries),
+                'extra_data': self._make_serializable(entity.extra_data),
+            }
+
             data = {
                 'id': str(entity.id),
-                'entity_type': entity.entity_type.value,
                 'name': entity.name,
                 'geometry': geometry,
-                'attributes': json.dumps(self._make_serializable(entity.attributes)),
-                'geometries': json.dumps(self._make_serializable(entity.geometries)),
-                'extra_data': json.dumps(self._make_serializable(entity.extra_data))
+                'data': json.dumps(payload)
             }
             
             self._connection.execute_query(query, data)
@@ -178,7 +301,7 @@ class PostGISEntityRepository(IEntityRepository):
         try:
             query = f"""
                 DELETE FROM {self.full_name}
-                WHERE id = %(id)s
+                WHERE id = %(id)s::uuid
             """
             self._connection.execute_query(query, {'id': str(id)})
             return Result.success(Unit())
@@ -187,16 +310,18 @@ class PostGISEntityRepository(IEntityRepository):
     
     def get_by_id(self, id: UUID) -> Result[DXFEntity | None]:
         try:
-            query = f"SELECT * FROM {self.full_name} WHERE id = %(id)s"
+            query = f"SELECT * FROM {self.full_name} WHERE id = %(id)s::uuid"
             result = self._connection.execute_query(query, {'id': str(id)}).value
             if result and len(result) > 0:
+                row = result[0]
+                payload = row['data'] if isinstance(row['data'], dict) else json.loads(row['data'])
                 entity = DXFEntity.create(
-                    id=result[0]['id'],
-                    entity_type=result[0]['entity_type'],
-                    name=result[0]['name'],
-                    attributes=json.loads(result[0]['attributes']),
-                    geometries=json.loads(result[0]['geometries']),
-                    extra_data=json.loads(result[0]['extra_data'])
+                    id=row['id'],
+                    entity_type=payload.get('entity_type'),
+                    name=row['name'],
+                    attributes=payload.get('attributes', {}),
+                    geometries=payload.get('geometries', {}),
+                    extra_data=payload.get('extra_data', {})
                 )
                 return Result.success(entity)
             return Result.success(None)
@@ -205,24 +330,20 @@ class PostGISEntityRepository(IEntityRepository):
 
     def get_by_name_and_type(self, name: str, type: DxfEntityType) -> Result[DXFEntity | None]:
         try:
-            query = f"SELECT * FROM {self.full_name} WHERE name = %(name)s AND entity_type = %(entity_type)s"
+            query = f"SELECT * FROM {self.full_name} WHERE name = %(name)s AND data->>'entity_type' = %(entity_type)s"
             result = self._connection.execute_query(query, {'name': str(name), 'entity_type': type.value}).value
             
             if result and len(result) > 0:
                 row = result[0]
-                
-                # Проверяем, нужна ли десериализация или данные уже dict
-                attributes = row['attributes'] if isinstance(row['attributes'], dict) else json.loads(row['attributes'])
-                geometries = row['geometries'] if isinstance(row['geometries'], dict) else json.loads(row['geometries'])
-                extra_data = row['extra_data'] if isinstance(row['extra_data'], dict) else json.loads(row['extra_data'])
+                payload = row['data'] if isinstance(row['data'], dict) else json.loads(row['data'])
                 
                 entity = DXFEntity.create(
                     id=row['id'],
-                    entity_type=row['entity_type'],
+                    entity_type=payload.get('entity_type'),
                     name=row['name'],
-                    attributes=attributes,
-                    geometries=geometries,
-                    extra_data=extra_data
+                    attributes=payload.get('attributes', {}),
+                    geometries=payload.get('geometries', {}),
+                    extra_data=payload.get('extra_data', {})
                 )
                 return Result.success(entity)
             
@@ -236,18 +357,15 @@ class PostGISEntityRepository(IEntityRepository):
             result = self._connection.execute_query(query).value
             entities = []
             for row in result:
-                # Проверяем, нужна ли десериализация или данные уже dict
-                attributes = row['attributes'] if isinstance(row['attributes'], dict) else json.loads(row['attributes'])
-                geometries = row['geometries'] if isinstance(row['geometries'], dict) else json.loads(row['geometries'])
-                extra_data = row['extra_data'] if isinstance(row['extra_data'], dict) else json.loads(row['extra_data'])
+                payload = row['data'] if isinstance(row['data'], dict) else json.loads(row['data'])
                 
                 entity = DXFEntity.create(
                     id=row['id'],
-                    entity_type=row['entity_type'],
+                    entity_type=payload.get('entity_type'),
                     name=row['name'],
-                    attributes=attributes,
-                    geometries=geometries,
-                    extra_data=extra_data
+                    attributes=payload.get('attributes', {}),
+                    geometries=payload.get('geometries', {}),
+                    extra_data=payload.get('extra_data', {})
                 )
                 entities.append(entity)
             return Result.success(entities)

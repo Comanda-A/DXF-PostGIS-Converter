@@ -39,12 +39,12 @@ class ExportDialog(QDialog):
 
         self.source_group = QButtonGroup()
         
-        self.source_blob_radio = QRadioButton("Как бинарный файл (оригинальный файл загруженный в БД)")
+        self.source_blob_radio = QRadioButton("Как бинарный файл (созданный файл из выбранных объектов, при последнем импорте)")
         self.source_blob_radio.setChecked(True)
         self.source_group.addButton(self.source_blob_radio, 0)
         layout.addWidget(self.source_blob_radio)
 
-        self.source_table_radio = QRadioButton("Объекты из таблиц (reconstruction / new mode)")
+        self.source_table_radio = QRadioButton("Объекты из таблиц-слоев (реконструкция DXF из таблиц, созданных при последнем импорте)")
         self.source_group.addButton(self.source_table_radio, 1)
         layout.addWidget(self.source_table_radio)
 

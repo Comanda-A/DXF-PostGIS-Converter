@@ -436,7 +436,12 @@ class DXFReader(IDXFReader):
                 geometry['text'] = dxfentity.text
             
             # Базовая точка
-            if hasattr(dxfentity, 'dxf') and hasattr(dxfentity.dxf, 'insert'):
+            if hasattr(dxfentity, 'context') and hasattr(dxfentity.context, 'mtext'):
+                try:
+                    geometry['base_point'] = self._vec3_to_list(dxfentity.context.mtext.insert)
+                except Exception:
+                    pass
+            if 'base_point' not in geometry and hasattr(dxfentity, 'dxf') and hasattr(dxfentity.dxf, 'insert'):
                 geometry['base_point'] = self._vec3_to_list(dxfentity.dxf.insert)
             
             # Линии-указатели
@@ -455,6 +460,18 @@ class DXFReader(IDXFReader):
                     geometry['char_height'] = dxfentity.context.char_height
                 if hasattr(dxfentity.context, 'mtext') and hasattr(dxfentity.context.mtext, 'rotation'):
                     geometry['rotation'] = dxfentity.context.mtext.rotation
+                if hasattr(dxfentity.context, 'leaders'):
+                    leader_props = []
+                    for leader in dxfentity.context.leaders:
+                        leader_props.append({
+                            'attachment_direction': getattr(leader, 'attachment_direction', None),
+                            'dogleg_length': getattr(leader, 'dogleg_length', None),
+                            'dogleg_vector': self._vec3_to_list(getattr(leader, 'dogleg_vector', None)) if getattr(leader, 'dogleg_vector', None) is not None else None,
+                            'has_horizontal_attachment': getattr(leader, 'has_horizontal_attachment', None),
+                            'has_dogleg_vector': getattr(leader, 'has_dogleg_vector', None),
+                            'last_leader_point': self._vec3_to_list(getattr(leader, 'last_leader_point', None)) if getattr(leader, 'last_leader_point', None) is not None else None,
+                        })
+                    geometry['leader_properties'] = leader_props
         except:
             pass
         

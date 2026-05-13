@@ -94,12 +94,16 @@ IMPORT_DIALOG = {
     "filename_label": "File Name:",
     "layer_mapping_label": "Layer Mapping Mode:",
     "layer_mapping_hint_label": "All existing objects will be replaced with new ones",
-    
+
     # ComboBox режима маппирования
-    "import_mode_overwrite": "Always Overwrite",
-    "import_mode_append": "Append to Existing",
-    "import_mode_skip": "Skip Existing Layers",
-    
+    "overwrite_layers": "Always Overwrite",
+    "overwrite_objects": "Append to Existing",
+    "add_objects": "Only append",
+
+    "overwrite_layers_hint": "Все импортируемые слои будут полностью перезаписаны",
+    "overwrite_objects_hint": "Существующие объекты будут обновлены, новые - добавлены, остальные останутся без изменений",  #
+    "add_objects_hint": "Существующие объекты будут пропущены, новые - добавлены, остальные останутся без изменений",
+
     # Параметры схемы слоев
     "layers_schema_label": "Schema for Layers:",
     "create_layers_schema_button": "Create New Schema",

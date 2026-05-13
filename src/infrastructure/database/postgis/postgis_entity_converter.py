@@ -561,6 +561,7 @@ class PostGISEntityConverter:
         base_point = self._get_geometry_value(entity, 'base_point')
         text = self._get_geometry_value(entity, 'text', '')
         leader_lines = self._get_geometry_value(entity, 'leader_lines', [])
+        leader_properties = self._get_geometry_value(entity, 'leader_properties', [])
         char_height = self._get_geometry_value(entity, 'char_height')
         rotation = self._get_geometry_value(entity, 'rotation')
         
@@ -573,6 +574,7 @@ class PostGISEntityConverter:
         extra_data = self._build_extra_data(entity, {
             'text': text,
             'leader_lines': leader_lines,
+            'leader_properties': leader_properties,
             'char_height': char_height,
             'rotation': rotation
         })

@@ -799,6 +799,119 @@ class TestDbImportExportIntegration(unittest.TestCase):
             msg="TEXT/MTEXT color distribution differs after TABLES roundtrip",
         )
 
+    def test_tables_roundtrip_preserves_multileader_style_for_ex3(self):
+        """
+        Проверяет, что MULTILEADER на EXAMPLE_3 сохраняет визуальные атрибуты после TABLES roundtrip.
+
+        Регрессия: подписи на линиях рендерились с другими цветом и размером стрелки,
+        из-за чего на визуальном просмотре казались пропавшими.
+        """
+        from collections import Counter
+        import ezdxf
+
+        load_result = self._open_use_case.execute_single(self._third_source_path)
+        self.assertTrue(load_result.is_success, msg=load_result.error if load_result.is_fail else "")
+
+        is_success, report = self._import_document_to_db(self._third_source_path)
+        self.assertTrue(is_success, msg=report)
+
+        export_config = ExportConfigDTO(
+            filename=os.path.basename(self._third_source_path),
+            export_mode=ExportMode.TABLES,
+            output_path=self._export_path,
+            file_schema=self._file_schema,
+        )
+
+        with patch("src.application.use_cases.export_use_case.inject.instance", return_value=self._db_session):
+            export_result, export_report = self._export_use_case.execute(self._connection, [export_config])
+        self.assertTrue(export_result.is_success, msg=export_report)
+
+        original_doc = ezdxf.readfile(self._third_source_path)
+        reconstructed_doc = ezdxf.readfile(self._export_path)
+
+        def multileader_stats(doc):
+            stat = Counter()
+
+            def anchor_point(entity):
+                point = getattr(entity.dxf, "insert", None)
+                if point is None:
+                    mtext = getattr(getattr(entity, "context", None), "mtext", None)
+                    point = getattr(mtext, "insert", None)
+                if point is None:
+                    return None
+
+                coords = list(point)
+                while len(coords) < 3:
+                    coords.append(0.0)
+                return tuple(round(float(coord), 6) for coord in coords[:3])
+
+            def leader_vertices(entity):
+                context = getattr(entity, "context", None)
+                leaders = getattr(context, "leaders", None)
+                if not leaders:
+                    return ()
+
+                result = []
+                for leader in leaders:
+                    for line in getattr(leader, "lines", []) or []:
+                        for vertex in getattr(line, "vertices", []) or []:
+                            coords = list(vertex)
+                            while len(coords) < 3:
+                                coords.append(0.0)
+                            result.append(tuple(round(float(coord), 6) for coord in coords[:3]))
+                return tuple(result)
+
+            def leader_properties(entity):
+                context = getattr(entity, "context", None)
+                leaders = getattr(context, "leaders", None)
+                if not leaders:
+                    return ()
+
+                result = []
+                for leader in leaders:
+                    dogleg_vector = getattr(leader, "dogleg_vector", None)
+                    if dogleg_vector is not None:
+                        dogleg_vector = tuple(round(float(coord), 6) for coord in tuple(dogleg_vector)[:3])
+
+                    last_leader_point = getattr(leader, "last_leader_point", None)
+                    if last_leader_point is not None:
+                        last_leader_point = tuple(round(float(coord), 6) for coord in tuple(last_leader_point)[:3])
+
+                    result.append((
+                        int(getattr(leader, "attachment_direction", 0) or 0),
+                        round(float(getattr(leader, "dogleg_length", 0.0) or 0.0), 6),
+                        dogleg_vector,
+                        int(bool(getattr(leader, "has_horizontal_attachment", False))),
+                        int(bool(getattr(leader, "has_dogleg_vector", False))),
+                        last_leader_point,
+                    ))
+                return tuple(result)
+
+            for entity in doc.modelspace():
+                if entity.dxftype() != "MULTILEADER":
+                    continue
+
+                stat[(
+                    int(getattr(entity.dxf, "color", 256)),
+                    float(getattr(entity.dxf, "arrow_head_size", 0.0)),
+                    float(getattr(entity.dxf, "dogleg_length", 0.0)),
+                    int(getattr(entity.dxf, "has_dogleg", 0)),
+                    int(getattr(entity.dxf, "has_landing", 0)),
+                    int(getattr(entity.dxf, "has_text_frame", 0)),
+                    str(getattr(entity.dxf, "content_type", "")),
+                    str(getattr(entity, "get_mtext_content", lambda: getattr(entity, "text", ""))()),
+                    anchor_point(entity),
+                    leader_vertices(entity),
+                    leader_properties(entity),
+                )] += 1
+            return stat
+
+        self.assertEqual(
+            multileader_stats(original_doc),
+            multileader_stats(reconstructed_doc),
+            msg="MULTILEADER visual attributes differ after TABLES roundtrip",
+        )
+
     def test_tables_roundtrip_preserves_layer_style_for_bylayer_text_ex4(self):
         """
         Проверяет сохранение стиля слоя для текста с цветом ByLayer.

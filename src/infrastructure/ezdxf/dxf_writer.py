@@ -104,7 +104,10 @@ class DXFWriter(IDXFWriter):
 						self._apply_geometry_dict(text_entity, entity.geometries or {}, "TEXT")
 						ez_entity = text_entity
 					elif dxftype == "MULTILEADER":
-						ez_entity = self._build_multileader(temp_modelspace, entity)
+						# MULTILEADER builder attaches entity to modelspace immediately,
+						# so do not append it again to dxf_entities_to_write.
+						self._build_multileader(temp_modelspace, entity, attribs)
+						ez_entity = None
 					elif dxftype == "LEADER":
 						ez_entity = ezdxf_factory.new(dxftype, dxfattribs=attribs)
 						self._apply_entity_geometry(ez_entity, entity, dxftype)
@@ -502,42 +505,161 @@ class DXFWriter(IDXFWriter):
 			except Exception:
 				pass
 
-	def _build_multileader(self, temp_modelspace, entity: DXFEntity):
+	def _build_multileader(self, temp_modelspace, entity: DXFEntity, attribs: dict | None = None):
 		"""Build a visual MULTILEADER using the ezdxf builder API."""
-		from ezdxf.math import Vec2
+		from ezdxf.math import Vec2, Vec3
+		from ezdxf.render.mleader import ConnectionSide
 
 		geometry = entity.geometries or {}
 		leader_lines = geometry.get("leader_lines") or []
+		leader_properties = geometry.get("leader_properties") or []
 		text = geometry.get("text") or (entity.attributes or {}).get("text") or ""
 		char_height = geometry.get("char_height")
+		base_point_raw = geometry.get("base_point") or geometry.get("insert") or geometry.get("target")
 
-		first_line = leader_lines[0] if leader_lines else []
-		if len(first_line) >= 2:
-			target_raw = first_line[-1]
-			prev_raw = first_line[-2]
+		# Extract mtext.insert position from base_point
+		if base_point_raw and len(base_point_raw) >= 2:
+			insert_point = Vec3(
+				float(base_point_raw[0]),
+				float(base_point_raw[1]),
+				float(base_point_raw[2]) if len(base_point_raw) > 2 else 0.0,
+			)
 		else:
-			target_raw = geometry.get("base_point") or [0.0, 0.0, 0.0]
-			prev_raw = [float(target_raw[0]) - 20.0, float(target_raw[1]), float(target_raw[2] if len(target_raw) > 2 else 0.0)]
+			# Fallback: try to get from first leader line
+			first_line = leader_lines[0] if leader_lines else []
+			if first_line:
+				target_raw = first_line[-1]
+				insert_point = Vec3(float(target_raw[0]), float(target_raw[1]), float(target_raw[2] if len(target_raw) > 2 else 0.0))
+			else:
+				insert_point = Vec3(0.0, 0.0, 0.0)
+
+		# Build leader geometry from serialized leader lines when available.
+		first_line = leader_lines[0] if leader_lines else []
+		if first_line:
+			target_raw = first_line[-1]
+		else:
+			target_raw = [float(insert_point.x), float(insert_point.y), float(insert_point.z)]
 
 		target = Vec2(float(target_raw[0]), float(target_raw[1]))
-		segment1 = Vec2(float(prev_raw[0]) - float(target_raw[0]), float(prev_raw[1]) - float(target_raw[1]))
 
-		builder = temp_modelspace.add_multileader_mtext("Standard")
+		source_attribs = attribs or {}
+		builder_dxfattribs = {}
+		for key in (
+			"layer",
+			"color",
+			"text_color",
+			"leader_line_color",
+			"leader_lineweight",
+			"linetype",
+			"lineweight",
+			"block_color",
+		):
+			value = source_attribs.get(key)
+			if value is not None:
+				builder_dxfattribs[key] = value
+
+		builder = temp_modelspace.add_multileader_mtext(
+			"Standard",
+			dxfattribs=builder_dxfattribs or None,
+		)
+		if source_attribs.get("color") is not None:
+			try:
+				builder.set_leader_properties(color=source_attribs.get("color"))
+			except Exception:
+				pass
+		if source_attribs.get("arrow_head_size") is not None:
+			try:
+				builder.set_arrow_properties(size=source_attribs.get("arrow_head_size"))
+			except Exception:
+				pass
 		try:
+			content_kwargs = {}
 			if char_height is not None:
-				builder.set_content(text, char_height=char_height)
+				content_kwargs["char_height"] = char_height
+			if source_attribs.get("color") is not None:
+				content_kwargs["color"] = source_attribs.get("color")
+			builder.set_content(text, **content_kwargs)
+		except Exception:
+			pass
+
+		try:
+			if leader_lines:
+				for leader_index, leader_src in enumerate(leader_lines):
+					vertices = [
+						Vec2(float(vertex[0]), float(vertex[1]))
+						for vertex in leader_src
+						if len(vertex) >= 2
+					]
+					if not vertices:
+						continue
+					leader_props = leader_properties[leader_index] if leader_index < len(leader_properties) else {}
+					attachment_direction = leader_props.get("attachment_direction")
+					side = ConnectionSide.left if attachment_direction == 1 else ConnectionSide.right if attachment_direction == 2 else (
+						ConnectionSide.left if vertices[0].x < insert_point.x else ConnectionSide.right
+					)
+					builder.add_leader_line(side, vertices)
 			else:
-				builder.set_content(text)
+					segment1 = Vec2(float(insert_point.x) - float(target_raw[0]), float(insert_point.y) - float(target_raw[1]))
+					if abs(segment1.x) < 1e-9 and abs(segment1.y) < 1e-9:
+						segment1 = Vec2(-20.0, 0.0)
+					builder.quick_leader(text, target=target, segment1=segment1)
 		except Exception:
 			pass
 
 		try:
-			builder.quick_leader(text, target=target, segment1=segment1)
-		except Exception:
-			pass
-
-		try:
-			return builder.build(insert=target)
+			# Build entity with 2D insert
+			builder.build(insert=Vec2(float(insert_point.x), float(insert_point.y)))
+			# Get built entity from builder.multileader
+			built_entity = builder.multileader
+			if built_entity is not None:
+				# Set the full 3D mtext.insert to preserve Z coordinate
+				typed_insert = (float(insert_point.x), float(insert_point.y), float(insert_point.z))
+				try:
+					built_entity.context.mtext.insert = typed_insert
+				except Exception:
+					pass
+				# Restore leader connection properties that control the visible dogleg/bend.
+				try:
+					context_leaders = getattr(built_entity.context, "leaders", None) or []
+					for leader_index, leader in enumerate(context_leaders):
+						leader_props = leader_properties[leader_index] if leader_index < len(leader_properties) else {}
+						for attr_name in ("attachment_direction", "dogleg_length", "has_horizontal_attachment", "has_dogleg_vector"):
+							if attr_name in leader_props and leader_props[attr_name] is not None:
+								try:
+									setattr(leader, attr_name, leader_props[attr_name])
+								except Exception:
+									pass
+						if leader_props.get("dogleg_vector") is not None:
+							try:
+								leader.dogleg_vector = tuple(leader_props["dogleg_vector"])
+							except Exception:
+								pass
+						if leader_props.get("last_leader_point") is not None:
+							try:
+								leader.last_leader_point = tuple(leader_props["last_leader_point"])
+							except Exception:
+								pass
+				except Exception:
+					pass
+				# Restore serialized leader line vertices (including Z) when available.
+				try:
+					context_leaders = getattr(built_entity.context, "leaders", None) or []
+					for leader_index, leader in enumerate(context_leaders):
+						leader_src = leader_lines[leader_index] if leader_index < len(leader_lines) else []
+						for line in getattr(leader, "lines", []) or []:
+							if leader_src:
+								line.vertices.clear()
+								line.vertices.extend([
+									(
+										float(vertex[0]),
+										float(vertex[1]),
+										float(vertex[2]) if len(vertex) > 2 else 0.0,
+									)
+									for vertex in leader_src
+								])
+				except Exception:
+					pass
+			return built_entity
 		except Exception:
 			return None
 

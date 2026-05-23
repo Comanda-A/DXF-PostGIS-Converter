@@ -512,7 +512,7 @@ class ImportDialog(QDialog, FORM_CLASS):
 
     def _on_create_schema_button_click(self):
         schema_name, ok = QInputDialog.getText(
-            self, self.tr("key"), self.tr("key"), QLineEdit.Normal, ""
+            self, "Создание схемы", "Название схемы", QLineEdit.Normal, ""
         )
 
         # Если пользователь нажал OK и ввел непустое имя
@@ -526,7 +526,7 @@ class ImportDialog(QDialog, FORM_CLASS):
                     self._logger.error(f"Failed verify schema exists. {result.error}")
                     QMessageBox.critical(
                         self,
-                        "",
+                        "Создание схемы",
                         "Не удалось проверить существование схемы"
                     )
                     return
@@ -534,7 +534,7 @@ class ImportDialog(QDialog, FORM_CLASS):
                 if result.value:
                     QMessageBox.warning(
                         self,
-                        "",
+                        "Создание схемы",
                         f"Схема с именем '{schema_name}' уже существует"
                     )
                     return
